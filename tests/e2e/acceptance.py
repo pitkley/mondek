@@ -94,9 +94,11 @@ def free_ports(count: int) -> list[int]:
 
 
 class Acceptance(TextProtocolMixin):
-    def __init__(self) -> None:
+    def __init__(self, *, dynamic_ports: bool = False) -> None:
         self.project = f"mondek-acceptance-{uuid.uuid4().hex[:10]}"
-        ui, fixture, postgres = free_ports(3)
+        self.dynamic_ports = dynamic_ports
+        # Let Docker reserve published ports atomically when suites overlap.
+        ui, fixture, postgres = (0, 0, 0) if dynamic_ports else free_ports(3)
         self.base = f"http://127.0.0.1:{ui}"
         self.fixture = f"http://127.0.0.1:{fixture}"
         self.env = os.environ | {
@@ -112,13 +114,39 @@ class Acceptance(TextProtocolMixin):
         self.log = (self.output / "compose.log").open("w")
 
     def compose(self, *args: str, capture: bool = False, timeout: float = 900) -> str:
-        return run_compose(
+        result = run_compose(
             ["docker", "compose", "-p", self.project, *args],
             env=self.env,
             log=self.log,
             capture=capture,
             timeout=timeout,
         )
+        if (
+            self.dynamic_ports
+            and args[0] in {"up", "start", "restart"}
+            and "controller" in args
+        ):
+            self.resolve_host_ports()
+        return result
+
+    def resolve_host_ports(self) -> None:
+        """Read Docker-assigned loopback endpoints after the first service startup."""
+        if not self.dynamic_ports:
+            return
+        endpoints = []
+        for service, port in (("controller", "4000"), ("target", "8080")):
+            address = self.compose("port", service, port, capture=True).strip()
+            host, _, published = address.rpartition(":")
+            if (
+                host != "127.0.0.1"
+                or not published.isdigit()
+                or not 0 < int(published) < 65536
+            ):
+                raise ValueError(
+                    f"Invalid published endpoint for {service}: {address!r}"
+                )
+            endpoints.append(f"http://{address}")
+        self.base, self.fixture = endpoints
 
     def request(
         self,
@@ -333,6 +361,7 @@ db.close()
 
     def clean_start(self) -> dict:
         self.compose("up", "--build", "--detach", "--wait", "--wait-timeout", "180")
+        self.resolve_host_ports()
         platform = self.platform_evidence()
         self.eventually("three real observed assignments", self.coverage)
         with urllib.request.urlopen(self.base, timeout=5) as response:
@@ -1194,4 +1223,4 @@ db.close()
 
 
 if __name__ == "__main__":
-    Acceptance().run()
+    Acceptance(dynamic_ports=True).run()

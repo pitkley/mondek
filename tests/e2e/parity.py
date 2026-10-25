@@ -17,8 +17,8 @@ from schema_evolution import SchemaEvolutionMixin
 
 
 class ParityAcceptance(SchemaEvolutionMixin, ParityTransportMixin, Acceptance):
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, *, dynamic_ports: bool = False) -> None:
+        super().__init__(dynamic_ports=dynamic_ports)
         self.env.update(
             MONDEK_CONSUMER="demo_checks.app:app",
             MONDEK_SPOOL_MAX_REPORTS="128",

@@ -16,7 +16,7 @@ from parity_transport import exact_buffered_evidence
 
 class GatewayAcceptance(ParityAcceptance):
     def __init__(self):
-        super().__init__()
+        super().__init__(dynamic_ports=True)
         self.overlay = self.output / "compose.gateway.json"
         self.certs = self.output / "certs"
         self.certs.mkdir()
@@ -161,6 +161,7 @@ p=Path('/gateway')
             stderr=self.log,
         )
         self.compose("up", "--build", "-d", "--wait", "gateway")
+        self.resolve_host_ports()
         self.configure()
         self.configure("observer-a", "observer-a-test")
         self.configure("observer-b", "observer-b-initial")

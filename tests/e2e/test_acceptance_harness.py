@@ -3,9 +3,105 @@
 """Deterministic acceptance-harness assertions; these do not replace real E2E."""
 
 import copy
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
 
-from acceptance import reconcile_spool_samples
+import acceptance
+from acceptance import Acceptance, reconcile_spool_samples
+from gateway import GatewayAcceptance
+
+
+class PublishedPortsTests(unittest.TestCase):
+    def test_dynamic_ports_are_reserved_by_docker_and_resolved_after_startup(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(acceptance, "ROOT", Path(directory)),
+            patch.object(acceptance, "free_ports") as reserve,
+        ):
+            proof = Acceptance(dynamic_ports=True)
+            self.addCleanup(proof.log.close)
+            self.assertEqual(
+                [
+                    proof.env[key]
+                    for key in ("MONDEK_PORT", "MONDEK_FIXTURE_PORT", "PGPORT")
+                ],
+                ["0", "0", "0"],
+            )
+            reserve.assert_not_called()
+            proof.compose = Mock(side_effect=["127.0.0.1:41001\n", "127.0.0.1:41002\n"])
+            proof.resolve_host_ports()
+            self.assertEqual(proof.base, "http://127.0.0.1:41001")
+            self.assertEqual(proof.fixture, "http://127.0.0.1:41002")
+            self.assertEqual(
+                [call.args for call in proof.compose.call_args_list],
+                [("port", "controller", "4000"), ("port", "target", "8080")],
+            )
+
+    def test_invalid_or_missing_mapping_cannot_be_used_as_an_endpoint(self):
+        for address in (
+            "",
+            "0.0.0.0:41001",
+            "127.0.0.1:0",
+            "127.0.0.1:65536",
+            "127.0.0.1:abc",
+        ):
+            with self.subTest(address=address):
+                proof = object.__new__(Acceptance)
+                proof.dynamic_ports = True
+                proof.base, proof.fixture = "original-controller", "original-fixture"
+                proof.compose = Mock(side_effect=["127.0.0.1:41001", address])
+                with self.assertRaises(ValueError):
+                    proof.resolve_host_ports()
+                self.assertEqual(proof.base, "original-controller")
+                self.assertEqual(proof.fixture, "original-fixture")
+
+    def test_controller_start_restart_and_recreation_refresh_published_endpoints(self):
+        for operation in (
+            ("start", "controller"),
+            ("restart", "controller"),
+            ("up", "--force-recreate", "controller"),
+        ):
+            with (
+                self.subTest(operation=operation),
+                tempfile.TemporaryDirectory() as directory,
+                patch.object(acceptance, "ROOT", Path(directory)),
+                patch.object(
+                    acceptance,
+                    "run_compose",
+                    side_effect=["", "127.0.0.1:42001", "127.0.0.1:42002"],
+                ) as compose,
+            ):
+                proof = Acceptance(dynamic_ports=True)
+                try:
+                    proof.base = "http://127.0.0.1:41001"
+                    proof.fixture = "http://127.0.0.1:41002"
+                    proof.compose(*operation)
+                    self.assertEqual(proof.base, "http://127.0.0.1:42001")
+                    self.assertEqual(proof.fixture, "http://127.0.0.1:42002")
+                    self.assertEqual(compose.call_count, 3)
+                finally:
+                    proof.log.close()
+
+    def test_gateway_uses_dynamic_ports_and_other_harnesses_keep_reserved_ports(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(acceptance, "ROOT", Path(directory)),
+            patch.object(
+                acceptance, "free_ports", return_value=[41001, 41002, 41003]
+            ) as reserve,
+        ):
+            ordinary = Acceptance()
+            gateway = GatewayAcceptance()
+            self.addCleanup(ordinary.log.close)
+            self.addCleanup(gateway.log.close)
+            reserve.assert_called_once_with(3)
+            self.assertEqual(ordinary.base, "http://127.0.0.1:41001")
+            self.assertEqual(gateway.env["MONDEK_PORT"], "0")
+            ordinary.compose = Mock()
+            ordinary.resolve_host_ports()
+            ordinary.compose.assert_not_called()
 
 
 def report(sequence: int) -> dict:
