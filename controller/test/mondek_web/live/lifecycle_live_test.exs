@@ -81,8 +81,21 @@ defmodule MondekWeb.LifecycleLiveTest do
           where: s.assignment_id == "10000000-0000-4000-8000-000000000001"
       )
 
-    assert has_element?(view, "a[href='/checks/#{stream.id}']", "View check")
     assert render(view) =~ "No recovery measurement is implied"
+
+    result_path =
+      "/checks/#{stream.id}?" <>
+        URI.encode_query(%{"return_to" => "/incidents/#{incident.id}"})
+
+    {:ok, result, _} =
+      view
+      |> element(".page-heading #incident-view-check", "View check")
+      |> render_click()
+      |> follow_redirect(build_conn(), result_path)
+
+    assert has_element?(result, "h1", "Linux filesystem")
+    assert has_element?(result, "#retired-check-notice")
+    assert has_element?(result, ".back[href='/incidents/#{incident.id}']", "Back to incident")
   end
 
   test "selected configuration edits one check without loading every parameter form" do
