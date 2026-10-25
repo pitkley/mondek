@@ -29,13 +29,13 @@ The image audit records the immutable image identity. Before promotion, retain a
 
 ## Workflow and promotion
 
-`.github/workflows/release.yml` runs on a version-tag push or manual dispatch. Tag pushes and the default manual dispatch only qualify artifacts; they do not publish registries or create a GitHub Release. Qualification does upload private GitHub Actions artifacts/evidence, so do not start even a qualification run while uploads are prohibited.
+`.github/workflows/release.yml` runs on a main push, version-tag push or manual dispatch. Main pushes run normal CI once through the reusable workflow, qualify both controller architectures and automatically publish the combined `edge` image to GHCR in pitkley/mondek. Main image exports use the same SDK and identity checks as release exports. Main publication does not publish the SDK or create a GitHub Release. Tag pushes and the default manual dispatch only qualify artifacts; they do not publish registries or create a GitHub Release. Qualification does upload private GitHub Actions artifacts/evidence, so do not start even a qualification run while uploads are prohibited.
 
 The workflow calls normal CI once. Its native job builds the SDK wheel/sdist before checking the exact installed wheel, including typing, generated-project tests, local execution, notices and package contents. The sdist rebuild check compares wheel contents. Release preparation bypasses the normal native dependency cache restore. Ordinary source CI remains nonpublishing and keeps its existing caches.
 
 After CI, native ubuntu-24.04 and ubuntu-24.04-arm jobs each build one controller image. Each tests the exact image with the original SDK wheel: empty UI/startup, real scheduled measurement, SMTP firing/recovery, controller recreation and retained identity/history/settings. It audits that image and exports it with docker save. Export metadata binds the platform, immutable image ID, archive checksum and SDK checksums. Publishing jobs load these exports and require the same identities; they never rebuild application artifacts. This targets Linux/amd64 and Linux/arm64. Local emulation is not a substitute for the first successful native hosted qualification.
 
-Publishing requires all of the following:
+Versioned release publication requires all of the following:
 
 - A manually dispatched release run with publish=true on the intended v-prefixed version tag.
 - The final repository identity pitkley/mondek and repository variable MONDEK_ENABLE_PUBLICATION=true. Keep that variable absent/false until the release is explicitly authorized.
@@ -44,7 +44,7 @@ Publishing requires all of the following:
 
 The sequence is original SDK pair to TestPyPI, loaded controller images to GHCR, the same SDK pair to PyPI, then GitHub Release assets/notes. Publishing permissions are limited to the jobs that need them. PyPI uses OIDC with attestations and no stored API token; GHCR uses GITHUB_TOKEN. Existing PyPI versions and existing GitHub Releases cause failure rather than silently skipping/replacing them. Registries cannot be updated atomically: if a later step fails, inspect what succeeded before deciding how to resume. Retry failed publishing jobs within the same run to retain the same artifacts; do not rebuild under an already published version.
 
-GHCR receives the versioned platform tags 0.0.1a2-amd64 and 0.0.1a2-arm64 and their combined 0.0.1a2 index. No latest tag is created. Each image carries source, license, version and final commit labels. The GitHub Release includes the original distributions, SDK checksums, per-platform image identities and scoped license inventories. Image tar files stay in short-lived private Actions artifacts, not GitHub Release assets. An alpha is marked prerelease.
+GHCR receives the versioned platform tags 0.0.1a2-amd64 and 0.0.1a2-arm64 and their combined 0.0.1a2 index. The same index is also published as `latest`, including alpha and other prerelease versions while Mondek is experimental; this policy may become stable-only in the future. `latest` tracks the most recently published version-tag pipeline, without semantic-version sorting. Main builds publish platform tags `sha-<commit>-amd64` and `sha-<commit>-arm64`, their combined `sha-<commit>` index and the mutable `edge` alias. Both mutable tags contain Linux/amd64 and Linux/arm64; use a version, commit or digest reference when pinning an installation. Each image carries source, license, version and final commit labels. The GitHub Release includes the original distributions, SDK checksums, per-platform image identities and scoped license inventories. Image tar files stay in short-lived private Actions artifacts, not GitHub Release assets. An alpha is marked prerelease.
 
 ## Account setup before enabling publication
 

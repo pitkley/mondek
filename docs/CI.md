@@ -1,6 +1,6 @@
 # CI: tests, checks and test images
 
-[The CI workflow](../.github/workflows/ci.yml) has two independent jobs. Pull requests and main pushes run both; other branch pushes do not create duplicate runs. Validation has read-only repository permissions and does not publish packages or images.
+[The CI workflow](../.github/workflows/ci.yml) has two independent jobs. Pull requests run both directly; main pushes run both once through the [release workflow](RELEASING.md), followed by qualification and GHCR `edge` publication. Other branch pushes do not create duplicate runs. Validation has read-only repository permissions and does not publish packages or images.
 
 | Job | What it checks | When it fails |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ The job summary records each stage's exact command, result and duration. Timings
 
 Only the unit/check job installs Nix and devenv, using pinned devenv 2.3.1 and the binary cache. Its `ci` profile uses the committed language pins without editor servers; dependency caches are reused between runs. The integration job uses Python, uv and Docker directly. Entering a local devenv shell starts no services, installs no project dependencies and generates no secrets.
 
-Default **smoke** coverage runs the core service scenario, TLS gateway/restart scenario and the empty/lifecycle browser suites. It is the normal PR check, with 35-minute unit/check and 25-minute integration limits. Manual dispatch defaults to smoke too. **Browser** mode selects named suites (blank means all) and has a 60-minute integration limit. **Full** mode explicitly selects all fifteen service and seventeen browser suites and has a 90-minute integration limit. Native/check coverage is unchanged across modes. Superseded runs on the same ref cancel automatically; there is no scheduled full run. See [the coverage map](ACCEPTANCE-COVERAGE.md) for exact suite boundaries.
+Default **smoke** coverage runs the core service scenario, TLS gateway/restart scenario and the empty/lifecycle browser suites. It is the normal PR check, with 35-minute unit/check and 25-minute integration limits. Manual dispatch defaults to smoke too. **Browser** mode selects named suites (blank means all) and has a 60-minute integration limit. **Full** mode explicitly selects all fifteen service and seventeen browser suites and has a 90-minute integration limit. Native/check coverage is unchanged across modes. Superseded direct CI runs on the same ref cancel automatically; main publication runs serialize through the release workflow without cancelling an active promotion. There is no scheduled full run. See [the coverage map](ACCEPTANCE-COVERAGE.md) for exact suite boundaries.
 
 ## Why Docker Bake and Compose both exist
 
@@ -41,4 +41,4 @@ If branch protection is configured, require **Unit tests and checks** and **Inte
 
 ## Release qualification
 
-The separate [release workflow](RELEASING.md) calls this CI workflow with prepare_release=true. Only that path prepares a retained SDK pair before the installed-package gate and bypasses the native dependency-cache restore. Normal push/PR CI remains nonpublishing. The release workflow subsequently tests both native image architectures against the original SDK and exports those exact images for gated promotion; it never builds application code inside a registry publishing job. Qualification itself stores private GitHub Actions artifacts, so a local-only/no-upload request also excludes launching that hosted workflow.
+The separate [release workflow](RELEASING.md) calls this CI workflow with prepare_release=true for main pushes as well as release qualification. Only that path prepares a retained SDK pair before the installed-package gate and bypasses the native dependency-cache restore. PR CI remains nonpublishing. The release workflow subsequently tests both native image architectures against the original SDK and exports those exact images for promotion; main pushes automatically publish `edge`, while versioned releases retain their publication gates and also update `latest`. It never builds application code inside a registry publishing job. Qualification itself stores private GitHub Actions artifacts, so a local-only/no-upload request also excludes launching that hosted workflow.
