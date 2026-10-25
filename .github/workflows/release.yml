@@ -3,6 +3,7 @@
 name: Release
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
     inputs:
@@ -128,7 +129,12 @@ jobs:
           attestations: true
   ghcr:
     name: Publish the qualified controller images
-    needs: testpypi
+    needs: [ci, images, testpypi]
+    # Main publishes edge after qualification; version publication retains its approval gate.
+    if: >-
+      !cancelled() && needs.ci.result == 'success' && needs.images.result == 'success' &&
+      github.repository == 'pitkley/mondek' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') || needs.testpypi.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -149,25 +155,38 @@ jobs:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Verify and load exactly the qualified image exports
         run: |
-          python3 scripts/release.py load-image --directory images/controller-amd64 --architecture amd64 --sdk-directory sdk --tag "$GITHUB_REF_NAME"
-          python3 scripts/release.py load-image --directory images/controller-arm64 --architecture arm64 --sdk-directory sdk --tag "$GITHUB_REF_NAME"
+          flags=()
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            flags+=(--tag "$GITHUB_REF_NAME")
+          fi
+          for arch in amd64 arm64; do
+            python3 scripts/release.py load-image --directory "images/controller-$arch" --architecture "$arch" --sdk-directory sdk "${flags[@]}"
+          done
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Push existing images and assemble the versioned platform index
+      - name: Push existing images and assemble the platform index and mutable tag
         run: |
-          image="ghcr.io/pitkley/mondek/controller:${GITHUB_REF_NAME#v}"
+          repository="ghcr.io/pitkley/mondek/controller"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            image="$repository:${GITHUB_REF_NAME#v}"
+            alias="$repository:latest"
+          else
+            image="$repository:sha-$GITHUB_SHA"
+            alias="$repository:edge"
+          fi
           for arch in amd64 arm64; do
             docker tag "mondek-release:$arch" "$image-$arch"
             docker push "$image-$arch"
           done
-          docker buildx imagetools create --tag "$image" "$image-amd64" "$image-arm64"
+          docker buildx imagetools create --tag "$image" --tag "$alias" "$image-amd64" "$image-arm64"
           docker buildx imagetools inspect "$image"
   pypi:
     name: Publish the same SDK pair to PyPI
     needs: ghcr
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == true && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: pypi
