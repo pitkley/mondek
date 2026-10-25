@@ -1,6 +1,6 @@
 # CI: tests, checks and test images
 
-[The CI workflow](../.github/workflows/ci.yml) has two independent jobs. Pull requests run both directly; main pushes run both once through the [release workflow](RELEASING.md), followed by qualification and GHCR `edge` publication. Other branch pushes do not create duplicate runs. Validation has read-only repository permissions and does not publish packages or images.
+[The CI workflow](../.github/workflows/ci.yml) has two independent jobs. Pull requests run both directly; main pushes run both once through the [release workflow](RELEASING.md), alongside image qualification after shared SDK preparation. GHCR `edge` publication waits for CI and image qualification to succeed. Other branch pushes do not create duplicate runs. Validation has read-only repository permissions and does not publish packages or images.
 
 | Job | What it checks | When it fails |
 | --- | --- | --- |
@@ -47,4 +47,4 @@ If branch protection is configured, require **Unit tests and checks** and **Inte
 
 ## Release qualification
 
-The separate [release workflow](RELEASING.md) calls this CI workflow with prepare_release=true for main pushes as well as release qualification. Only that path prepares a retained SDK pair before the installed-package gate and bypasses the native dependency-cache restore. PR CI remains nonpublishing. The release workflow subsequently tests both native image architectures against the original SDK and exports those exact images for promotion; main pushes automatically publish `edge`, while versioned releases retain their publication gates and also update `latest`. It never builds application code inside a registry publishing job. Qualification itself stores private GitHub Actions artifacts, so a local-only/no-upload request also excludes launching that hosted workflow.
+The separate [release workflow](RELEASING.md) prepares and retains the SDK pair in an independent job, then calls this CI workflow with prepared_release_sdk=true for main pushes as well as release qualification. That path downloads and verifies the original pair before the installed-package gate and bypasses the native dependency-cache restore. PR CI remains nonpublishing. In parallel with CI, the release workflow builds and tests both native image architectures against the same SDK and exports those exact images for promotion. Publication waits for CI and both architecture jobs to succeed; main pushes then automatically publish `edge`, while versioned releases retain their publication gates and also update `latest`. It never builds application code inside a registry publishing job. Qualification itself stores private GitHub Actions artifacts, so a local-only/no-upload request also excludes launching that hosted workflow.
