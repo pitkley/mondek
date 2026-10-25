@@ -925,6 +925,16 @@ defmodule MondekWeb.IncidentLive do
             @incident["status"]
           } />
           <.link
+            id="incident-view-check"
+            navigate={
+              detail_path(
+                incident_check_link(@inspection, @assignment),
+                condition_path(@incident["id"], @filters, @return_to)
+              )
+            }
+            class="button"
+          >View check <.icon name="arrow" size={13} /></.link>
+          <.link
             :if={@incident["status"] == "open"}
             href="#incident-acknowledgement"
             class="button"
@@ -1028,10 +1038,7 @@ defmodule MondekWeb.IncidentLive do
         <div class="stack incident-history" id="incident-history">
           <section class="panel">
             <div class="panel-heading">
-              <h2>Incident history</h2><.link
-                navigate={detail_path(incident_check_link(@inspection, @assignment), @return_to)}
-                class="text-link"
-              >View check <.icon name="arrow" size={13} /></.link>
+              <h2>Incident history</h2>
             </div><div class="panel-body">
               <div class="fact-grid">
                 <div class="fact">
