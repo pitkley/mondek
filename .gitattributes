@@ -1,0 +1,4 @@
+# Preserve upstream notice text, including its original line-end spaces.
+THIRD_PARTY_LICENSES.md whitespace=-blank-at-eol
+# Byte-for-byte upstream source/license evidence must retain its whitespace.
+licensing/runtime/** -whitespace

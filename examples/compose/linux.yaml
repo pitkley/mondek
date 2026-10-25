@@ -1,0 +1,31 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# Demonstration only: native refers to this container's Linux namespace.
+services:
+  runner:
+    build:
+      context: .
+      dockerfile: examples/consumers/Dockerfile
+    environment:
+      MONDEK_CONSUMER: mondek_examples.linux_pack:app
+      MONDEK_LINUX_CONTEXT: native
+  linux-fixture-runner:
+    build:
+      context: .
+      dockerfile: examples/consumers/Dockerfile
+    init: true
+    environment:
+      MONDEK_CONTROLLER_URL: http://target:8080
+      MONDEK_CONSUMER: mondek_examples.linux_pack:app
+      MONDEK_LINUX_CONTEXT: fixture
+      MONDEK_STATE_DIR: /state
+    depends_on:
+      controller:
+        condition: service_healthy
+    volumes:
+      - linux_runner_data:/state
+      - linux_fixture:/linux-fixture:ro
+    stop_grace_period: 10s
+volumes:
+  linux_runner_data:
+  linux_fixture:

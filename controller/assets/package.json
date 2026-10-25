@@ -1,0 +1,14 @@
+{
+  "name": "mondek-assets",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "node icons.mjs && mkdir -p ../priv/static/assets && esbuild css/app.css --bundle --minify --outfile=../priv/static/assets/app.css && NODE_PATH=../deps esbuild js/app.js --bundle --minify --target=es2022 --outfile=../priv/static/assets/app.js"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.2"
+  },
+  "dependencies": {
+    "lucide-static": "1.59.0"
+  }
+}

@@ -1,0 +1,50 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# Apply after compose.yaml and tests/browser/compose/base.yaml in an isolated project.
+services:
+  browser:
+    depends_on: !override
+      controller:
+        condition: service_healthy
+      inventory-a:
+        condition: service_started
+      inventory-b:
+        condition: service_started
+  inventory-a:
+    build: &inventory-build
+      context: .
+      dockerfile: examples/consumers/Dockerfile
+    environment: &inventory-environment
+      MONDEK_CONSUMER: mondek_examples.inventory_demo:app
+      MONDEK_INVENTORY_OBSERVER: a
+      MONDEK_INVENTORY_FIXTURE_URL: http://target:8080
+      MONDEK_CONTROLLER_URL: http://target:8080
+      MONDEK_SPOOL_MAX_REPORTS: "128"
+      MONDEK_SPOOL_MAX_BYTES: "1048576"
+    volumes:
+      - inventory_a_data:/state
+    depends_on: &inventory-dependencies
+      controller:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 10s
+    logging: &inventory-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  inventory-b:
+    build: *inventory-build
+    environment:
+      <<: *inventory-environment
+      MONDEK_INVENTORY_OBSERVER: b
+    volumes:
+      - inventory_b_data:/state
+    depends_on: *inventory-dependencies
+    init: true
+    stop_grace_period: 10s
+    logging: *inventory-logging
+
+volumes:
+  inventory_a_data:
+  inventory_b_data:

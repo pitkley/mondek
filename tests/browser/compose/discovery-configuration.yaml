@@ -1,0 +1,61 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+x-discovery-runner: &discovery-runner
+  build:
+    context: .
+    dockerfile: runner/Dockerfile
+  init: true
+  depends_on:
+    controller:
+      condition: service_healthy
+  volumes:
+    - ./tests/fixtures/discovery_project.py:/app/test-consumer/discovery_project.py:ro
+    - discovery_evidence:/linux-evidence:ro
+  stop_grace_period: 10s
+x-discovery-env: &discovery-env
+  MONDEK_CONTROLLER_URL: http://target:8080
+  MONDEK_CONSUMER: discovery_project:app
+  MONDEK_STATE_DIR: /state
+  MONDEK_DISCOVERY_INTERVAL: "${MONDEK_DISCOVERY_INTERVAL:-1}"
+  PYTHONPATH: /app/runner:/app/examples:/app/test-consumer
+services:
+  controller:
+    ports: !override
+      - "127.0.0.1:${MONDEK_PORT}:4000"
+    environment:
+  target:
+    ports: !override
+      - "127.0.0.1:${MONDEK_FIXTURE_PORT}:8080"
+  postgres:
+    ports: !override
+      - "127.0.0.1:${PGPORT}:5432"
+  runner:
+    <<: *discovery-runner
+    environment:
+      <<: *discovery-env
+      MONDEK_DISCOVERY_OBSERVER: a1
+  second-observer:
+    <<: *discovery-runner
+    environment:
+      <<: *discovery-env
+      MONDEK_DISCOVERY_OBSERVER: a2
+    volumes:
+      - ./tests/fixtures/discovery_project.py:/app/test-consumer/discovery_project.py:ro
+      - discovery_evidence:/linux-evidence:ro
+      - discovery_secondary:/state
+  other-host:
+    <<: *discovery-runner
+    environment:
+      <<: *discovery-env
+      MONDEK_DISCOVERY_OBSERVER: b
+    volumes:
+      - ./tests/fixtures/discovery_project.py:/app/test-consumer/discovery_project.py:ro
+      - discovery_evidence:/linux-evidence:ro
+      - discovery_other:/state
+  browser:
+    environment:
+      MONDEK_BROWSER_SUITE: discovery-configuration
+volumes:
+  discovery_evidence:
+  discovery_secondary:
+  discovery_other:

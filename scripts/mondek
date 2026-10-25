@@ -1,0 +1,406 @@
+#!/usr/bin/env bash
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+set -euo pipefail
+
+if [[ -z "${DEVENV_ROOT:-}" ]]; then
+  printf '%s\n' 'Run this command through devenv: devenv shell -- mondek <command>' >&2
+  exit 2
+fi
+
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+
+# Docker Desktop's host credential helper is part of the engine installation.
+# Keep devenv's Docker CLI first; expose only the helper's host directory.
+if [[ -d /Applications/Docker.app/Contents/Resources/bin ]]; then
+  export PATH="$PATH:/Applications/Docker.app/Contents/Resources/bin"
+fi
+
+usage() {
+  local topic="${1:-start}"
+  case "$topic" in
+    start|development|examples|verification|all) ;;
+    *) printf 'Unknown help topic: %s\n' "$topic" >&2; return 2 ;;
+  esac
+  printf '%s\n' 'Usage: devenv shell -- mondek <command>' ''
+  if [[ "$topic" == "start" || "$topic" == all ]]; then
+    cat <<'USAGE'
+Start and inspect your local installation
+  doctor           Show tool versions and check Docker engine access
+  start            Start an empty persistent local Mondek server and webhook receiver
+  stop             Stop that local installation; retain its data volumes
+  local-status     Inspect the empty/local installation's services
+  local-logs       Show that local installation's service logs
+
+USAGE
+  fi
+  if [[ "$topic" == "development" || "$topic" == all ]]; then
+    cat <<'USAGE'
+Develop and maintain Mondek
+  setup            Install locked controller and runner development dependencies
+  assets           Build browser assets using devenv's esbuild
+  check            Check formatting and static configuration
+  licenses         Refresh pinned dependency evidence and generated credits
+  licenses-check   Enforce dependency license policy and reject stale credits
+  test             Run native runner and PostgreSQL controller tests
+  services-up      Start PostgreSQL and wait for readiness
+  services-status  Show this project's Compose services
+  services-down    Stop this project's services; retain data volumes
+
+USAGE
+  fi
+  if [[ "$topic" == "examples" || "$topic" == all ]]; then
+    cat <<'USAGE'
+Optional demos and operator studies
+  demo             Build and start the complete persisted local demo
+  parity           Start the separate node and Prometheus monitoring demo
+  parity-down      Stop the parity demo; retain its data volumes
+  placement        Start one consumer on two nodes and a shared monitoring runner
+  placement-down   Stop the placement demo; retain its data volumes
+  rules            Start a movable-volume consumer on two node runners
+  rules-down       Stop the durable rules demo; retain its data volumes
+  grouped          Start independent Linux and Elasticsearch checks sharing an incident
+  grouped-down     Stop the grouped incident demo; retain its data volumes
+  coverage         Start explicit node/service declarations with visible placement gaps
+  coverage-down    Stop the declared coverage demo; retain its data volumes
+  publishers       Start independent observers for reviewed retirement and replacement
+  publishers-down  Stop the publisher lifecycle demo; retain its data volumes
+  bulk             Start 500 checks with compatible delegated file thresholds
+  bulk-down        Stop the bulk configuration demo; retain its data volumes
+  study            Start an isolated empty installation for operator testing
+  study-monitor    Start the sample consumer in the isolated study installation
+  study-reset      Delete only the operator study data, then start it empty
+  logs             Show the sample demo's latest service logs
+
+USAGE
+  fi
+  if [[ "$topic" == "verification" || "$topic" == all ]]; then
+    cat <<'USAGE'
+Service/browser verification and profiling
+  image-licenses   Build and audit controller/sample images; retain digest-bound reports
+  placement-acceptance Verify runner capabilities and cross-environment checks
+  rules-acceptance Verify durable rules, relocation, conflicts and reconnect
+  configuration-acceptance Verify Git/UI configuration history and real runner adoption
+  policy-acceptance Verify code-managed policy, exceptions, replay and runner adoption
+  discovery-configuration-acceptance Verify reviewed discovery changes across hosts/observers
+  linux-acceptance Verify optional Linux pack, failures, reconnect and browser policy
+  grouped-acceptance Verify shared incidents, controls, recovery and durable delivery
+  coverage-acceptance Verify declared scopes, independent evidence and catalogue recovery
+  publisher-acceptance Verify reviewed retirement, replacement, fencing and restoration
+  acknowledgement-acceptance Verify acknowledgement lifetime, restart and delivery
+  maintenance-acceptance Verify one-off/weekly windows, delivery, retries and moving targets
+  gateway-acceptance Verify two runners across TLS gateway denial and credential rotation
+  parity-acceptance Exercise runner-owned node/datasource monitoring and scale
+  consumer-acceptance Exercise installed node and Prometheus starter consumers
+  starter-acceptance Exercise a freshly generated monitoring project end-to-end
+  capacity         Measure 500 results in 50 scheduled checks in isolated services
+  capacity-checks  Measure 500 separately scheduled checks in isolated services
+  acceptance       Run native tests and isolated real Docker/HTTP acceptance
+  browser          Run real browser journeys and accessibility checks in Docker
+  soak             Run bounded check churn and reconnect verification in Docker
+
+USAGE
+  fi
+  printf '%s\n' 'More commands: mondek help TOPIC (development, examples, verification, all)' \
+    'Start an empty installation: mondek start (http://localhost:4001/guide)' \
+    'Stop preserves data; each optional demo has its own stop command.'
+}
+
+setup() {
+  (cd controller && mix local.hex --force && mix local.rebar --force && mix deps.get --check-locked)
+  uv sync --project runner --locked
+}
+
+assets() {
+  (cd controller/assets && npm ci --ignore-scripts && node icons.mjs)
+  mkdir -p controller/priv/static/assets
+  "$ESBUILD_PATH" controller/assets/css/app.css --bundle --outfile=controller/priv/static/assets/app.css
+  NODE_PATH=controller/deps "$ESBUILD_PATH" controller/assets/js/app.js --bundle --target=es2022 --outfile=controller/priv/static/assets/app.js
+}
+
+
+if [[ $# -gt 1 && "$1" != "configuration-acceptance" && "$1" != "help" ]]; then
+  usage >&2
+  exit 2
+fi
+
+case "${1:-help}" in
+  help|-h|--help)
+    if [[ $# -gt 2 ]]; then usage >&2; exit 2; fi
+    usage "${2:-start}"
+    ;;
+  doctor)
+    elixir --version
+    python3 --version
+    uv --version
+    node --version
+    docker --version
+    docker compose version
+    docker info --format 'Docker engine: {{.ServerVersion}}'
+    ;;
+  check)
+    python3 scripts/dependency_pins.py --toolchain
+    bash scripts/mondek licenses-check
+    python3 -m unittest discover -s tests/licensing -v
+    bash -n scripts/mondek
+    shellcheck scripts/mondek
+    actionlint .github/workflows/*.yml
+    zizmor --offline --strict-collection --persona auditor .github/workflows
+    nixfmt --check devenv.nix
+    docker compose config --quiet
+    docker compose -f compose.yaml -f examples/compose/parity.yaml config --quiet
+    docker compose -f compose.yaml -f examples/compose/placement.yaml config --quiet
+    docker compose -f compose.yaml -f examples/compose/rules.yaml config --quiet
+    MONDEK_BROWSER_ARTIFACTS=/tmp/mondek-linux-browser docker compose -f compose.yaml -f examples/compose/linux.yaml -f tests/browser/compose/linux.yaml --profile browser config --quiet
+    docker compose -f compose.yaml -f examples/compose/grouped.yaml config --quiet
+    docker compose -f compose.yaml -f examples/compose/coverage.yaml config --quiet
+    docker compose -f compose.yaml -f examples/compose/coverage.yaml -f examples/compose/publishers.yaml config --quiet
+    docker compose -f compose.yaml -f tests/browser/compose/base.yaml config --quiet
+    docker compose -f compose.yaml -f examples/compose/parity.yaml -f tests/browser/compose/base.yaml -f tests/browser/compose/scale.yaml --profile capacity --profile bulk config --quiet
+    docker compose -f compose.yaml -f tests/browser/compose/base.yaml -f tests/browser/compose/monitoring-loss.yaml config --quiet
+    docker compose -f compose.yaml -f tests/browser/compose/base.yaml -f tests/browser/compose/fleet.yaml config --quiet
+    docker compose -f compose.yaml -f tests/browser/compose/base.yaml -f tests/browser/compose/diagnostics.yaml config --quiet
+    docker compose -f compose.yaml -f tests/browser/compose/base.yaml -f tests/browser/compose/discovery.yaml --profile browser config --quiet
+    docker compose -f compose.yaml -f tests/browser/compose/base.yaml -f tests/browser/compose/inventory.yaml config --quiet
+    docker compose -f compose.yaml -f examples/compose/grouped.yaml -f tests/browser/compose/base.yaml -f tests/browser/compose/grouped.yaml --profile browser config --quiet
+    docker compose -f compose.yaml -f examples/compose/coverage.yaml -f tests/browser/compose/base.yaml -f tests/browser/compose/coverage.yaml --profile browser config --quiet
+    for browser_script in tests/browser/*.mjs tests/browser/specs/*.mjs tests/browser/support/*.mjs; do
+      node --check "$browser_script"
+    done
+    (cd controller && mix format --check-formatted)
+    uv run --project runner --locked ruff check runner examples tests
+    uv run --project runner --locked ruff check scripts/*licenses.py
+    uv run --project runner --locked ruff check scripts/ci.py scripts/dependency_pins.py scripts/release.py
+    uv run --project runner --locked ruff format --check runner examples tests
+    uv run --project runner --locked ruff format --check scripts/*licenses.py
+    uv run --project runner --locked ruff format --check scripts/ci.py scripts/dependency_pins.py scripts/release.py
+    python3 tests/typing/run.py
+    ;;
+  licenses)
+    python3 scripts/licenses.py
+    python3 scripts/runtime_licenses.py
+    ;;
+  licenses-check)
+    python3 scripts/runtime_licenses.py --check
+    uv lock --project licensing --check
+    uv lock --project runner --check
+    uv lock --project examples/consumers --check
+    uv lock --project examples/policy --check
+    python3 scripts/licenses.py --check
+    ;;
+  image-licenses)
+    python3 scripts/artifact_licenses.py
+    ;;
+  setup)
+    setup
+    ;;
+  assets)
+    assets
+    ;;
+  test)
+    setup
+    assets
+    PGPORT=55433 docker compose -p mondek-tests up --detach --wait --wait-timeout 90 postgres
+    PYTHONPATH=runner:examples uv run --project runner --locked python -m unittest discover -s runner/tests -v
+    uv run --project runner --locked python -m unittest discover -s tests/e2e -v
+    uv run --project examples/consumers --locked python -m unittest discover -s examples/consumers/tests -v
+    (cd controller && PGPORT=55433 MIX_ENV=test mix test)
+    ;;
+  demo)
+    docker compose up --build --detach --wait --wait-timeout 180
+    printf '%s\n' "Mondek is running at http://localhost:${MONDEK_PORT:-4000}" \
+      "Local target and webhook records: http://localhost:${MONDEK_FIXTURE_PORT:-58080}/records" \
+      'Stop with: devenv shell -- mondek services-down (volumes retained)'
+    ;;
+  start|stop)
+    export MONDEK_PORT="${MONDEK_PORT:-4001}" MONDEK_FIXTURE_PORT="${MONDEK_FIXTURE_PORT:-58081}" PGPORT="${MONDEK_LOCAL_PGPORT:-55434}"
+    if [[ "$1" == "stop" ]]; then
+      docker compose -p mondek-local down
+    else
+      docker compose -p mondek-local up --build --detach --wait --wait-timeout 180 controller
+      printf '%s\n' "Your local Mondek installation: http://localhost:${MONDEK_PORT}/guide" \
+        "Local notification records: http://localhost:${MONDEK_FIXTURE_PORT}/records" \
+        'This starts no sample checks or runner. Connect your own monitoring project.' \
+        'Stop with: devenv shell -- mondek stop (volumes retained)'
+    fi
+    ;;
+  local-status|local-logs)
+    if [[ "$1" == "local-status" ]]; then
+      docker compose -p mondek-local ps
+    else
+      docker compose -p mondek-local logs --tail 100
+    fi
+    ;;
+  acceptance)
+    bash scripts/mondek test
+    python3 tests/e2e/acceptance.py
+    ;;
+  parity|parity-down)
+    export MONDEK_PORT="${MONDEK_PORT:-4011}" MONDEK_FIXTURE_PORT="${MONDEK_FIXTURE_PORT:-58091}" PGPORT=55441
+    if [[ "$1" == "parity-down" ]]; then
+      docker compose -p mondek-parity -f compose.yaml -f examples/compose/parity.yaml down
+    else
+      docker compose -p mondek-parity -f compose.yaml -f examples/compose/parity.yaml up --build --detach --wait --wait-timeout 180
+      printf '%s\n' "Mondek node and datasource demo: http://localhost:${MONDEK_PORT}" \
+        'Stop with: devenv shell -- mondek parity-down (volumes retained)'
+    fi
+    ;;
+  parity-acceptance)
+    python3 tests/e2e/parity.py
+    ;;
+  placement|placement-down)
+    export MONDEK_PORT="${MONDEK_PORT:-4013}" MONDEK_FIXTURE_PORT="${MONDEK_FIXTURE_PORT:-58093}" PGPORT=55443
+    if [[ "$1" == "placement-down" ]]; then
+      docker compose -p mondek-placement -f compose.yaml -f examples/compose/placement.yaml down
+    else
+      docker compose -p mondek-placement -f compose.yaml -f examples/compose/placement.yaml up --build --detach --wait --wait-timeout 180 placement-node-a placement-node-b placement-shared-services
+      printf '%s\n' "Mondek runner placement demo: http://localhost:${MONDEK_PORT}/checks" \
+        'Stop with: devenv shell -- mondek placement-down (volumes retained)'
+    fi
+    ;;
+  placement-acceptance)
+    python3 tests/e2e/placement.py
+    ;;
+  rules|rules-down)
+    export MONDEK_PORT="${MONDEK_PORT:-4014}" MONDEK_FIXTURE_PORT="${MONDEK_FIXTURE_PORT:-58094}" PGPORT=55444
+    if [[ "$1" == "rules-down" ]]; then
+      docker compose -p mondek-rules -f compose.yaml -f examples/compose/rules.yaml down
+    else
+      docker compose -p mondek-rules -f compose.yaml -f examples/compose/rules.yaml up --build --detach --wait --wait-timeout 180 rules-a-runner rules-b-runner
+      printf '%s\n' "Mondek durable configuration demo: http://localhost:${MONDEK_PORT}/configuration" \
+        'Stop with: devenv shell -- mondek rules-down (volumes retained)'
+    fi
+    ;;
+  rules-acceptance)
+    python3 tests/e2e/durable_rules.py
+    ;;
+  configuration-acceptance)
+    shift
+    python3 tests/e2e/configuration_repository.py "$@"
+    ;;
+  policy-acceptance)
+    python3 tests/e2e/policy.py
+    ;;
+  linux-acceptance)
+    python3 tests/e2e/linux_pack.py
+    ;;
+  discovery-configuration-acceptance)
+    python3 tests/e2e/discovery_configuration.py "${@:2}"
+    ;;
+  grouped|grouped-down)
+    export MONDEK_PORT="${MONDEK_PORT:-4015}" MONDEK_FIXTURE_PORT="${MONDEK_FIXTURE_PORT:-58095}" PGPORT=55445
+    if [[ "$1" == "grouped-down" ]]; then
+      docker compose -p mondek-grouped -f compose.yaml -f examples/compose/grouped.yaml down
+    else
+      docker compose -p mondek-grouped -f compose.yaml -f examples/compose/grouped.yaml up --build --detach --wait --wait-timeout 180 grouped-volume grouped-elasticsearch
+      printf '%s\n' "Mondek shared incident demo: http://localhost:${MONDEK_PORT}/incidents" \
+        'Stop with: devenv shell -- mondek grouped-down (volumes retained)'
+    fi
+    ;;
+  grouped-acceptance)
+    python3 tests/e2e/grouped.py
+    ;;
+  coverage|coverage-down)
+    export MONDEK_PORT="${MONDEK_PORT:-4016}" MONDEK_FIXTURE_PORT="${MONDEK_FIXTURE_PORT:-58096}" PGPORT=55446
+    if [[ "$1" == "coverage-down" ]]; then
+      docker compose -p mondek-coverage -f compose.yaml -f examples/compose/coverage.yaml --profile restore-node-b down
+    else
+      docker compose -p mondek-coverage -f compose.yaml -f examples/compose/coverage.yaml up --build --detach --wait --wait-timeout 180 coverage-node-a coverage-service-a coverage-service-b
+      printf '%s\n' "Mondek declared coverage demo: http://localhost:${MONDEK_PORT}/coverage" \
+        'A fresh demo starts without Node B or an eligible Production service observer.' \
+        'Stop with: devenv shell -- mondek coverage-down (volumes retained)'
+    fi
+    ;;
+  gateway-acceptance)
+    python3 tests/e2e/gateway.py
+    ;;
+  coverage-acceptance)
+    python3 tests/e2e/coverage.py
+    ;;
+  publisher-acceptance)
+    python3 tests/e2e/publishers.py
+    ;;
+  publishers|publishers-down)
+    export MONDEK_PORT="${MONDEK_PORT:-4017}" MONDEK_FIXTURE_PORT="${MONDEK_FIXTURE_PORT:-58097}" PGPORT=55447
+    if [[ "$1" == "publishers-down" ]]; then
+      docker compose -p mondek-publishers -f compose.yaml -f examples/compose/coverage.yaml -f examples/compose/publishers.yaml down
+    else
+      docker compose -p mondek-publishers -f compose.yaml -f examples/compose/coverage.yaml -f examples/compose/publishers.yaml up --build --detach --wait --wait-timeout 180 coverage-node-a coverage-service-a coverage-service-b
+      printf '%s\n' "Mondek publisher lifecycle demo: http://localhost:${MONDEK_PORT}/coverage/publishers" \
+        'Inspect an independent source publication to review retirement, replacement or restoration.' \
+        'Stop with: devenv shell -- mondek publishers-down (volumes retained)'
+    fi
+    ;;
+  acknowledgement-acceptance)
+    python3 tests/e2e/acknowledgements.py
+    ;;
+  maintenance-acceptance)
+    python3 tests/e2e/maintenance.py
+    ;;
+  consumer-acceptance)
+    python3 tests/e2e/consumers.py
+    ;;
+  starter-acceptance)
+    python3 tests/e2e/starter.py
+    ;;
+  bulk|bulk-down)
+    export MONDEK_PORT="${MONDEK_PORT:-4012}" MONDEK_FIXTURE_PORT="${MONDEK_FIXTURE_PORT:-58092}" PGPORT=55442
+    if [[ "$1" == "bulk-down" ]]; then
+      docker compose -p mondek-bulk -f compose.yaml -f examples/compose/parity.yaml --profile bulk down
+    else
+      docker compose -p mondek-bulk -f compose.yaml -f examples/compose/parity.yaml --profile bulk up --build --detach --wait --wait-timeout 180 bulk-runner
+      printf '%s\n' "Mondek bulk configuration demo: http://localhost:${MONDEK_PORT}/configuration" \
+        'The runner provides 500 independently scheduled checks; initial collection takes time.' \
+        'Stop with: devenv shell -- mondek bulk-down (volumes retained)'
+    fi
+    ;;
+  capacity)
+    python3 tests/e2e/capacity.py --group-size 10
+    ;;
+  capacity-checks)
+    python3 tests/e2e/capacity.py --group-size 1
+    ;;
+  browser)
+    python3 tests/browser/run.py
+    ;;
+  acceptance-amd64)
+    DOCKER_DEFAULT_PLATFORM=linux/amd64 python3 tests/e2e/acceptance.py
+    ;;
+  soak)
+    python3 tests/e2e/soak.py
+    ;;
+  study|study-reset|study-monitor)
+    export MONDEK_PORT=4010 MONDEK_FIXTURE_PORT=58090 PGPORT=55440
+    if [[ "$1" == "study-monitor" ]]; then
+      export MONDEK_CONSUMER="demo_checks.app:app"
+    fi
+    export MONDEK_NOTIFICATION_MAX_ATTEMPTS="${MONDEK_NOTIFICATION_MAX_ATTEMPTS:-3}"
+    if [[ "$1" == "study-reset" ]]; then
+      docker compose -p mondek-study down --volumes --remove-orphans
+    fi
+    if [[ "$1" == "study-monitor" ]]; then
+      docker compose -p mondek-study up --build --detach --wait --wait-timeout 180
+    else
+      docker compose -p mondek-study up --build --detach --wait --wait-timeout 180 controller
+    fi
+    printf '%s\n' 'Operator study: http://localhost:4010' \
+      'Local study target/receiver: http://localhost:58090' \
+      'Study data is separate from the normal demo. Reset with: devenv shell -- mondek study-reset'
+    ;;
+  logs)
+    docker compose logs --tail 100
+    ;;
+  services-up)
+    docker compose up --detach --wait --wait-timeout 90 postgres
+    ;;
+  services-status)
+    docker compose ps
+    ;;
+  services-down)
+    docker compose down
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

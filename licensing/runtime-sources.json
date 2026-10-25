@@ -1,0 +1,155 @@
+{
+  "elixir": {
+    "dockerfile": "controller/Dockerfile",
+    "extra_files": [
+      "lib/elixir/src/elixir.erl"
+    ],
+    "image_marker": "elixir:1.20.3-",
+    "notices": [
+      {
+        "path": "LICENSE",
+        "sha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9"
+      },
+      {
+        "path": "lib/elixir/src/elixir.erl",
+        "sha256": "0cc60d55ab31fd63d42d91975b038a1c1da63c72d9fac4dfd5f28ff1dfb2315a"
+      }
+    ],
+    "review": "Unmodified Apache-2.0 runtime; retain Elixir Team and Plataformatec copyright headers in addition to the full license.",
+    "sha256": "ff22a894b130631443db1a193b4e8cb4762f697128566e43da848fd16c3777bd",
+    "url": "https://github.com/elixir-lang/elixir/archive/refs/tags/v1.20.3.tar.gz",
+    "version": "1.20.3"
+  },
+  "otp": {
+    "dockerfile": "controller/Dockerfile",
+    "erts_version": "17.0.5",
+    "extra_files": [
+      "erts/emulator/zlib/zlib.h",
+      "erts/emulator/beam/beam_load.c"
+    ],
+    "image_marker": "erlang-29.0.5-",
+    "notices": [
+      {
+        "path": "LICENSE.txt",
+        "sha256": "809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0"
+      },
+      {
+        "path": "erts/emulator/asmjit/LICENSE.md",
+        "sha256": "13870bd53bce53fb9a9bd72e72dcceeffc547c84d9a00d3d4833737a79651828"
+      },
+      {
+        "path": "erts/emulator/beam/beam_load.c",
+        "sha256": "0d62ff28f300a9a37cb09c9ad8d29a1942a7fc521793c02330c4a69370e00334"
+      },
+      {
+        "path": "erts/emulator/pcre/LICENCE",
+        "sha256": "197d8a73ffee0d6b09adba2f9c677b5f5aede24edf89258a68e48248d010d811"
+      },
+      {
+        "path": "erts/emulator/ryu/LICENSE-Apache2",
+        "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+      },
+      {
+        "path": "erts/emulator/ryu/LICENSE-Boost",
+        "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+      },
+      {
+        "path": "erts/emulator/zlib/zlib.h",
+        "sha256": "818667d6ab6a37fe7469cb06a7f0cb2c2cb2f2c948a03e5accf1a4a74bf3020a"
+      },
+      {
+        "path": "erts/emulator/zstd/COPYING",
+        "sha256": "f9c375a1be4a41f7b70301dd83c91cb89e41567478859b77eef375a52d782505"
+      },
+      {
+        "path": "erts/emulator/zstd/LICENSE",
+        "sha256": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8"
+      },
+      {
+        "path": "erts/lib_src/yielding_c_fun/test/examples/sha256_erlang_nif/LICENSE",
+        "sha256": "c06894505cc88bd61b9ca68b690decc7f92bc1b8262d7e37ce1d0d391a1b752b"
+      },
+      {
+        "path": "erts/lib_src/yielding_c_fun/test/examples/sha256_erlang_nif/c_src/sha-2/LICENSE",
+        "sha256": "88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd"
+      },
+      {
+        "path": "lib/eldap/LICENSE",
+        "sha256": "29c42621ef1f92a6e65f7b7d22c8bee70c1051aa1f8fb00f6b29c61856214eff"
+      }
+    ],
+    "release_apps": {
+      "asn1": "5.5",
+      "compiler": "10.0.3",
+      "crypto": "5.9.2",
+      "inets": "9.7.1",
+      "kernel": "11.0.3",
+      "public_key": "1.21.4",
+      "sasl": "4.4",
+      "ssl": "11.7.4",
+      "stdlib": "8.0.3"
+    },
+    "review": "Unmodified OTP runtime and bundled native code. Preserve Apache-2.0, asmjit/PCRE BSD notices, zstd BSD alternative, Ryu Apache/Boost texts, and the embedded zlib notice. All source-archive notice files are retained conservatively, including notices for unshipped examples.",
+    "sha256": "c79e9990832b6b6b6deefb5c7460d55e231c270560e21c6d4e33ccfdfd360820",
+    "url": "https://github.com/erlang/otp/archive/refs/tags/OTP-29.0.5.tar.gz",
+    "version": "29.0.5"
+  },
+  "python": {
+    "dockerfile": "runner/Dockerfile",
+    "extra_files": [
+      "Doc/license.rst",
+      "Modules/_decimal/libmpdec/mpdecimal.h",
+      "Include/internal/mimalloc/mimalloc.h",
+      "Python/dtoa.c",
+      "Modules/_hacl/Hacl_Hash_SHA2.h",
+      "Modules/_hacl/include/krml/types.h"
+    ],
+    "image_marker": "python:3.13.15-",
+    "notices": [
+      {
+        "path": "Doc/copyright.rst",
+        "sha256": "2f455e3bd119869bf01369ab852d87d11c9e67e5351a7ebc64ab2c0af344aff6"
+      },
+      {
+        "path": "Doc/license.rst",
+        "sha256": "952ac05720d7f1dcb63589b35eb0931b1442eb250230a4ad31198eddf0ad6abc"
+      },
+      {
+        "path": "Include/internal/mimalloc/mimalloc.h",
+        "sha256": "7c4e2fc555724fe674efbb2cfe64344fafa86f8c43d22e48263c33dd07ac7d81"
+      },
+      {
+        "path": "LICENSE",
+        "sha256": "78b12c3a81360b357002334f0e70ea0e92eebf7a9b358805c03c48484945f3bb"
+      },
+      {
+        "path": "Modules/_decimal/libmpdec/mpdecimal.h",
+        "sha256": "ea0b9c6b296c13aed6ecaa50b463e39a9c1bdc059b84f50507fd8247b2e660f9"
+      },
+      {
+        "path": "Modules/_hacl/Hacl_Hash_SHA2.h",
+        "sha256": "093d7693084af0999d2a13d207311d74b5bdfdc9c08447ed4a979e3f7505ae6b"
+      },
+      {
+        "path": "Modules/_hacl/include/krml/types.h",
+        "sha256": "de7444c345caa4c47902c4380500356a3ee7e199d2aab84fd8c4960410154f3d"
+      },
+      {
+        "path": "Modules/expat/COPYING",
+        "sha256": "31b15de82aa19a845156169a17a5488bf597e561b2c318d159ed583139b25e87"
+      },
+      {
+        "path": "Python/dtoa.c",
+        "sha256": "653c4f8703d6bf72626c3c077f25ae5a2c6879934fc212c5eac43801a06a1f77"
+      },
+      {
+        "path": "Tools/msi/bundle/bootstrap/LICENSE.txt",
+        "sha256": "cb95daf98edda8e08a242e1060691b6941f0911692bf468a3f9c5e4b58c09b8f"
+      }
+    ],
+    "review": "Unmodified PSF-licensed CPython with historical license terms and incorporated-code notices. Preserve Doc/license.rst plus mpdecimal, mimalloc, dtoa and HACL/KreMLin embedded headers; keep notices for unshipped Windows/macOS components conservatively. The sample image removes pip and ensurepip rather than redistributing installer vendors.",
+    "sha256": "1e66a7945a48390ee4c2a4268a0e4185884059a13c4aab6d148aa208deea4a76",
+    "url": "https://www.python.org/ftp/python/3.13.15/Python-3.13.15.tar.xz",
+    "version": "3.13.15"
+  }
+}

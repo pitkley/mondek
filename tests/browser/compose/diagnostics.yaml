@@ -1,0 +1,7 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# Keep the real contact-loss transition short in this disposable journey only.
+services:
+  controller:
+    environment:
+      MONDEK_MONITORING_CONTACT_SECONDS: "15"

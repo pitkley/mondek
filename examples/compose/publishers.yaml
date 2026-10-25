@@ -1,0 +1,22 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# Apply after examples/compose/coverage.yaml. Reuse its installed workers and separate
+# spools, with two explicit same-source observers of one shared condition.
+# coverage-node-a keeps collecting an unrelated source throughout the lifecycle.
+services:
+  coverage-service-a:
+    environment:
+      MONDEK_CONSUMER: mondek_examples.grouped:app
+      MONDEK_GROUPED_OBSERVER: service-a
+      MONDEK_GROUPED_KIND: elasticsearch
+      MONDEK_GROUPED_ENVIRONMENT: production
+      MONDEK_GROUPED_FIXTURE_URL: http://target:8080
+      MONDEK_RUNNER_LABEL: Predecessor service observer
+  coverage-service-b:
+    environment:
+      MONDEK_CONSUMER: mondek_examples.grouped:app
+      MONDEK_GROUPED_OBSERVER: service-b
+      MONDEK_GROUPED_KIND: elasticsearch
+      MONDEK_GROUPED_ENVIRONMENT: production
+      MONDEK_GROUPED_FIXTURE_URL: http://target:8080
+      MONDEK_RUNNER_LABEL: Successor service observer

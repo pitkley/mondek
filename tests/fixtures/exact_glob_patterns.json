@@ -1,0 +1,22 @@
+[
+  {
+    "name": "/data*\u0301",
+    "pattern": "/data[*]\u0301",
+    "other": "/dataOTHER\u0301"
+  },
+  {
+    "name": "/data?\u0301",
+    "pattern": "/data[?]\u0301",
+    "other": "/dataOTHER\u0301"
+  },
+  {
+    "name": "/data[\u0301",
+    "pattern": "/data[[]\u0301",
+    "other": "/dataOTHER\u0301"
+  },
+  {
+    "name": "/data]\u0301",
+    "pattern": "/data[]]\u0301",
+    "other": "/dataOTHER\u0301"
+  }
+]

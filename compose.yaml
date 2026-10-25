@@ -1,0 +1,104 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+name: mondek
+
+x-logging: &bounded-logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  controller:
+    logging: *bounded-logs
+    build:
+      context: .
+      dockerfile: controller/Dockerfile
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: "${PGDATABASE:-mondek_dev}"
+      PGUSER: "${PGUSER:-mondek}"
+      PORT: "4000"
+      PHX_SERVER: "true"
+      MONDEK_BIND_ADDRESS: 0.0.0.0
+      MONDEK_WEBHOOK_URL: http://target:8080/webhook
+      MONDEK_CONFIGURATION_GIT_TOKEN: "${MONDEK_CONFIGURATION_GIT_TOKEN:-}"
+      MONDEK_NOTIFICATION_MAX_ATTEMPTS: "${MONDEK_NOTIFICATION_MAX_ATTEMPTS:-100}"
+    ports:
+      - "127.0.0.1:${MONDEK_PORT:-4000}:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      target:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4000/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+      start_period: 10s
+    stop_grace_period: 15s
+  runner:
+    logging: *bounded-logs
+    build:
+      context: .
+      dockerfile: runner/Dockerfile
+    environment:
+      # The local fixture forwards protocol requests and can drop one committed
+      # ingestion reply for acceptance. Control and upload use separate requests.
+      MONDEK_CONTROLLER_URL: http://target:8080
+      MONDEK_CONSUMER: "${MONDEK_CONSUMER-demo_checks.app:app}"
+      MONDEK_DEMO_TARGET_URL: http://target:8080
+      MONDEK_STATE_DIR: /state
+      MONDEK_SPOOL_MAX_REPORTS: "${MONDEK_SPOOL_MAX_REPORTS:-512}"
+      MONDEK_SPOOL_MAX_BYTES: "${MONDEK_SPOOL_MAX_BYTES:-2097152}"
+    volumes:
+      - runner_data:/state
+    depends_on:
+      controller:
+        condition: service_healthy
+    init: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    stop_grace_period: 10s
+  target:
+    logging: *bounded-logs
+    build:
+      context: .
+      dockerfile: tests/fixtures/Dockerfile
+    ports:
+      - "127.0.0.1:${MONDEK_FIXTURE_PORT:-58080}:8080"
+    volumes:
+      - fixture_data:/state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    stop_grace_period: 5s
+  postgres:
+    logging: *bounded-logs
+    image: postgres:18.6-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    environment:
+      POSTGRES_USER: "${PGUSER:-mondek}"
+      POSTGRES_DB: "${PGDATABASE:-mondek_dev}"
+      # Local development only: the published port is restricted to loopback.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "127.0.0.1:${PGPORT:-55432}:5432"
+    volumes:
+      # PostgreSQL 18 uses a major-version subdirectory below this mount.
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    stop_grace_period: 15s
+
+volumes:
+  postgres_data:
+  runner_data:
+  fixture_data:

@@ -1,0 +1,8 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# Short, real elapsed-time boundaries belong only to this disposable suite.
+services:
+  controller:
+    environment:
+      MONDEK_MONITORING_LOSS_GRACE_SECONDS: "6"
+      MONDEK_MONITORING_CONTACT_SECONDS: "5"

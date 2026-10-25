@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "project": "policy-example",
+  "rules": [
+    {
+      "key": "production-disk-limits",
+      "name": "Production disk limits",
+      "source_id": "policy-example",
+      "parameter_contract": "disk.capacity.v1",
+      "environment": "production",
+      "params": {"path": "/", "warn_percent": 85, "crit_percent": 95}
+    }
+  ]
+}

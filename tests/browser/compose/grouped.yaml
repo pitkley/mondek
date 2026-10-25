@@ -1,0 +1,12 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# The grouped suite uses only its two installed consumers, without the demo runner.
+services:
+  browser:
+    depends_on: !override
+      controller:
+        condition: service_healthy
+      grouped-volume:
+        condition: service_started
+      grouped-elasticsearch:
+        condition: service_started

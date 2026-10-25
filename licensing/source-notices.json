@@ -1,0 +1,15 @@
+{
+  "upstream": {
+    "controller/lib/mondek_web.ex": {
+      "component": {
+        "name": "phoenix-scaffold",
+        "scope": "controller",
+        "version": "1.8.14"
+      },
+      "license": "Apache-2.0 AND MIT",
+      "notice": "licensing/PHOENIX-LICENSE.md",
+      "reason": "Conservatively retain Phoenix attribution for the web-module controller/html/live_view and __using__ scaffold; local adaptation has been reviewed. Imports/calls to other dependencies are not copied implementations.",
+      "source": "https://github.com/phoenixframework/phoenix/tree/v1.8.14/installer/templates"
+    }
+  }
+}

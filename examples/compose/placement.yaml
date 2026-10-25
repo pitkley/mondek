@@ -1,0 +1,58 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# Combine with compose.yaml in an isolated project. All three observers install
+# the same consumer module. The two node observers require no HTTP settings.
+services:
+  placement-node-a:
+    build: &placement-build
+      context: .
+      dockerfile: examples/consumers/Dockerfile
+    environment: &placement-environment
+      MONDEK_CONSUMER: mondek_examples.placement:app
+      MONDEK_RUNNER_CONTEXT: node-a
+      MONDEK_RUNNER_LABEL: Placement Node A
+      MONDEK_CONTROLLER_URL: http://target:8080
+      MONDEK_SPOOL_MAX_REPORTS: "128"
+      MONDEK_SPOOL_MAX_BYTES: "524288"
+    volumes:
+      - placement_node_a_data:/state
+    depends_on: &placement-dependencies
+      controller:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 10s
+    logging: &placement-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  placement-node-b:
+    build: *placement-build
+    environment:
+      <<: *placement-environment
+      MONDEK_RUNNER_CONTEXT: node-b
+      MONDEK_RUNNER_LABEL: Placement Node B
+    volumes:
+      - placement_node_b_data:/state
+    depends_on: *placement-dependencies
+    init: true
+    stop_grace_period: 10s
+    logging: *placement-logging
+  placement-shared-services:
+    build: *placement-build
+    environment:
+      <<: *placement-environment
+      MONDEK_RUNNER_CONTEXT: shared-services
+      MONDEK_RUNNER_LABEL: Placement shared services
+      MONDEK_PLACEMENT_HTTP_URL: http://target:8080
+    volumes:
+      - placement_shared_services_data:/state
+    depends_on: *placement-dependencies
+    init: true
+    stop_grace_period: 10s
+    logging: *placement-logging
+
+volumes:
+  placement_node_a_data:
+  placement_node_b_data:
+  placement_shared_services_data:

@@ -1,0 +1,83 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# Identical installed checks; explicit local declarations move a logical volume.
+# Both observers can read the same persisted data; declarations select the one
+# that monitors it. This fixture does not implement storage attachment/handoff.
+services:
+  rules-files:
+    build: &rules-build
+      context: .
+      dockerfile: examples/consumers/Dockerfile
+    user: "0:0"
+    command:
+      - python
+      - -c
+      - |
+        import json, os
+        from pathlib import Path
+        for node, present in (('a', True), ('b', False)):
+            root = Path('/files-' + node)
+            root.mkdir(exist_ok=True)
+            declarations = [{'id': 'orders', 'label': 'Orders volume', 'path': '/volume/orders.queue'}] if present else []
+            path = root / 'volumes.json'
+            if not path.exists():
+                path.write_text(json.dumps(declarations))
+            os.chown(path, 65532, 65532)
+            os.chown(root, 65532, 65532)
+        volume = Path('/volume')
+        data = volume / 'orders.queue'
+        if not data.exists():
+            data.write_text('12\n')
+        os.chown(data, 65532, 65532)
+        os.chown(volume, 65532, 65532)
+    volumes:
+      - rules_a_files:/files-a
+      - rules_b_files:/files-b
+      - rules_volume_data:/volume
+  rules-a-runner:
+    build: *rules-build
+    environment: &rules-environment
+      MONDEK_CONSUMER: mondek_examples.durable:app
+      MONDEK_RULES_NODE: node-a
+      MONDEK_VOLUME_DECLARATIONS_FILE: /node/volumes.json
+      MONDEK_RUNNER_LABEL: Volume observer A
+      MONDEK_CONTROLLER_URL: http://target:8080
+      MONDEK_SPOOL_MAX_REPORTS: "128"
+      MONDEK_SPOOL_MAX_BYTES: "524288"
+    volumes:
+      - rules_a_data:/state
+      - rules_a_files:/node:ro
+      - rules_volume_data:/volume:ro
+    depends_on: &rules-dependencies
+      controller:
+        condition: service_healthy
+      rules-files:
+        condition: service_completed_successfully
+    init: true
+    stop_grace_period: 10s
+    logging: &rules-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  rules-b-runner:
+    build: *rules-build
+    environment:
+      <<: *rules-environment
+      MONDEK_RULES_NODE: node-b
+      MONDEK_RUNNER_LABEL: Volume observer B
+    volumes:
+      - rules_b_data:/state
+      - rules_b_files:/node:ro
+      - rules_volume_data:/volume:ro
+    depends_on: *rules-dependencies
+    init: true
+    stop_grace_period: 10s
+    logging: *rules-logging
+
+volumes:
+  rules_a_files:
+  rules_b_files:
+  rules_a_data:
+  rules_b_data:
+  rules_volume_data:

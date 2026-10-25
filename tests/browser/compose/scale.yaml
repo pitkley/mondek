@@ -1,0 +1,20 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# Leave CPU for Chromium and preparation during the real parity browser journey.
+# Keep every check, interval, freshness bound and execution deadline unchanged.
+services:
+  runner:
+    environment:
+      MONDEK_MAX_CONCURRENCY: "1"
+  monitoring-runner:
+    environment:
+      MONDEK_MAX_CONCURRENCY: "1"
+  node-a-runner:
+    environment:
+      MONDEK_MAX_CONCURRENCY: "1"
+  node-b-runner:
+    environment:
+      MONDEK_MAX_CONCURRENCY: "1"
+  capacity-runner:
+    environment:
+      MONDEK_MAX_CONCURRENCY: "1"

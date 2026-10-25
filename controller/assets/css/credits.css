@@ -1,0 +1,10 @@
+/*! Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com> */
+/* SPDX-License-Identifier: Apache-2.0 */
+.license-footer { padding: 16px 24px; text-align: center; font-size: 13px; background: var(--paper); border-top: 1px solid var(--line); }
+.license-footer a { color: var(--accent); }
+.credits { min-width: 0; }
+.credits .panel { padding: 20px; margin: 16px 0; min-width: 0; }
+.credits summary { cursor: pointer; overflow-wrap: anywhere; min-height: 44px; padding: 10px 0; }
+.credits pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font-size: 13px; line-height: 1.6; }
+.credit-notice h3 { overflow-wrap: anywhere; }
+@media (max-width: 700px) { .credits .panel { padding: 12px; } }

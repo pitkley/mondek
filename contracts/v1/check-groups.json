@@ -1,0 +1,161 @@
+[
+  {
+    "name": "absent",
+    "valid": true,
+    "output": {}
+  },
+  {
+    "name": "normal",
+    "valid": true,
+    "output": {
+      "group": {
+        "key": "observer.example.test",
+        "label": "Node"
+      }
+    }
+  },
+  {
+    "name": "unicode label",
+    "valid": true,
+    "output": {
+      "group": {
+        "key": "misc",
+        "label": "M\u00fcnchen \ud83d\udc08"
+      }
+    }
+  },
+  {
+    "name": "null",
+    "valid": false,
+    "output": {
+      "group": null
+    }
+  },
+  {
+    "name": "list",
+    "valid": false,
+    "output": {
+      "group": []
+    }
+  },
+  {
+    "name": "missing key",
+    "valid": false,
+    "output": {
+      "group": {
+        "label": "Host"
+      }
+    }
+  },
+  {
+    "name": "unknown field",
+    "valid": false,
+    "output": {
+      "group": {
+        "key": "host",
+        "label": "Host",
+        "namespace": "other"
+      }
+    }
+  },
+  {
+    "name": "empty label",
+    "valid": false,
+    "output": {
+      "group": {
+        "key": "host",
+        "label": " "
+      }
+    }
+  },
+  {
+    "name": "newline",
+    "valid": false,
+    "output": {
+      "group": {
+        "key": "host",
+        "label": "Host\n"
+      }
+    }
+  },
+  {
+    "name": "bad key",
+    "valid": false,
+    "output": {
+      "group": {
+        "key": "a b",
+        "label": "Host"
+      }
+    }
+  },
+  {
+    "name": "numeric key",
+    "valid": false,
+    "output": {
+      "group": {
+        "key": 1,
+        "label": "Host"
+      }
+    }
+  },
+  {
+    "name": "numeric label",
+    "valid": false,
+    "output": {
+      "group": {
+        "key": "host",
+        "label": 1
+      }
+    }
+  },
+  {
+    "name": "max key",
+    "valid": true,
+    "output": {
+      "group": {
+        "key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "label": "Host"
+      }
+    }
+  },
+  {
+    "name": "oversized key",
+    "valid": false,
+    "output": {
+      "group": {
+        "key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "label": "Host"
+      }
+    }
+  },
+  {
+    "name": "max utf8 label",
+    "valid": true,
+    "output": {
+      "group": {
+        "key": "host",
+        "label": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9"
+      }
+    }
+  },
+  {
+    "name": "oversized utf8 label",
+    "valid": false,
+    "output": {
+      "group": {
+        "key": "host",
+        "label": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9"
+      }
+    }
+  },
+  {
+    "name": "ascii control",
+    "valid": false,
+    "output": {
+      "group": {
+        "key": "host",
+        "label": "Host\u007f"
+      }
+    }
+  }
+]

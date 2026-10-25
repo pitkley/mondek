@@ -1,0 +1,18 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# Only disposable named volumes; no host filesystem or Docker socket access.
+services:
+  runner:
+    build:
+      context: .
+      dockerfile: examples/consumers/Dockerfile
+    environment:
+      MONDEK_CONSUMER: mondek_examples.discovery_demo:app
+      MONDEK_DISCOVERY_DIRECTORY: /discovery-fixture/volumes
+    volumes:
+      - discovery_fixture:/discovery-fixture:ro
+  browser:
+    volumes:
+      - discovery_fixture:/discovery-fixture
+volumes:
+  discovery_fixture:

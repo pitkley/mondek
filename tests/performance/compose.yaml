@@ -1,0 +1,48 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# Combine with compose.yaml under the profiler's unique disposable project.
+services:
+  controller:
+    environment:
+    ports: !override
+      - "127.0.0.1::4000"
+    healthcheck:
+      interval: 30s
+      start_interval: 1s
+      start_period: 10s
+  target:
+    ports: !override
+      - "127.0.0.1::8080"
+    healthcheck:
+      interval: 30s
+      start_interval: 1s
+      start_period: 10s
+  postgres:
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    ports: !override []
+    healthcheck:
+      interval: 30s
+      start_interval: 1s
+      start_period: 10s
+  profile-runners:
+    build:
+      context: .
+      dockerfile: tests/performance/Dockerfile
+    environment:
+      MONDEK_CONTROLLER_URL: http://controller:4000
+      MONDEK_PROFILE_RUNNERS: "${MONDEK_PROFILE_RUNNERS:-1}"
+      MONDEK_PROFILE_MODE: "${MONDEK_PROFILE_MODE:-active}"
+    volumes:
+      - profile_runner_data:/state
+    depends_on:
+      controller:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+volumes:
+  profile_runner_data:

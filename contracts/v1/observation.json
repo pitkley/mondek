@@ -1,0 +1,21 @@
+{
+  "id": "91144da7-f367-4b06-96c1-027a4c9d29a7",
+  "assignment_id": "10000000-0000-4000-8000-000000000001",
+  "installation_id": "3b1c3d85-33af-4b61-a8cd-eeb2d45b8f87",
+  "session_id": "3487244a-e700-437c-aa44-4f82c5a311c6",
+  "generation": 1,
+  "sequence": 7,
+  "started_at": "2009-09-15T08:00:00.000000Z",
+  "evaluated_at": "2009-09-15T08:00:00.050000Z",
+  "results": [
+    {
+      "key": "capacity",
+      "health": "OK",
+      "summary": "42.5% of Linux container filesystem capacity used",
+      "value": 42.5,
+      "source_at": "2009-09-15T08:00:00.010000Z"
+    }
+  ],
+  "complete": true,
+  "diagnostic": ""
+}

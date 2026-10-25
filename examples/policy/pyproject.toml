@@ -1,0 +1,10 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+[project]
+name = "mondek-policy-example"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = ["mondek"]
+
+[tool.uv.sources]
+mondek = { path = "../../runner", editable = true }

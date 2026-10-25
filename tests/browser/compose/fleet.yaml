@@ -1,0 +1,40 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# One disposable service owns independent real runner processes and journals.
+services:
+  controller:
+    environment:
+      MONDEK_MONITORING_LOSS_GRACE_SECONDS: "60"
+      MONDEK_MONITORING_CONTACT_SECONDS: "15"
+  fleet-runner:
+    build:
+      context: .
+      dockerfile: tests/browser/fleet/Dockerfile
+    volumes:
+      - fleet_runner_data:/state
+    depends_on:
+      controller:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/health', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    init: true
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  browser:
+    environment:
+      MONDEK_FLEET_FIXTURE_URL: http://fleet-runner:8082
+    depends_on: !override
+      controller:
+        condition: service_healthy
+      fleet-runner:
+        condition: service_healthy
+
+volumes:
+  fleet_runner_data:

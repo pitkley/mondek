@@ -1,0 +1,39 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# Always combine with the repository compose.yaml under a unique project.
+services:
+  controller:
+    environment:
+      MONDEK_NOTIFICATION_MAX_ATTEMPTS: "3"
+    ports: !override
+      - "127.0.0.1::4000"
+  target:
+    ports: !override
+      - "127.0.0.1::8080"
+  postgres:
+    ports: !override
+      - "127.0.0.1::5432"
+  browser:
+    build:
+      context: .
+      dockerfile: tests/browser/Dockerfile
+    profiles: [browser]
+    init: true
+    shm_size: 1gb
+    # Share only this isolated controller's network namespace, so Chromium uses
+    # a genuine loopback origin with native secure-context APIs such as clipboard.
+    network_mode: service:controller
+    environment:
+      CI: "true"
+      MONDEK_BROWSER_BASE_URL: http://localhost:4000
+      MONDEK_BROWSER_FIXTURE_URL: http://target:8080
+      MONDEK_BROWSER_SUITE: "${MONDEK_BROWSER_SUITE:-lifecycle}"
+      MONDEK_BROWSER_OUTPUT: /artifacts
+      MONDEK_BROWSER_VIDEO: "${MONDEK_BROWSER_VIDEO:-off}"
+    volumes:
+      - "${MONDEK_BROWSER_ARTIFACTS:-./.local/browser/manual}:/artifacts"
+    depends_on:
+      controller:
+        condition: service_healthy
+      runner:
+        condition: service_started

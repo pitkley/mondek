@@ -1,0 +1,35 @@
+# Environment and machine overrides (devenv.lock stays tracked).
+.devenv*
+devenv.local.nix
+devenv.local.yaml
+.direnv/
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Elixir/Phoenix.
+_build/
+deps/
+.elixir_ls/
+erl_crash.dump
+cover/
+/controller/priv/static/assets/
+
+# Python.
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Assets, artifacts and runtime state.
+node_modules/
+dist/
+playwright-report/
+test-results/
+/.local/

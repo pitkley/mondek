@@ -1,0 +1,52 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# Combine with compose.yaml in an isolated project. The volume and service
+# observations have different sources/targets and explicitly share one condition.
+# Both use the owned fixture as datasource and controller transport proxy.
+services:
+  runner:
+    profiles: [original-demo]
+  grouped-volume:
+    build: &grouped-build
+      context: .
+      dockerfile: examples/consumers/Dockerfile
+    environment: &grouped-environment
+      MONDEK_CONSUMER: mondek_examples.grouped:app
+      MONDEK_GROUPED_OBSERVER: node-a
+      MONDEK_GROUPED_KIND: volume
+      MONDEK_GROUPED_ENVIRONMENT: production
+      MONDEK_GROUPED_FIXTURE_URL: http://target:8080
+      MONDEK_RUNNER_LABEL: Linux volume observer
+      MONDEK_CONTROLLER_URL: http://target:8080
+      MONDEK_STATE_DIR: /state
+      MONDEK_SPOOL_MAX_REPORTS: "128"
+      MONDEK_SPOOL_MAX_BYTES: "524288"
+    volumes:
+      - grouped_volume_data:/state
+    depends_on: &grouped-dependencies
+      controller:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 10s
+    logging: &grouped-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  grouped-elasticsearch:
+    build: *grouped-build
+    environment:
+      <<: *grouped-environment
+      MONDEK_GROUPED_OBSERVER: service-a
+      MONDEK_GROUPED_KIND: elasticsearch
+      MONDEK_RUNNER_LABEL: Elasticsearch observer
+    volumes:
+      - grouped_elasticsearch_data:/state
+    depends_on: *grouped-dependencies
+    init: true
+    stop_grace_period: 10s
+    logging: *grouped-logging
+
+volumes:
+  grouped_volume_data:
+  grouped_elasticsearch_data:

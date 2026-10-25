@@ -1,0 +1,52 @@
+{
+  "allowed": [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "PSF-2.0"
+  ],
+  "mix_supplements": {
+    "db_connection@2.10.2": {
+      "readme_section": true,
+      "license": "Apache-2.0",
+      "reason": "Hex includes an explicit README License section and copyright but omits the full license file."
+    },
+    "ecto@3.14.2": {
+      "readme_section": true,
+      "license": "Apache-2.0",
+      "reason": "Hex includes an explicit README License section and copyright but omits the full license file."
+    },
+    "ecto_sql@3.14.0": {
+      "readme_section": true,
+      "license": "Apache-2.0",
+      "reason": "Hex includes an explicit README License section and copyright but omits the full license file."
+    },
+    "postgrex@0.22.4": {
+      "readme_section": true,
+      "license": "Apache-2.0",
+      "reason": "Hex includes an explicit README License section and copyright but omits the full license file."
+    },
+    "elixir_make@0.10.0": {
+      "readme_section": true,
+      "license": "Apache-2.0",
+      "reason": "Hex metadata declares Apache-2.0; README's License section says Same as Elixir. Include that evidence and the full Apache text."
+    }
+  },
+  "npm_inherited_notices": {
+    "family": "@esbuild/",
+    "version": "0.27.2",
+    "license": "MIT",
+    "parent": "esbuild",
+    "reason": "These locked optional platform packages are the esbuild executable distribution. They declare MIT and inherit the same-version esbuild package LICENSE.md; retain all platform artifact identities in the inventory."
+  },
+  "npm_supplements": {
+    "lucide-static@1.59.0": {
+      "declared": "ISC",
+      "license": "ISC AND MIT",
+      "reason": "The retained package LICENSE includes Lucide ISC terms and incorporated Feather MIT terms; preserve and approve both for shipped icons."
+    }
+  }
+}

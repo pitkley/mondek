@@ -1,0 +1,17 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling
+
+require_version: ">=2.3.1"
+clean:
+  enabled: true
+  keep:
+    - HOME
+    - SSH_AUTH_SOCK
+    - DOCKER_HOST
+    - DOCKER_CONTEXT
+    - DOCKER_CONFIG
+    - TERM

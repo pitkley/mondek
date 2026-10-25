@@ -1,0 +1,13 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+services:
+  browser:
+    depends_on: !override
+      controller:
+        condition: service_healthy
+      coverage-node-a:
+        condition: service_started
+      coverage-service-a:
+        condition: service_started
+      coverage-service-b:
+        condition: service_started

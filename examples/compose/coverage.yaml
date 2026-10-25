@@ -1,0 +1,81 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# One installed package declares every intended node and service scope. Initially
+# run node-a/service-a/service-b only: Node B and Production remain unselected.
+# Explicitly start coverage-node-b and grant Production to restore those gaps.
+services:
+  runner:
+    profiles: [original-demo]
+  coverage-node-a:
+    build: &coverage-build
+      context: .
+      dockerfile: examples/consumers/Dockerfile
+    environment: &coverage-environment
+      MONDEK_CONSUMER: mondek_examples.coverage:app
+      MONDEK_COVERAGE_OBSERVER: node-a
+      MONDEK_COVERAGE_ACCESS: staging
+      MONDEK_COVERAGE_FIXTURE_URL: http://target:8080
+      MONDEK_RUNNER_LABEL: Coverage Node A
+      MONDEK_CONTROLLER_URL: http://target:8080
+      MONDEK_STATE_DIR: /state
+      MONDEK_SPOOL_MAX_REPORTS: "128"
+      MONDEK_SPOOL_MAX_BYTES: "524288"
+    volumes:
+      - coverage_node_a_data:/state
+    depends_on: &coverage-dependencies
+      controller:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 10s
+    logging: &coverage-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  coverage-node-b:
+    profiles: [restore-node-b]
+    build: *coverage-build
+    environment:
+      <<: *coverage-environment
+      MONDEK_COVERAGE_OBSERVER: node-b
+      MONDEK_RUNNER_LABEL: Coverage Node B
+    volumes:
+      - coverage_node_b_data:/state
+    depends_on: *coverage-dependencies
+    init: true
+    stop_grace_period: 10s
+    logging: *coverage-logging
+  coverage-service-a:
+    build: *coverage-build
+    environment:
+      <<: *coverage-environment
+      MONDEK_COVERAGE_OBSERVER: service-a
+      MONDEK_RUNNER_LABEL: Coverage service observer A
+      MONDEK_COVERAGE_ACCESS: "${MONDEK_COVERAGE_ACCESS_A:-staging}"
+      MONDEK_COVERAGE_FIXTURE_URL: "${MONDEK_COVERAGE_URL_A:-http://target:8080}"
+    volumes:
+      - coverage_service_a_data:/state
+    depends_on: *coverage-dependencies
+    init: true
+    stop_grace_period: 10s
+    logging: *coverage-logging
+  coverage-service-b:
+    build: *coverage-build
+    environment:
+      <<: *coverage-environment
+      MONDEK_COVERAGE_OBSERVER: service-b
+      MONDEK_RUNNER_LABEL: Coverage service observer B
+      MONDEK_COVERAGE_ACCESS: "${MONDEK_COVERAGE_ACCESS_B:-staging}"
+      MONDEK_COVERAGE_FIXTURE_URL: "${MONDEK_COVERAGE_URL_B:-http://target:8080/}"
+    volumes:
+      - coverage_service_b_data:/state
+    depends_on: *coverage-dependencies
+    init: true
+    stop_grace_period: 10s
+    logging: *coverage-logging
+
+volumes:
+  coverage_node_a_data:
+  coverage_node_b_data:
+  coverage_service_a_data:
+  coverage_service_b_data:

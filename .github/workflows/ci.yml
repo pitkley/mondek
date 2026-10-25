@@ -1,0 +1,149 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+    inputs:
+      prepare_release:
+        description: Prepare and retain the exact qualified SDK for the release caller
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Packaged coverage (full is an expensive qualification run)
+        type: choice
+        options: [full, smoke, browser]
+        default: smoke
+      browser_suites:
+        description: Space-separated browser suite names (browser mode only; blank runs all)
+        type: string
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    name: Unit tests and checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Reject a mismatched release tag before installing the toolchain
+        if: inputs.prepare_release == true
+        run: |
+          python3 scripts/release.py check
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            python3 scripts/release.py check --tag "$GITHUB_REF_NAME"
+          fi
+      - uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://devenv.cachix.org
+            extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=
+      - name: Install the pinned devenv CLI from its binary cache
+        run: |
+          nix profile install github:cachix/devenv/v2.3.1
+          devenv version
+      - name: Restore locked native dependency caches
+        if: inputs.prepare_release != true
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .devenv/profiles/ci/state/mix
+            .devenv/profiles/ci/state/hex
+            .devenv/profiles/ci/state/uv-cache
+            controller/deps
+            controller/_build
+          key: native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('devenv.lock', 'devenv.nix', 'controller/mix.lock', '**/uv.lock') }}
+      - name: Build the release SDK once before its installed-package checks
+        if: inputs.prepare_release == true
+        run: |
+          devenv --profile ci shell -- python3 scripts/release.py build-sdk --output .local/release/sdk
+          echo "MONDEK_SDK_WHEEL=$GITHUB_WORKSPACE/$(find .local/release/sdk -maxdepth 1 -name '*.whl')" >> "$GITHUB_ENV"
+      - name: Run unit/database tests, code checks, SDK and dependency gates
+        run: devenv --profile ci shell -- python3 scripts/ci.py native
+      - name: Retain the qualified SDK for the release caller
+        if: inputs.prepare_release == true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-sdk
+          path: |
+            .local/release/sdk/*.whl
+            .local/release/sdk/*.tar.gz
+            .local/release/sdk/SHA256SUMS
+            .local/release/sdk/sdk-build.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Stop only the native test database
+        if: always()
+        run: docker compose -p mondek-tests down --volumes --remove-orphans
+      - name: Retain native timings
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-evidence
+          path: .local/ci/
+          include-hidden-files: true
+          retention-days: 7
+  integration:
+    name: Integration and browser tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'full' && 90 || github.event_name == 'workflow_dispatch' && inputs.mode == 'browser' && 60 || 25 }}
+    env:
+      MONDEK_CI_REF: ${{ github.sha }}
+      MONDEK_CI_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'smoke' }}
+      MONDEK_CI_BROWSER_SUITES: ${{ github.event_name == 'workflow_dispatch' && inputs.browser_suites || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Reclaim unused hosted Android SDK space for Docker suites
+        if: runner.environment == 'github-hosted'
+        run: |
+          df -h /
+          sudo rm -rf -- /usr/local/lib/android/sdk
+          df -h /
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13.15'
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          version: '0.12.5'
+          enable-cache: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Record hosted CPU, memory and disk resources
+        run: |
+          nproc
+          free -h
+          df -h /
+      - name: Build each image once, restoring and saving shared layer caches
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
+        with:
+          source: .
+          files: tests/ci/docker-bake.hcl
+          targets: ${{ env.MONDEK_CI_MODE == 'browser' && 'full' || env.MONDEK_CI_MODE }}
+      - name: Record immutable local image identities
+        run: python3 scripts/ci.py images --mode "$MONDEK_CI_MODE"
+      - name: Free exported build cache space; keep the loaded test images
+        run: docker buildx prune --all --force
+      - name: Run image license audits and integration/browser tests
+        run: python3 scripts/ci.py packaged --mode "$MONDEK_CI_MODE" --browser-suites "$MONDEK_CI_BROWSER_SUITES"
+      - name: Retain image inventory, timings, acceptance and browser evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packaged-evidence
+          path: |
+            .local/ci/
+            .local/acceptance/
+            .local/browser/
+          include-hidden-files: true
+          retention-days: 7

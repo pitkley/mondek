@@ -1,0 +1,41 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+import tempfile
+import unittest
+from pathlib import Path
+
+from monitoring.app import BacklogFile, evaluate_backlog, queue_backlog
+
+
+class BacklogPolicyTests(unittest.TestCase):
+    def test_threshold_boundaries_and_recovery(self):
+        params = {"warning_items": 5, "critical_items": 10}
+        for count, expected in ((0, "OK"), (5, "WARN"), (10, "CRIT"), (0, "OK")):
+            with self.subTest(count=count):
+                result = evaluate_backlog(str(count), params)
+                self.assertEqual(result.health, expected)
+                self.assertEqual(result.value, count)
+                self.assertIsNotNone(result.source_at)
+
+    def test_delegated_thresholds_change_the_policy(self):
+        self.assertEqual(
+            evaluate_backlog("10", {"warning_items": 20, "critical_items": 30}).health,
+            "OK",
+        )
+
+    def test_missing_malformed_and_oversized_input_remain_expected(self):
+        params = {"warning_items": 5, "critical_items": 10}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "backlog.txt"
+            datasource = BacklogFile(str(path))
+            for content in (None, "invalid", "-1", "1000001", "0" * 4097):
+                with self.subTest(content=content):
+                    if content is not None:
+                        path.write_text(content)
+                    result = queue_backlog(datasource, params)
+                    self.assertEqual(result.key, "backlog")
+                    self.assertEqual(result.health, "UNKNOWN")
+
+
+if __name__ == "__main__":
+    unittest.main()

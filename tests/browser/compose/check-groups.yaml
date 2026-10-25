@@ -1,0 +1,49 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+services:
+  browser:
+    depends_on: !override
+      controller:
+        condition: service_healthy
+      groups-a:
+        condition: service_started
+      groups-b:
+        condition: service_started
+  groups-a:
+    build: &groups-build
+      context: .
+      dockerfile: examples/consumers/Dockerfile
+    environment: &groups-environment
+      MONDEK_CONSUMER: mondek_examples.check_groups_demo:app
+      MONDEK_GROUPS_OBSERVER: a
+      MONDEK_GROUPS_PHASE: "${MONDEK_GROUPS_PHASE:-initial}"
+      MONDEK_GROUPS_FIXTURE_URL: http://target:8080
+      MONDEK_CONTROLLER_URL: http://target:8080
+      MONDEK_SPOOL_MAX_REPORTS: "128"
+      MONDEK_SPOOL_MAX_BYTES: "1048576"
+    volumes:
+      - groups_a_data:/state
+    depends_on: &groups-dependencies
+      controller:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 10s
+    logging: &groups-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  groups-b:
+    build: *groups-build
+    environment:
+      <<: *groups-environment
+      MONDEK_GROUPS_OBSERVER: b
+    volumes:
+      - groups_b_data:/state
+    depends_on: *groups-dependencies
+    init: true
+    stop_grace_period: 10s
+    logging: *groups-logging
+volumes:
+  groups_a_data:
+  groups_b_data:

@@ -1,0 +1,131 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+"""Your monitoring logic and the settings deliberately delegated to the UI."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from mondek_runner import (
+    App,
+    Binding,
+    Datasource,
+    Environment,
+    Output,
+    Parameter,
+    Result,
+    Target,
+    check,
+    crit,
+    ok,
+    unknown,
+    warn,
+)
+
+
+class BacklogFile(Datasource):
+    """Local access belongs to your project, separate from operator thresholds."""
+
+    def __init__(self, path: str) -> None:
+        self.path = Path(path)
+
+    def read(self) -> str:
+        with self.path.open(encoding="utf-8") as stream:
+            value = stream.read(4097)
+        if len(value) > 4096:
+            raise ValueError("backlog input exceeds 4096 characters")
+        return value
+
+
+def evaluate_backlog(text: str, params: dict[str, int]) -> Result:
+    """Ordinary Python: replace this policy with the meaning of your own check."""
+    try:
+        count = int(text.strip())
+        if count < 0 or count > 1_000_000:
+            raise ValueError("outside the supported input range")
+    except ValueError:
+        return unknown(
+            "backlog",
+            "Input must be an integer from 0 to 1000000",
+            details="The collected backlog value is invalid. No queue-depth verdict can be inferred.",
+        )
+    if count >= params["critical_items"]:
+        verdict = crit
+    elif count >= params["warning_items"]:
+        verdict = warn
+    else:
+        verdict = ok
+    return verdict(
+        "backlog",
+        f"{count} pending items",
+        value=count,
+        details=f"Observed backlog: {count} items.\nWarning at or above {params['warning_items']} items; critical at or above {params['critical_items']} items.",
+    )
+
+
+@check(
+    id="queue-backlog",
+    name="Queue backlog",
+    expected_keys=("backlog",),
+    params={"warning_items": 5, "critical_items": 10},
+    parameters={
+        "warning_items": Parameter(
+            "integer",
+            "Warning at",
+            unit="items",
+            minimum=1,
+            maximum=1_000_000,
+        ),
+        "critical_items": Parameter(
+            "integer",
+            "Critical at",
+            unit="items",
+            minimum=1,
+            maximum=1_000_000,
+        ),
+    },
+    comparisons=(("warning_items", "lt", "critical_items"),),
+    interval_seconds=5,
+    timeout_seconds=3,
+    freshness_seconds=20,
+)
+def queue_backlog(backlog: BacklogFile, params: dict[str, int]) -> Result:
+    try:
+        return evaluate_backlog(backlog.read(), params)
+    except (OSError, UnicodeError, ValueError):
+        return unknown(
+            "backlog",
+            "Cannot read the configured backlog file",
+            details="Verify file presence and access from this runner. Input must be UTF-8 text within 4096 characters. This diagnostic does not include file contents or private access paths.",
+        )
+
+
+# Choose identities before using real targets. Preserve them while their meaning
+# stays the same; a different node, queue or result needs a different identity.
+app = App(
+    source_id="my-monitoring",
+    name="My monitoring",
+    environment=Environment("node-a", "Node A"),
+    construction_environment={
+        "MONDEK_BACKLOG_FILE": os.environ.get("MONDEK_BACKLOG_FILE"),
+    },
+    checks=[
+        Binding(
+            queue_backlog,
+            outputs=(
+                Output(
+                    "backlog",
+                    "Queue backlog",
+                    Target("node:node-a/queue:sample", "Node A sample queue", "queue"),
+                ),
+            ),
+        ),
+    ],
+)
+app.register_datasource(
+    BacklogFile,
+    path=str(
+        Path(os.environ.get("MONDEK_BACKLOG_FILE", "sample-backlog.txt")).resolve()
+    ),
+)

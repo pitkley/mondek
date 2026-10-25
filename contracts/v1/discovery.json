@@ -1,0 +1,1114 @@
+[
+  {
+    "name": "filesystem-with-choices",
+    "valid": true,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "unknown-field",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0,
+      "secret": "no"
+    }
+  },
+  {
+    "name": "null-version",
+    "valid": false,
+    "value": {
+      "version": null,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "boolean-version",
+    "valid": false,
+    "value": {
+      "version": true,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "duplicate-candidate",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        },
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "duplicate-choice",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        },
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "no-choice",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "negative-omitted",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": -1
+    }
+  },
+  {
+    "name": "boolean-omitted",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": true
+    }
+  },
+  {
+    "name": "nul-detail",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "bad\u0000text"
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "invalid-key",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "bad key",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "unknown-parameter-field",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100,
+                "secret": true
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "missing-default",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {}
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "invalid-default",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 101
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "undeclared-default",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {
+            "x": 1
+          }
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "comparisons",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": [
+              {
+                "left": "limit",
+                "op": "lt",
+                "right": "limit"
+              }
+            ]
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "null-unit",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100,
+                "unit": null
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "empty-parameter-choices",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100,
+                "choices": []
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "empty-unit",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100,
+                "unit": ""
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "whitespace-unit",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100,
+                "unit": "  "
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "del-unit",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100,
+                "unit": "x"
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "padded-field-label",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "x                                                                                                                                                                                                        ",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  },
+  {
+    "name": "padded-unit",
+    "valid": false,
+    "value": {
+      "version": 1,
+      "title": "Review discovered volumes",
+      "instructions": "Update monitoring inventory; do not deploy automatically.",
+      "choices": [
+        {
+          "key": "monitor",
+          "label": "Monitor capacity",
+          "description": "Require this volume.",
+          "parameter_schema": {
+            "fields": {
+              "limit": {
+                "type": "integer",
+                "label": "Critical percent",
+                "minimum": 1,
+                "maximum": 100,
+                "unit": "x                                                                "
+              }
+            },
+            "comparisons": []
+          },
+          "params": {
+            "limit": 90
+          }
+        },
+        {
+          "key": "ignore",
+          "label": "Ignore",
+          "description": "",
+          "parameter_schema": {
+            "fields": {},
+            "comparisons": []
+          },
+          "params": {}
+        }
+      ],
+      "candidates": [
+        {
+          "key": "data",
+          "label": "Data volume",
+          "details": "Mounted at /data\nObserved on node-a."
+        }
+      ],
+      "omitted": 0
+    }
+  }
+]

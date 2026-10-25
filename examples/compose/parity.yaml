@@ -1,0 +1,270 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+# Combine with compose.yaml under a separate project for node/datasource parity.
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=1h
+      - --storage.tsdb.retention.size=128MB
+    volumes:
+      - ./tests/fixtures/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      target:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/ready"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    logging: &parity-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  monitoring-runner:
+    build: &consumer-build
+      context: .
+      dockerfile: examples/consumers/Dockerfile
+    environment:
+      MONDEK_CONSUMER: mondek_examples.monitoring:app
+      MONDEK_RUNNER_LABEL: Dedicated monitoring
+      MONDEK_CONTROLLER_URL: http://target:8080
+      MONDEK_SPOOL_MAX_REPORTS: "${MONDEK_SPOOL_MAX_REPORTS:-1000}"
+      MONDEK_SPOOL_MAX_BYTES: "${MONDEK_SPOOL_MAX_BYTES:-2097152}"
+      PROMETHEUS_URL: http://prometheus:9090
+    volumes:
+      - monitoring_runner_data:/state
+    depends_on:
+      controller:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 10s
+    logging: *parity-logging
+  node-a-target:
+    build: &node-build
+      context: .
+      dockerfile: tests/fixtures/Dockerfile.node
+    volumes:
+      - node_a_files:/node
+    healthcheck: &node-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    init: true
+    logging: *parity-logging
+  node-b-target:
+    build: *node-build
+    volumes:
+      - node_b_files:/node
+    healthcheck: *node-health
+    init: true
+    logging: *parity-logging
+  node-a-runner:
+    build: *consumer-build
+    environment:
+      MONDEK_CONSUMER: mondek_examples.node:app
+      MONDEK_RUNNER_LABEL: Node A
+      MONDEK_NODE_ID: node-a
+      MONDEK_NODE_NAME: Node A
+      MONDEK_NODE_DIRECTORY: /node
+      MONDEK_CONTROLLER_URL: http://target:8080
+      MONDEK_SPOOL_MAX_REPORTS: "${MONDEK_SPOOL_MAX_REPORTS:-1000}"
+      MONDEK_SPOOL_MAX_BYTES: "${MONDEK_SPOOL_MAX_BYTES:-2097152}"
+    volumes:
+      - node_a_runner_data:/state
+      - node_a_files:/node:ro
+    # Share only this owned demonstration node's process namespace.
+    pid: service:node-a-target
+    depends_on:
+      controller:
+        condition: service_healthy
+      node-a-target:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 10s
+    logging: *parity-logging
+  node-b-runner:
+    build: *consumer-build
+    environment:
+      MONDEK_CONSUMER: mondek_examples.node:app
+      MONDEK_RUNNER_LABEL: Node B
+      MONDEK_NODE_ID: node-b
+      MONDEK_NODE_NAME: Node B
+      MONDEK_NODE_DIRECTORY: /node
+      MONDEK_CONTROLLER_URL: http://target:8080
+      MONDEK_SPOOL_MAX_REPORTS: "${MONDEK_SPOOL_MAX_REPORTS:-1000}"
+      MONDEK_SPOOL_MAX_BYTES: "${MONDEK_SPOOL_MAX_BYTES:-2097152}"
+    volumes:
+      - node_b_runner_data:/state
+      - node_b_files:/node:ro
+    pid: service:node-b-target
+    depends_on:
+      controller:
+        condition: service_healthy
+      node-b-target:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 10s
+    logging: *parity-logging
+  capacity-files:
+    build: *node-build
+    profiles: [capacity, bulk]
+    command: ["python", "-c", "from pathlib import Path; p=Path('/samples'); p.mkdir(exist_ok=True); [(p/f'export-{i:04d}.txt').write_text('valid export\\n') for i in range(512)]"]
+    volumes:
+      - capacity_files:/samples
+    # This initializer owns a new project-specific volume only.
+    user: "0:0"
+    logging: *parity-logging
+  capacity-runner:
+    build: *consumer-build
+    profiles: [capacity]
+    environment:
+      MONDEK_CONSUMER: mondek_examples.load:app
+      MONDEK_RUNNER_LABEL: Export capacity
+      MONDEK_CONTROLLER_URL: http://target:8080
+      MONDEK_LOAD_CHECKS: "${MONDEK_LOAD_CHECKS:-500}"
+      MONDEK_LOAD_GROUP_SIZE: "${MONDEK_LOAD_GROUP_SIZE:-10}"
+      MONDEK_LOAD_INTERVAL: "${MONDEK_LOAD_INTERVAL:-60}"
+      MONDEK_MAX_CONCURRENCY: "${MONDEK_LOAD_CONCURRENCY:-3}"
+      MONDEK_SPOOL_MAX_REPORTS: "2048"
+      MONDEK_SPOOL_MAX_BYTES: "8388608"
+    volumes:
+      - capacity_runner_data:/state
+      - capacity_files:/samples:ro
+    depends_on:
+      controller:
+        condition: service_healthy
+      capacity-files:
+        condition: service_completed_successfully
+    init: true
+    stop_grace_period: 10s
+    logging: *parity-logging
+  bulk-runner:
+    build: *consumer-build
+    profiles: [bulk]
+    environment:
+      MONDEK_CONSUMER: mondek_examples.bulk_exports:app
+      MONDEK_RUNNER_LABEL: Export configuration
+      MONDEK_CONTROLLER_URL: http://target:8080
+      MONDEK_LOAD_CHECKS: "500"
+      MONDEK_LOAD_GROUP_SIZE: "1"
+      MONDEK_LOAD_INTERVAL: "120"
+      MONDEK_MAX_CONCURRENCY: "3"
+      MONDEK_SPOOL_MAX_REPORTS: "2048"
+      MONDEK_SPOOL_MAX_BYTES: "8388608"
+    volumes:
+      - bulk_runner_data:/state
+      - capacity_files:/samples:ro
+    depends_on:
+      controller:
+        condition: service_healthy
+      capacity-files:
+        condition: service_completed_successfully
+    init: true
+    stop_grace_period: 10s
+    logging: *parity-logging
+  node-local-runner:
+    build: *consumer-build
+    profiles: [starters]
+    environment:
+      MONDEK_CONSUMER: mondek_examples.node_local:app
+      MONDEK_RUNNER_LABEL: Ordinary node observer
+      MONDEK_CONTROLLER_URL: http://controller:4000
+      MONDEK_LOCAL_NODE_ID: ordinary-node
+      MONDEK_LOCAL_NODE_LABEL: Ordinary application node
+      MONDEK_LOCAL_FILE: /node/ordinary-export.csv
+      MONDEK_LOCAL_FILE_ID: "${MONDEK_LOCAL_FILE_ID:-export}"
+      MONDEK_LOCAL_PID_FILE: /node/application.pid
+      MONDEK_LOCAL_EXPECTED_EXECUTABLE: /usr/local/bin/python3.13
+      MONDEK_LOCAL_PROCESS_ID: application
+      MONDEK_LOCAL_INTERVAL: "5"
+    volumes:
+      - node_local_runner_data:/state
+      - node_a_files:/node:ro
+    pid: service:node-a-target
+    depends_on:
+      controller:
+        condition: service_healthy
+      node-a-target:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 10s
+    logging: *parity-logging
+  prometheus-local-runner:
+    build: *consumer-build
+    profiles: [starters]
+    environment:
+      MONDEK_CONSUMER: mondek_examples.prometheus_local:app
+      MONDEK_RUNNER_LABEL: Scrape health observer
+      MONDEK_CONTROLLER_URL: http://controller:4000
+      MONDEK_PROMETHEUS_SETTINGS: '{"url":"http://prometheus:9090","targets":{"target:8080":{"key":"monitoring-target","label":"Local scrape target","kind":"service"}}}'
+    volumes:
+      - prometheus_local_runner_data:/state
+    depends_on:
+      controller:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 10s
+    logging: *parity-logging
+  node-multi-runner:
+    build: *consumer-build
+    profiles: [starters]
+    environment:
+      MONDEK_CONSUMER: mondek_examples.node_multi:app
+      MONDEK_RUNNER_LABEL: Multiple resource observer
+      MONDEK_CONTROLLER_URL: http://controller:4000
+      MONDEK_NODE_RESOURCES_SETTINGS: '{"node_id":"ordinary-multi","node_label":"Multi-application node","interval_seconds":5,"files":[{"id":"primary-export","path":"/node/ordinary-export.csv"},{"id":"secondary-export","path":"/node/secondary-export.csv"}],"processes":[{"id":"application","pid_file":"/node/application.pid","expected_executable":"/usr/local/bin/python3.13"}],"mounts":[{"id":"root","path":"/"}]}'
+    volumes:
+      - node_multi_runner_data:/state
+      - node_a_files:/node:ro
+    pid: service:node-a-target
+    depends_on:
+      controller:
+        condition: service_healthy
+      node-a-target:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 10s
+    logging: *parity-logging
+  numeric-runner:
+    build: *consumer-build
+    profiles: [starters]
+    environment:
+      MONDEK_CONSUMER: mondek_examples.prometheus_numeric_example:app
+      MONDEK_RUNNER_LABEL: Numeric metric observer
+      MONDEK_CONTROLLER_URL: http://controller:4000
+      MONDEK_PROMETHEUS_URL: http://prometheus:9090
+    volumes:
+      - numeric_runner_data:/state
+    depends_on:
+      controller:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    init: true
+    stop_grace_period: 10s
+    logging: *parity-logging
+
+volumes:
+  prometheus_data:
+  monitoring_runner_data:
+  node_a_files:
+  node_b_files:
+  node_a_runner_data:
+  node_b_runner_data:
+  capacity_files:
+  capacity_runner_data:
+  bulk_runner_data:
+  node_local_runner_data:
+  prometheus_local_runner_data:
+  node_multi_runner_data:
+  numeric_runner_data:

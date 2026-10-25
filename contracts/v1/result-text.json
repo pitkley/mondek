@@ -1,0 +1,11 @@
+[
+  {"name": "empty", "value": "", "valid": true},
+  {"name": "multiline-unicode", "value": "Measured é\n測定\tready", "valid": true},
+  {"name": "exact-byte-bound", "value": "é", "repeat": 1024, "valid": true},
+  {"name": "over-byte-bound", "value": "é", "repeat": 1025, "valid": false},
+  {"name": "nul", "value": "bad\u0000summary", "valid": false},
+  {"name": "literal-escape", "value": "bad\\x00summary", "valid": true},
+  {"name": "unpaired-surrogate", "utf8_bytes": [237, 160, 128], "valid": false},
+  {"name": "null", "value": null, "valid": false},
+  {"name": "number", "value": 42, "valid": false}
+]

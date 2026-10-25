@@ -1,0 +1,46 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+[project]
+name = "mondek"
+version = "0.0.1a1"
+description = "Typed check-authoring SDK and local monitoring runner for Mondek"
+readme = "PYPI-README.md"
+authors = [{ name = "Pit Kleyersburg" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+
+license = "Apache-2.0"
+license-files = ["LICENSE", "THIRD_PARTY_LICENSES.md"]
+requires-python = ">=3.13"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/pitkley/mondek"
+Repository = "https://github.com/pitkley/mondek"
+Documentation = "https://github.com/pitkley/mondek/blob/main/docs/SDK.md"
+Issues = "https://github.com/pitkley/mondek/issues"
+
+[project.scripts]
+mondek-runner = "mondek_runner.__main__:main"
+mondek-policy = "mondek_runner.policy:main"
+
+[build-system]
+requires = ["uv_build==0.12.5"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
+module-name = "mondek_runner"
+
+[dependency-groups]
+dev = ["ruff==0.15.8"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

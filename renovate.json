@@ -1,0 +1,73 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "enabled": false,
+  "enabledManagers": [
+    "dockerfile",
+    "docker-compose",
+    "github-actions",
+    "mix",
+    "npm",
+    "pep621"
+  ],
+  "automerge": false,
+  "dependencyDashboardApproval": true,
+  "prConcurrentLimit": 2,
+  "prHourlyLimit": 1,
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "matchManagers": [
+        "dockerfile",
+        "docker-compose"
+      ],
+      "pinDigests": true
+    },
+    {
+      "matchPackageNames": [
+        "ruff"
+      ],
+      "groupName": "Ruff declarations and locks"
+    },
+    {
+      "matchPackageNames": [
+        "python",
+        "hexpm/elixir",
+        "node",
+        "ghcr.io/astral-sh/uv",
+        "uv_build",
+        "esbuild"
+      ],
+      "enabled": false,
+      "description": "Update these with the resolved devenv toolchain and runtime notice evidence; see docs/DEPENDENCY-MAINTENANCE.md."
+    },
+    {
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDepTypes": [
+        "requires-python"
+      ],
+      "enabled": false
+    },
+    {
+      "matchPackageNames": [
+        "@playwright/test",
+        "mcr.microsoft.com/playwright"
+      ],
+      "groupName": "Playwright package and browser image"
+    }
+  ],
+  "prBodyNotes": [
+    "Update matching locks, regenerate and review credits with `devenv shell -- mondek licenses`, and run license/static/native plus relevant packaged checks before merging.",
+    "Review coupled runtime/image/tool pins and frozen SDK compatibility explicitly. This bot does not regenerate Mondek's notice evidence or publish artifacts.",
+    "Run `python3 scripts/dependency_pins.py --toolchain` inside devenv; partial coordinated updates fail CI. Generated notices must be refreshed by a maintainer before this PR can pass."
+  ]
+}

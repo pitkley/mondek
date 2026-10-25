@@ -1,0 +1,24 @@
+version = 1
+revision = 3
+requires-python = ">=3.13"
+
+[[package]]
+name = "mondek"
+version = "0.0.1a1"
+source = { editable = "../../runner" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [{ name = "ruff", specifier = "==0.15.8" }]
+
+[[package]]
+name = "mondek-policy-example"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "mondek" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mondek", editable = "../../runner" }]
