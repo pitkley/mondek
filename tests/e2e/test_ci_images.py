@@ -228,6 +228,6 @@ class PackagedFailuresTests(unittest.TestCase):
                 for row in measurements:
                     self.assertEqual(summary.count(f"| {row['stage']} |"), 1)
                 if later_stage:
-                    self.assertEqual(measurements[-1]["stage"], later_stage)
+                    self.assertIn(later_stage, [row["stage"] for row in measurements])
                 else:
                     self.assertEqual(len(measurements), 1)

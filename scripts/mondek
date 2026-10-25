@@ -43,6 +43,9 @@ Develop and maintain Mondek
   licenses         Refresh pinned dependency evidence and generated credits
   licenses-check   Enforce dependency license policy and reject stale credits
   test             Run native runner and PostgreSQL controller tests
+  test-prepare     Install dependencies, build assets and start the test database
+  test-python      Run Python suites after test-prepare (CI test lane)
+  test-controller  Run PostgreSQL tests after test-prepare (CI test lane)
   services-up      Start PostgreSQL and wait for readiness
   services-status  Show this project's Compose services
   services-down    Stop this project's services; retain data volumes
@@ -118,6 +121,22 @@ assets() {
   NODE_PATH=controller/deps "$ESBUILD_PATH" controller/assets/js/app.js --bundle --target=es2022 --outfile=controller/priv/static/assets/app.js
 }
 
+test_prepare() {
+  setup
+  assets
+  PGPORT=55433 docker compose -p mondek-tests up --detach --wait --wait-timeout 90 postgres
+}
+
+test_python() {
+  PYTHONPATH=runner:examples uv run --project runner --locked python -m unittest discover -s runner/tests -v
+  uv run --project runner --locked python -m unittest discover -s tests/e2e -v
+  uv run --project examples/consumers --locked python -m unittest discover -s examples/consumers/tests -v
+}
+
+test_controller() {
+  (cd controller && PGPORT=55433 MIX_ENV=test mix test)
+}
+
 
 if [[ $# -gt 1 && "$1" != "configuration-acceptance" && "$1" != "help" ]]; then
   usage >&2
@@ -143,7 +162,8 @@ case "${1:-help}" in
     bash scripts/mondek licenses-check
     python3 -m unittest discover -s tests/licensing -v
     bash -n scripts/mondek
-    shellcheck scripts/mondek
+    bash -n scripts/ci-disk.sh
+    shellcheck scripts/mondek scripts/ci-disk.sh
     actionlint .github/workflows/*.yml
     zizmor --offline --strict-collection --persona auditor .github/workflows
     nixfmt --check devenv.nix
@@ -198,13 +218,18 @@ case "${1:-help}" in
     assets
     ;;
   test)
-    setup
-    assets
-    PGPORT=55433 docker compose -p mondek-tests up --detach --wait --wait-timeout 90 postgres
-    PYTHONPATH=runner:examples uv run --project runner --locked python -m unittest discover -s runner/tests -v
-    uv run --project runner --locked python -m unittest discover -s tests/e2e -v
-    uv run --project examples/consumers --locked python -m unittest discover -s examples/consumers/tests -v
-    (cd controller && PGPORT=55433 MIX_ENV=test mix test)
+    test_prepare
+    test_python
+    test_controller
+    ;;
+  test-prepare)
+    test_prepare
+    ;;
+  test-python)
+    test_python
+    ;;
+  test-controller)
+    test_controller
     ;;
   demo)
     docker compose up --build --detach --wait --wait-timeout 180

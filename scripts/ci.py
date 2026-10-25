@@ -6,13 +6,17 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
+import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
+from threading import Lock
 
 ROOT = Path(__file__).resolve().parents[1]
 IMAGES = {
@@ -80,6 +84,8 @@ def main() -> None:
     output = ROOT / ".local/ci"
     output.mkdir(parents=True, exist_ok=True)
     measurements: list[dict] = []
+    reporting = Lock()
+    started = time.monotonic()
     phase_name = {
         "native": "Unit tests and checks",
         "packaged": "Integration and browser tests",
@@ -88,15 +94,26 @@ def main() -> None:
 
     def run(label: str, command: list[str]) -> None:
         start = time.monotonic()
-        print(f"::group::{label}", flush=True)
-        try:
-            result = subprocess.run(command, cwd=ROOT, check=False)
+        logs = output / "logs"
+        logs.mkdir(exist_ok=True)
+        log = logs / f"{args.phase}-{re.sub('[^a-z0-9]+', '-', label.lower())}.log"
+        with reporting:
+            print(f"Starting {label}; log: {log}", flush=True)
+        with log.open("w") as stream:
+            result = subprocess.run(
+                command, cwd=ROOT, check=False, stdout=stream, stderr=subprocess.STDOUT
+            )
+        seconds = round(time.monotonic() - start, 2)
+        # Child output stays separate while lanes overlap. Only this writer updates
+        # timing evidence and replays complete groups to the Actions log.
+        with reporting:
             measurements.append(
                 {
                     "stage": label,
                     "command": shlex.join(command),
-                    "seconds": round(time.monotonic() - start, 2),
+                    "seconds": seconds,
                     "returncode": result.returncode,
+                    "log": str(log.relative_to(ROOT)),
                 }
             )
             (output / f"{args.phase}-timings.json").write_text(
@@ -113,7 +130,9 @@ def main() -> None:
                     "Excludes workflow setup and image builds.\n\n"
                     "| Stage | Command | Seconds | Result |\n| --- | --- | ---: | --- |\n"
                     + "\n".join(rows)
-                    + f"\n\nTotal: {sum(item['seconds'] for item in measurements):.2f}s\n"
+                    + f"\n\nElapsed: {time.monotonic() - started:.2f}s; "
+                    + f"summed command time: {sum(item['seconds'] for item in measurements):.2f}s. "
+                    + "Overlapping command durations are not additive wall time.\n"
                     + "\nOpen the failed stage in the job log for command output. "
                     "Download the job evidence artifact for `.local/ci/` timings and image audits"
                     + (
@@ -122,12 +141,41 @@ def main() -> None:
                         else ".\n"
                     )
                 )
-            result.check_returncode()
-        finally:
+            print(f"::group::{label} ({seconds:.2f}s)", flush=True)
+            with log.open() as stream:
+                shutil.copyfileobj(stream, sys.stdout)
             print("::endgroup::", flush=True)
+        result.check_returncode()
+
+    def run_lanes(lanes: list[list[tuple[str, list[str]]]]) -> None:
+        def lane(commands: list[tuple[str, list[str]]]) -> list[str]:
+            failures = []
+            for label, command in commands:
+                try:
+                    run(label, command)
+                except subprocess.CalledProcessError:
+                    failures.append(label)
+            return failures
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(lane, commands) for commands in lanes]
+            failures = [label for future in futures for label in future.result()]
+        if failures:
+            raise SystemExit("Failed suites: " + ", ".join(failures))
 
     if args.phase == "native":
-        run("Unit and database tests", ["bash", "scripts/mondek", "test"])
+        run("Prepare native tests", ["bash", "scripts/mondek", "test-prepare"])
+        run_lanes(
+            [
+                [("Python tests", ["bash", "scripts/mondek", "test-python"])],
+                [
+                    (
+                        "Controller database tests",
+                        ["bash", "scripts/mondek", "test-controller"],
+                    )
+                ],
+            ]
+        )
         run("Code style, types and installed SDK", ["bash", "scripts/mondek", "check"])
         run(
             "Elixir dependency advisories",
@@ -197,14 +245,13 @@ def main() -> None:
                     ],
                 ),
             )
-        failures = []
-        for label, command in suites:
-            try:
-                run(label, command)
-            except subprocess.CalledProcessError:
-                failures.append(label)
-        if failures:
-            raise SystemExit("Failed packaged suites: " + ", ".join(failures))
+        if args.mode == "smoke":
+            core = [
+                suite for suite in suites if suite[0] == "Real acceptance acceptance"
+            ]
+            run_lanes([core, [suite for suite in suites if suite not in core]])
+        else:
+            run_lanes([suites])
 
 
 if __name__ == "__main__":
