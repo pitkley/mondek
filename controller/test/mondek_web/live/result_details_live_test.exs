@@ -8,6 +8,45 @@ defmodule MondekWeb.ResultDetailsLiveTest do
 
   @endpoint MondekWeb.Endpoint
 
+  test "incident header reaches the exact result and its configuration with return navigation" do
+    connect()
+    ingest(measurement("CRIT"))
+    incident = Repo.one!(Incident)
+    return_to = "/incidents?status=open"
+    incident_path = "/incidents/#{incident.id}?" <> URI.encode_query(%{"return_to" => return_to})
+
+    result_path =
+      "/checks/#{incident.stream_id}?" <> URI.encode_query(%{"return_to" => incident_path})
+
+    {:ok, view, _} = live(build_conn(), incident_path)
+    assert has_element?(view, ".page-heading #incident-view-check", "View check")
+    refute has_element?(view, "#incident-history a", "View check")
+
+    {:ok, result, _} =
+      view
+      |> element("#incident-view-check")
+      |> render_click()
+      |> follow_redirect(build_conn(), result_path)
+
+    assert has_element?(result, ".back[href='#{incident_path}']", "Back to incident")
+
+    configuration_path =
+      "/configuration/#{incident.assignment_id}?" <>
+        URI.encode_query(%{"return_to" => result_path})
+
+    {:ok, configuration, _} =
+      result
+      |> element(".page-heading a", "Review configuration")
+      |> render_click()
+      |> follow_redirect(build_conn(), configuration_path)
+
+    assert has_element?(configuration, ".back[href='#{result_path}']", "Back to result")
+
+    ingest(measurement("OK", 2))
+    {:ok, closed, _} = live(build_conn(), incident_path)
+    assert has_element?(closed, ".page-heading #incident-view-check[href='#{result_path}']")
+  end
+
   test "result and incident detail display escaped multiline evidence without expanding lists or notifications" do
     connect()
     details = "First line\n<script>alert('unsafe')</script>\n**plain**, not Markdown & literal"

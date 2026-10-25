@@ -124,6 +124,23 @@ test('runner-provided monitoring supports configuration, live draft recovery and
   await page.locator('[id^="active-incident-"]').getByRole('link', { name: /Inspect incident/ }).click();
   await expect(page).toHaveURL(/\/incidents\/[0-9a-f-]+(?:\?|$)/);
   const incidentId = new URL(page.url()).pathname.split('/').at(-1);
+  const incidentURL = page.url();
+  for (const width of [1280, 320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(incidentURL);
+    const viewCheck = page.locator('.page-heading #incident-view-check');
+    await expect(viewCheck).toBeInViewport();
+    await checkpoint(page, testInfo, `incident-check-navigation-${width}`);
+    await viewCheck.click();
+    await expect(page).toHaveURL(new RegExp(`/checks/${result.id}\\?`));
+    await page.getByRole('link', { name: 'Review configuration', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/configuration/${id}\\?`));
+    await page.locator('a.back').click();
+    await expect(page).toHaveURL(new RegExp(`/checks/${result.id}\\?`));
+    await page.locator('a.back').click();
+    await expect(page).toHaveURL(incidentURL);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.locator('#incident-agent-prompts-incident summary').click();
   await expect(page.locator('#incident-agent-prompts-incident-text')).toContainText(incidentId);
   await expect(page.locator('#incident-agent-prompts-incident-text')).toContainText('read-only');
