@@ -4,7 +4,7 @@ Local commands in this guide only validate/build/export artifacts; they never cr
 
 ## Artifact and version contract
 
-The first candidate uses Python SDK version 0.0.1a2, controller version 0.0.1-alpha.2, Git tag v0.0.1a2 and image tag 0.0.1a2. Python prerelease markers a/b/rc map to controller alpha/beta/rc identifiers; stable versions match directly. The SDK distribution is mondek. The planned final source repository is pitkley/mondek and controller image is ghcr.io/pitkley/mondek/controller. Names describe the intended release; they do not imply that repositories, namespaces or public artifacts already exist.
+The current release examples use Python SDK version 0.0.1a2, controller version 0.0.1-alpha.2, Git tag v0.0.1a2 and image tag 0.0.1a2. Python prerelease markers a/b/rc map to controller alpha/beta/rc identifiers; stable versions match directly. The SDK distribution is mondek. The source repository is pitkley/mondek and controller image is ghcr.io/pitkley/mondek/controller.
 
 ```sh
 devenv shell -- python scripts/release.py check --tag v0.0.1a2

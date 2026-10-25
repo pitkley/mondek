@@ -4,7 +4,7 @@ This walkthrough starts an empty local Mondek server, creates your own Python mo
 
 ## Installed artifacts
 
-The registry release is being prepared. After the selected alpha is published, start the server using [the two-service image recipe](../deploy/README.md), then use Python 3.13+ and uv on the runner host:
+Start the published alpha server using [the two-service image recipe](../deploy/README.md), then use Python 3.13+ and uv on the runner host:
 
 ```sh
 uv tool install mondek==0.0.1a2
@@ -68,7 +68,7 @@ uv sync --project "$MONDEK_PROJECT" --locked --no-dev --no-editable
 cd "$MONDEK_PROJECT"
 ```
 
-Keep pyproject.toml, uv.lock, the vendor wheel, source and tests in your own project repository. Record the chosen Mondek revision and wheel checksum; 0.0.1a2 is candidate metadata until actually released, not a promise that all builds with that version are interchangeable. See [distribution](DISTRIBUTION.md) for relocation, artifact provenance and upgrade details. The generated README also describes the editable development alternative; use the installed commands below for this wheel-based path.
+Keep pyproject.toml, uv.lock, the vendor wheel, source and tests in your own project repository. Record the chosen Mondek revision and wheel checksum. See [distribution](DISTRIBUTION.md) for relocation, artifact provenance and upgrade details. The generated README also describes the editable development alternative; use the installed commands below for this wheel-based path.
 
 ## 3. Validate and collect locally
 
