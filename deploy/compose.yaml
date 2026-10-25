@@ -3,7 +3,7 @@
 name: mondek
 services:
   controller:
-    image: ${MONDEK_IMAGE:-ghcr.io/pitkley/mondek/controller:0.0.1a1}
+    image: ${MONDEK_IMAGE:-ghcr.io/pitkley/mondek/controller:0.0.1a2}
     env_file: ${MONDEK_ENV_FILE:-.env}
     environment:
       PGHOST: postgres

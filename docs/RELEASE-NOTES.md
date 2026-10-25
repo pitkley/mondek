@@ -6,7 +6,7 @@ Start an empty local controller or the isolated demo using the [README](../READM
 
 The controller provides result inventory and history, incidents, local notification delivery, delegated configuration with Git history, maintenance windows and runner/adoption inspection. Runners preserve original evidence identity and age through outages and restart. The maintained [coverage map](ACCEPTANCE-COVERAGE.md) distinguishes native, packaged smoke, selected browser and manual exhaustive verification.
 
-The SDK version is 0.0.1a1 and controller version is 0.0.1-alpha.1. These alpha versions do not establish a stable compatibility promise. Use the same reviewed source revision for controller and SDK initially. The [upgrade guide](UPGRADING.md) explains the fresh database baseline, state preservation and update verification; it does not promise arbitrary mixed versions or zero-downtime upgrades.
+The SDK version is 0.0.1a2 and controller version is 0.0.1-alpha.2. These alpha versions do not establish a stable compatibility promise. Use the same reviewed source revision for controller and SDK initially. The [upgrade guide](UPGRADING.md) explains the fresh database baseline, state preservation and update verification; it does not promise arbitrary mixed versions or zero-downtime upgrades.
 
 See the [contract guide](../contracts/README.md) for protocol versioning and shared fixture coverage.
 

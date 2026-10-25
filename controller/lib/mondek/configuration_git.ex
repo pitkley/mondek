@@ -263,7 +263,8 @@ defmodule Mondek.ConfigurationGit do
         {:args,
          [
            ~c"-c",
-           ~c"ulimit -t 15; ulimit -f 32768; (ulimit -v 262144) 2>/dev/null && ulimit -v 262144; exec git -c core.bigFileThreshold=1m -c pack.windowMemory=8m -c pack.deltaCacheSize=8m -c core.hooksPath=/dev/null -c protocol.allow=never -c receive.fsckObjects=true -c receive.maxInputSize=8388608 \"$@\" < request-input 2> diagnostic-output",
+           # Packing and indexing share the per-process memory budget across their threads.
+           ~c"ulimit -t 15; ulimit -f 32768; (ulimit -v 262144) 2>/dev/null && ulimit -v 262144; exec git -c pack.threads=1 -c core.bigFileThreshold=1m -c pack.windowMemory=8m -c pack.deltaCacheSize=8m -c core.hooksPath=/dev/null -c protocol.allow=never -c receive.fsckObjects=true -c receive.maxInputSize=8388608 \"$@\" < request-input 2> diagnostic-output",
            ~c"git" | Enum.map(args, &String.to_charlist/1)
          ]}
       ])
