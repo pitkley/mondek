@@ -14,11 +14,11 @@
       "scope": "controller",
       "sources": [
         {
-          "integrity": "sha256:39028f0b5a21404661410a6c19275060a9822c9dcca70b7c3e4e4fa50b11da58",
-          "url": "https://repo.hex.pm/tarballs/bandit-1.13.1.tar"
+          "integrity": "sha256:87c7ee5e08fb5f22d4e072e681e1101266a21432889b08ef8d0cb0c1450f8bba",
+          "url": "https://repo.hex.pm/tarballs/bandit-1.14.1.tar"
         }
       ],
-      "version": "1.13.1"
+      "version": "1.14.1"
     },
     {
       "ecosystem": "hex",
@@ -269,11 +269,11 @@
       "scope": "controller",
       "sources": [
         {
-          "integrity": "sha256:3eaa290a78bab0f075f791a46a981bbe769d94bc776869f4f3063a14f30497ad",
-          "url": "https://repo.hex.pm/tarballs/phoenix_html-4.3.0.tar"
+          "integrity": "sha256:94832038da7ab8f86d4c0d36f7797a269fd06fe611f25c69f55108c075505228",
+          "url": "https://repo.hex.pm/tarballs/phoenix_html-4.4.0.tar"
         }
       ],
-      "version": "4.3.0"
+      "version": "4.4.0"
     },
     {
       "ecosystem": "hex",

@@ -2,6 +2,10 @@
 
 This experimental alpha adds optional PostgreSQL TLS and production webhooks, and improves database configuration and packaged startup. The Python SDK version is `0.0.1a3`, the controller version is `0.0.1-alpha.3`, and the intended Git/image tags are `v0.0.1a3` and `0.0.1a3`. Use matching controller/SDK releases or build both from the same reviewed source revision. Mondek remains experimental, with no stable compatibility or production-readiness guarantee.
 
+## Security updates
+
+The controller now requires Bandit 1.14.1 and Phoenix HTML 4.4.0 or compatible newer versions, addressing the advisories reported against the previous locked versions. Updated dependency notices and source evidence are included. Keep the dependency security audit in the release qualification gates.
+
 ## PostgreSQL connections
 
 The controller supports plain PostgreSQL and optional TLS through `PGSSLMODE=disable|require|verify-ca|verify-full`. Plain connections remain the default. Verified modes support a private CA through `PGSSLROOTCERT`; `require` enforces encryption without authenticating the server, while `verify-full` verifies both the certificate chain and hostname. TLS modes never fall back to plaintext. Outside deployment mode, Ecto's `DATABASE_URL` `ssl=true` option remains available; conflicting TLS settings and unsupported URL `sslmode` are rejected. See [database setup](../deploy/README.md#optional-postgresql-tls).
