@@ -32,9 +32,9 @@ devenv shell -- uv run --directory .local/my-monitoring --locked mondek-runner r
 
 Generation creates an installable Python project, an example check with UI-delegated limits, local input, tests and agent guidance. It refuses an existing destination and performs no installation, network call or registration. The parent directory must exist. The generated README explains connecting to `devenv shell -- mondek start`, failure/recovery and persistent runner state. Use `--directory` or enter the project directory so its default local input resolves correctly. Local execution uses source defaults unless you supply `--params`; it does not fetch saved UI settings.
 
-The SDK is currently an editable local dependency; it is not a released registry package. Commit the consumer's generated `uv.lock` and source in its own repository for ongoing monitoring. This walkthrough's `.local` directory is ignored by the Mondek checkout. Production packaging should use an immutable SDK/consumer deployment; see [deployment guidance](../docs/RUNNER-DEPLOYMENT.md).
+This contributor walkthrough deliberately uses the checkout as an editable SDK dependency. Ordinary installations use the published [mondek package on PyPI](https://pypi.org/project/mondek/) through the [getting-started guide](../docs/GETTING-STARTED.md). Commit the consumer's generated `uv.lock` and source in its own repository for ongoing monitoring. This walkthrough's `.local` directory is ignored by the Mondek checkout. Production packaging should use an immutable SDK/consumer deployment; see [deployment guidance](../docs/RUNNER-DEPLOYMENT.md).
 
-For a separate consumer that must move independently of the SDK checkout, follow [the portable wheel installation path](../docs/DISTRIBUTION.md#a-consumer-with-a-portable-sdk-wheel). It retains a locally built wheel with the consumer and installs both packages non-editably, without a registry upload.
+For a separate consumer that must move independently of the SDK checkout, follow [the portable wheel installation path](../docs/DISTRIBUTION.md#contributor-alternative-a-consumer-with-a-portable-local-sdk-wheel). It retains a locally built wheel with the consumer and installs both packages non-editably, without a registry upload.
 
 ## Type checking consumer code
 

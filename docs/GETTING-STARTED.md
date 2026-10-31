@@ -18,7 +18,7 @@ uv run --locked mondek-runner --consumer monitoring.app:app \
   --controller http://127.0.0.1:4000 --state-dir .mondek-state
 ```
 
-Use the exact SDK version matching the controller release; the generator pins the installed version in the project. Before registry publication, install the qualified local wheel directly rather than inventing a registry release. The generated README covers local input, failure/recovery and a non-editable deployment. Use an absolute state directory for a persistent service. No Mondek checkout or Nix is needed for installed artifacts.
+Use the exact SDK version matching the controller release; the generator pins the installed version in the project. For unreleased contributor builds, install the qualified local wheel directly and use a controller built from the same reviewed revision. The generated README covers local input, failure/recovery and a non-editable deployment. Use an absolute state directory for a persistent service. No Mondek checkout or Nix is needed for installed artifacts.
 
 ## Contributor/source walkthrough
 

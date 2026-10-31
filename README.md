@@ -5,17 +5,17 @@ Mondek is code-driven monitoring: write Python checks that describe what matters
 > [!WARNING]
 > Mondek is experimental software that has seen only limited testing so far. It was implemented almost entirely by modern AI coding agents. Evaluate it alongside your existing monitoring before relying on it.
 
-Mondek has no built-in user authentication or permission management. Use it on loopback or behind an [authenticated gateway with direct origin access blocked](docs/CONTROLLER-AUTH.md); admitted operators share full access. The initial source preview assumes trusted operators and runners.
+Mondek has no built-in user authentication or permission management. Use it on loopback or behind an [authenticated gateway with direct origin access blocked](docs/CONTROLLER-AUTH.md); admitted operators share full access. The experimental alpha assumes trusted operators and runners.
 
 A **Mondek server** stores results, tracks incidents and delivers notifications. **Runners** load your monitoring project and execute its checks independently near the systems they observe. A check can produce several results, and your project can use ordinary Python libraries and abstractions. See [how the pieces fit together](docs/CONCEPTS.md).
 
-Mondek is currently distributed as source. Use the server and runner SDK from the same reviewed source revision; see the [preview scope](docs/RELEASE-NOTES.md).
+Mondek is available as a [published controller image](https://github.com/pitkley/mondek/releases/tag/v0.0.1a2), a [Python SDK on PyPI](https://pypi.org/project/mondek/) and source. Use matching controller/SDK releases, or the same reviewed source revision when building locally; see the [alpha scope](docs/RELEASE-NOTES.md).
 
 Use the [documentation index](docs/README.md) to find guides for getting started, writing checks, operating an installation and contributing.
 
 ## Get started
 
-For the image-based server installation, use [the controller/PostgreSQL Compose recipe](deploy/README.md). For the installed SDK workflow, follow [your first monitoring project](docs/GETTING-STARTED.md). Registry artifacts are being prepared; do not assume a version is public until the release is announced. The source/contributor workflow below remains available now.
+For the image-based server installation, use [the controller/PostgreSQL Compose recipe](deploy/README.md). For the installed SDK workflow, follow [your first monitoring project](docs/GETTING-STARTED.md). Release `0.0.1a2` is available from GHCR and PyPI. The source/contributor workflow below remains available for local development.
 
 For agent-assisted installation before any server is running, copy [the repository setup prompt](docs/AGENT-WORKFLOWS.md#before-the-ui-is-running) into your coding agent.
 
@@ -81,7 +81,7 @@ The [acceptance coverage map](docs/ACCEPTANCE-COVERAGE.md) lists every maintaine
 | `docs/` | Current authoring, operator and correctness guides |
 
 
-See the [initial source preview notes](docs/RELEASE-NOTES.md) and [fixed-source installation guide](docs/DISTRIBUTION.md) for distribution scope and compatibility.
+See the [experimental alpha notes](docs/RELEASE-NOTES.md) and [fixed-source installation guide](docs/DISTRIBUTION.md) for distribution scope and compatibility.
 
 ## License
 

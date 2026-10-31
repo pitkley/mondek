@@ -1,6 +1,6 @@
 # Writing checks with the Python SDK
 
-The `mondek_runner` SDK lets an ordinary Python package describe checks and run them on a runner. A monitoring project exports an `App` object, usually as `monitoring.app:app`. Install it using [the getting-started guide](GETTING-STARTED.md). The examples below use the installed SDK; there is no registry release to install yet.
+The `mondek_runner` SDK lets an ordinary Python package describe checks and run them on a runner. A monitoring project exports an `App` object, usually as `monitoring.app:app`. Install it using [the getting-started guide](GETTING-STARTED.md). The examples below use the installed SDK, available as [mondek on PyPI](https://pypi.org/project/mondek/). Use the SDK version matching your controller release.
 
 ## A first check
 
