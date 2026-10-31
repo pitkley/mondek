@@ -138,13 +138,13 @@ defmodule MondekWeb.CoverageLiveTest do
     now = Monitoring.now()
 
     local =
-      F.candidate(F.check("Backrest", "edge-node", "home"), false)
+      F.candidate(F.check("Backup service", "edge-node", "production"), false)
       |> Map.put(
         "exclusion_reason",
         "Requires execution in edge-node; runner executes in observer.example.test"
       )
 
-    shared = F.candidate(F.check("Remote logs", "edge-node", "home"))
+    shared = F.candidate(F.check("Remote logs", "edge-node", "production"))
 
     publication =
       F.publication([local, shared])
@@ -162,7 +162,7 @@ defmodule MondekWeb.CoverageLiveTest do
                "Runner executes in: observer.example.test"
              )
 
-      if scope["source_key"] == "Backrest" do
+      if scope["source_key"] == "Backup service" do
         assert has_element?(
                  detail,
                  "#coverage-observers",

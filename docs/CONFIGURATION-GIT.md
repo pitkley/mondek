@@ -6,7 +6,7 @@ UI saves automatically preserve shared rules and individual/bulk exceptions in c
 
 UI history needs no setup. To allow Git clients, generate a separate token on the controller host (`openssl rand -hex 32`) and put it in `controller.env` as `MONDEK_CONFIGURATION_GIT_TOKEN=…`. Recreate the controller with the normal deployment workflow. Do not put the token in Git, a URL or an agent prompt. Unset means Git endpoints return 404. Existing UI configuration migrates automatically on first use; runners need no update for this feature.
 
-The Git URL is `https://YOUR_CONTROLLER/configuration.git`. Use your Git credential helper, username `mondek`, and the token as password. Your HTTPS gateway must permit authorized requests to that path and its Git subpaths; runner-only Cloudflare policies do not automatically authorize configuration writes. Keep existing browser protection and supply any additional gateway credentials separately. The controller token remains required even after gateway authorization.
+The Git URL is `https://YOUR_CONTROLLER/configuration.git`. Use your Git credential helper, username `mondek`, and the token as password. Your HTTPS gateway must permit authorized requests to that path and its Git subpaths; runner-only gateway policies do not automatically authorize configuration writes. Keep existing browser protection and supply any additional gateway credentials separately. The controller token remains required even after gateway authorization.
 
 ```sh
 git clone https://YOUR_CONTROLLER/configuration.git mondek-config
@@ -23,24 +23,24 @@ Only `refs/heads/main` accepts changes. Tags, other refs, branch deletion and no
 
 If a UI save happened while you edited, fetch, inspect its changes and reconcile before retrying. Do not force-push. If a connection fails after submitting a push, fetch first: the requested commit may already be accepted. Repeating an accepted push does not create another configuration generation. Validation applies to the resulting main tree; intermediate commits remain Git history, not separately activated configurations. Review that history too before transferring it, and never commit secrets even temporarily.
 
-## Interactive access through Cloudflare Access
+## Additional gateway authentication
 
-If your installation uses Cloudflare Access, authorize `/configuration.git` and its subpaths through the appropriate Access application and tunnel audience. Keep runner service credentials scoped to runner API paths; use an interactive identity or a separately scoped service credential for configuration Git access. Cloudflare documents [CLI login and the application token header](https://developers.cloudflare.com/cloudflare-one/tutorials/cli/).
+If your installation uses an authentication gateway, authorize `/configuration.git` and its subpaths for the intended operator identity. Keep runner service credentials scoped to runner API paths; use an interactive identity or a separately scoped service credential for configuration Git access. Follow your gateway's login and credential-refresh workflow.
 
-With `cloudflared` installed, run this in Bash or Zsh on your workstation:
+For a gateway requiring an additional HTTP header, enter the complete header privately (for example, `X-Gateway-Token: TOKEN`) in Bash or Zsh:
 
 ```sh
-cloudflared access login https://monitoring.example.test >/dev/null
-export MONDEK_CF_HEADER="cf-access-token: $(cloudflared access token --app=https://monitoring.example.test)"
+read -rs MONDEK_GATEWAY_HEADER
+export MONDEK_GATEWAY_HEADER
 mondek_git() {
-  git --config-env=http.https://monitoring.example.test/.extraHeader=MONDEK_CF_HEADER \
+  git --config-env=http.https://monitoring.example.test/.extraHeader=MONDEK_GATEWAY_HEADER \
     -c credential.username=mondek "$@"
 }
 mondek_git ls-remote https://monitoring.example.test/configuration.git refs/heads/main
 mondek_git clone https://monitoring.example.test/configuration.git mondek-config
 ```
 
-At Git's password prompt, supply the Mondek configuration token from `controller.env`, not a Cloudflare token. The Cloudflare header stays in the current shell environment, outside repository configuration and command-line arguments. Refresh it after your Access session expires; `unset MONDEK_CF_HEADER` removes the shell copy when finished. A login redirect/Cloudflare denial concerns the outer gateway; a Mondek Basic-auth challenge concerns the inner configuration token. Never share either token in diagnostic output.
+Replace the example origin with your controller's HTTPS origin and use the header name required by your gateway. The additional header must coexist with Mondek's HTTP Basic authentication; do not override its `Authorization` header. At Git's password prompt, supply the Mondek configuration token from `controller.env`. The gateway header stays in the current shell environment, outside repository configuration and command-line arguments. Refresh it through your gateway's tooling when it expires; `unset MONDEK_GATEWAY_HEADER` removes the shell copy when finished. A gateway login redirect or denial concerns the outer access policy; a Mondek Basic-auth challenge concerns the inner configuration token. Never share either credential in diagnostic output.
 
 For an initial write test without changing monitoring settings, enter the cloned directory, create an empty commit (`git commit --allow-empty -m 'Verify configuration Git access'`) and use `mondek_git push origin main`. History should show settings unchanged. Then test a deliberate UI adjustment followed by `mondek_git pull --ff-only`, before reviewing a real parameter change through Git. A competing UI save may require fetching and reconciling even the empty test commit.
 
