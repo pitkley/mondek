@@ -4,7 +4,7 @@ defmodule Mondek.RuntimeConfigurationTest do
   use ExUnit.Case, async: false
 
   @runtime Path.expand("../../config/runtime.exs", __DIR__)
-  @variables ~w(MONDEK_RETENTION_RECEIPT_DAYS MONDEK_RETENTION_HISTORY_DAYS MONDEK_RETENTION_MAX_OBSERVATIONS MONDEK_DEPLOYMENT_MODE SECRET_KEY_BASE DATABASE_URL PGSSLMODE PGSSLROOTCERT PGPASSWORD PGHOST PGPORT PGUSER PGDATABASE PORT MONDEK_PUBLIC_URL MONDEK_SEED_DEMO MONDEK_NOTIFICATION_ADAPTER MONDEK_WEBHOOK_CONFIG_FILE MONDEK_SMTP_HOST MONDEK_SMTP_PORT MONDEK_SMTP_TRANSPORT MONDEK_SMTP_USERNAME MONDEK_SMTP_PASSWORD MONDEK_SMTP_FROM MONDEK_SMTP_TO MONDEK_SMTP_TIMEOUT_MS)
+  @variables ~w(MONDEK_RETENTION_RECEIPT_DAYS MONDEK_RETENTION_HISTORY_DAYS MONDEK_RETENTION_MAX_OBSERVATIONS MONDEK_DEPLOYMENT_MODE SECRET_KEY_BASE DATABASE_URL MONDEK_DATABASE_POOL_SIZE PGSSLMODE PGSSLROOTCERT PGPASSWORD PGHOST PGPORT PGUSER PGDATABASE PORT MONDEK_PUBLIC_URL MONDEK_SEED_DEMO MONDEK_NOTIFICATION_ADAPTER MONDEK_WEBHOOK_CONFIG_FILE MONDEK_SMTP_HOST MONDEK_SMTP_PORT MONDEK_SMTP_TRANSPORT MONDEK_SMTP_USERNAME MONDEK_SMTP_PASSWORD MONDEK_SMTP_FROM MONDEK_SMTP_TO MONDEK_SMTP_TIMEOUT_MS)
 
   setup do
     variables =
@@ -25,6 +25,37 @@ defmodule Mondek.RuntimeConfigurationTest do
 
   defp configuration do
     @runtime |> Config.Reader.read!(env: :prod) |> Keyword.fetch!(:mondek)
+  end
+
+  test "database pool size retains its default and accepts positive sizes in every environment" do
+    assert configuration()[Mondek.Repo][:pool_size] == 12
+
+    for size <- [1, 4, 24], environment <- [:dev, :test, :prod] do
+      System.put_env("MONDEK_DATABASE_POOL_SIZE", to_string(size))
+      config = Config.Reader.read!(@runtime, env: environment)
+      assert config[:mondek][Mondek.Repo][:pool_size] == size
+    end
+
+    deployment()
+    assert configuration()[Mondek.Repo][:pool_size] == 24
+  end
+
+  test "invalid database pool sizes fail without exposing supplied values" do
+    for value <- ["", "0", "-1", "1.5", "12connections", " 12", "private-invalid-value"] do
+      System.put_env("MONDEK_DATABASE_POOL_SIZE", value)
+
+      assert_raise RuntimeError,
+                   "MONDEK_DATABASE_POOL_SIZE must be a positive integer",
+                   &configuration/0
+    end
+  end
+
+  test "development DATABASE_URL retains Ecto pool size precedence" do
+    System.put_env("MONDEK_DATABASE_POOL_SIZE", "4")
+    System.put_env("DATABASE_URL", "postgres://localhost/mondek_dev?pool_size=6")
+    config = configuration()[Mondek.Repo]
+    effective = Keyword.merge(config, Ecto.Repo.Supervisor.parse_url(config[:url]))
+    assert effective[:pool_size] == 6
   end
 
   test "retention settings validate at startup and preserve defaults" do

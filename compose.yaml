@@ -19,6 +19,7 @@ services:
       PGPORT: "5432"
       PGDATABASE: "${PGDATABASE:-mondek_dev}"
       PGUSER: "${PGUSER:-mondek}"
+      MONDEK_DATABASE_POOL_SIZE: "${MONDEK_DATABASE_POOL_SIZE-12}"
       PORT: "4000"
       PHX_SERVER: "true"
       MONDEK_BIND_ADDRESS: 0.0.0.0

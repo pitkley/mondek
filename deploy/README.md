@@ -20,6 +20,10 @@ Open http://127.0.0.1:4000. The database has no published port and requires its 
 
 For another machine, protect the controller with an authentication gateway and restrict direct origin access. Set MONDEK_DEPLOYMENT_MODE=true and MONDEK_PUBLIC_URL to the HTTPS origin in .env, and route the gateway to the loopback port. Browser/WebSocket and runner API access both need gateway policies; see [the access boundary](../docs/CONTROLLER-AUTH.md). This alpha has no built-in user authentication.
 
+## Database connection pool
+
+Set `MONDEK_DATABASE_POOL_SIZE` in the private .env file to change the controller's database pool size (for example `MONDEK_DATABASE_POOL_SIZE=4`). The default remains 12 connections per controller instance. The value must be a positive integer; empty, zero, negative and malformed values fail at startup. Restart/recreate the controller after changing it. Allow PostgreSQL connection headroom for other controller processes, migrations and other database clients; this setting is not an installation-wide connection limit. Development and test runtimes use the same setting; the root development Compose file forwards it as well. Outside deployment mode, an explicit `pool_size` in `DATABASE_URL` retains Ecto's existing precedence over this setting.
+
 ## Updates and recovery
 
 Back up PostgreSQL and each runner's complete state before upgrading. Keep the prior image digest and locked runner environment. Choose the documented matching controller/SDK release, update MONDEK_IMAGE in .env if pinned there, then:
