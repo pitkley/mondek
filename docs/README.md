@@ -1,6 +1,6 @@
 # Documentation
 
-These guides are for people using and developing Mondek. Coding agents use the same SDK and protocol references; [agent workflows](AGENT-WORKFLOWS.md) provide task-specific entry points. Start with the path that matches your task; there is no need to read every guide before trying the experimental source preview.
+These guides are for people using and developing Mondek. Coding agents use the same SDK and protocol references; [agent workflows](AGENT-WORKFLOWS.md) provide task-specific entry points. Start with the path that matches your task; there is no need to read every guide before trying the experimental alpha.
 
 ## Get started
 

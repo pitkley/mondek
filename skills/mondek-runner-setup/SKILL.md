@@ -13,7 +13,7 @@ For a new project, install the selected qualified SDK distribution and run `mond
 
 Run project tests, `mondek-runner validate --consumer MODULE:app` and a local `run --consumer MODULE:app --all --results` using the installed executable. These import/execute trusted project code and may access its configured datasources; use synthetic inputs first unless actual collection is authorized. Local run uses source defaults, not the server's saved settings. Exit zero means collection completed, not that every result is healthy.
 
-For an existing project, preserve its source/check/output/target identities while updating imports/dependencies. Follow docs/UPGRADING.md for the pre-publication rename. Reinstall changed non-editable project/SDK packages explicitly; a same-version sync may otherwise reuse stale code. Validate replacements before stopping the accepted deployment, and retain the previous locked environment for rollback.
+For an existing project, preserve its source/check/output/target identities while updating imports/dependencies. Follow docs/UPGRADING.md for database and runner state-preservation requirements. Reinstall changed non-editable project/SDK packages explicitly; a same-version sync may otherwise reuse stale code. Validate replacements before stopping the accepted deployment, and retain the previous locked environment for rollback.
 
 For explicitly authorized local datasource verification, use docs/SDK.md's private env-file recipe and select the intended check; keep credential values out of output/prompts. Match the project's editable/non-editable installation mode. This local run does not register monitoring or authorize a deployment.
 

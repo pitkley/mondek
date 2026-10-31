@@ -22,7 +22,7 @@ See [dependency maintenance](docs/DEPENDENCY-MAINTENANCE.md) for the coordinated
 
 ## Compatibility and releases
 
-Keep evidence identity and original timestamps intact across replay. Treat stored protocol, configuration, snapshot and notification identities as compatibility contracts. Changes to those contracts need explicit migration/upgrade reasoning and relevant real restart coverage; [the existing upgrade guide](docs/UPGRADING.md) illustrates the current pre-publication transition.
+Keep evidence identity and original timestamps intact across replay. Treat stored protocol, configuration, snapshot and notification identities as compatibility contracts. Changes to those contracts need explicit migration/upgrade reasoning and relevant real restart coverage; [the existing upgrade guide](docs/UPGRADING.md) illustrates the migration and state-preservation requirements.
 
 The [contract guide](contracts/README.md) explains versioning, runtime validation and which fixtures each language tests.
 

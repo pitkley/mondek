@@ -23,7 +23,7 @@ After dependency changes, run `devenv shell -- mondek licenses` and review gener
 
 Write checks in a separate consumer project using [the authoring API](runner/README.md), [installed examples](examples/consumers/README.md) and [the deployment guide](docs/RUNNER-DEPLOYMENT.md). Keep real secrets in operator-managed runtime configuration. Do not commit runtime data, credentials or acceptance artifacts.
 
-Existing pre-publication installations should follow [the Mondek upgrade guide](docs/UPGRADING.md) to preserve database, runner and configuration history through the rename.
+Existing installations should follow [the Mondek upgrade guide](docs/UPGRADING.md) to preserve database, runner and configuration history when changing artifacts.
 
 See [source installation and distribution](docs/DISTRIBUTION.md) for a portable consumer using a locally built SDK wheel and the remaining release gates.
 

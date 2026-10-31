@@ -1,8 +1,8 @@
 # Installation and distribution
 
-The normal installation uses the controller/PostgreSQL [image recipe](../deploy/README.md) and an installed SDK as described in [getting started](GETTING-STARTED.md). Registry artifacts are being prepared; source metadata alone is not evidence of a published registry release. Before publication, use qualified local artifacts. Source publication and binary distribution are separate milestones.
+The normal installation uses the controller/PostgreSQL [image recipe](../deploy/README.md) and an installed SDK as described in [getting started](GETTING-STARTED.md). The [0.0.1a2 release](https://github.com/pitkley/mondek/releases/tag/v0.0.1a2) includes the controller image `ghcr.io/pitkley/mondek/controller:0.0.1a2` for Linux/amd64 and Linux/arm64, plus the wheel and sdist for [mondek on PyPI](https://pypi.org/project/mondek/0.0.1a2/). No source checkout is required for ordinary installation.
 
-Use the same reviewed source revision for the controller and SDK initially. The versioned wire contracts do not promise arbitrary controller/SDK combinations, and the runner deliberately fences frozen executable snapshots against their installed runtime. Preserve installation state when changing artifacts; see [upgrading](UPGRADING.md). The [controller trust boundary](CONTROLLER-AUTH.md) still applies to a parallel pilot.
+Use matching published controller/SDK releases, or the same reviewed source revision for local builds. The versioned wire contracts do not promise arbitrary controller/SDK combinations, and the runner deliberately fences frozen executable snapshots against their installed runtime. Preserve installation state when changing artifacts; see [upgrading](UPGRADING.md). The [controller trust boundary](CONTROLLER-AUTH.md) still applies to a parallel pilot.
 
 ## Contributor alternative: a consumer with a portable local SDK wheel
 
@@ -55,10 +55,10 @@ MONDEK_CONTROLLER_URL=http://127.0.0.1:4001 \
 
 Choose stable source/target identities before translating real checks. Keep a separate durable state directory for each runner installation, outside deployment replacement directories when deploying updates. Stop the runner before replacing its environment; build and validate the replacement separately. A non-editable installation does not adopt edits to consumer Python automatically: rebuild/reinstall deliberately, retain a complete rollback deployment and verify fresh adopted measurements. Runtime input files remain ordinary external inputs. See [runner deployment](RUNNER-DEPLOYMENT.md) for node/datasource examples and state handling.
 
-## Future release gates
+## Release artifacts and qualification
 
-The proposed artifacts are a runner wheel/sdist and a controller image. A generic consumer runner base image, package/container namespaces, version/tag conventions and registry release workflows remain to be settled. The current sample runner image is a demo, not a generic consumer base.
+Published artifacts are the SDK wheel/sdist and controller image. The [release guide](RELEASING.md) defines namespaces, version/tag conventions, qualification and publication. A generic consumer runner base image is not currently published; the sample runner image remains a demo, not a generic consumer base.
 
-Before a registry release, build artifacts once from the verified revision and test those exact artifacts, including a wheel rebuilt from the sdist, SDK typing/templates/notices and every advertised image architecture. Validate tag/package/controller versions together, retain checksums and component inventories, and give publication credentials only to the publishing job. Use trusted publishing for Python if selected; a validation run must not publish as a side effect.
+For each new registry release, build artifacts once from the verified revision and test those exact artifacts, including a wheel rebuilt from the sdist, SDK typing/templates/notices and every advertised image architecture. Validate tag/package/controller versions together, retain checksums and component inventories, and give publication credentials only to the publishing job. The release workflow uses trusted publishing for Python; a validation run must not publish as a side effect.
 
 Controller and sample-runner image audits verify exact component inventories, native ownership and retained notices. Distribution-provided OS packages are assessed separately from Mondek application dependencies, without a blanket source-archive publishing requirement. See [licensing](LICENSING.md#distribution-provided-os-components) for the audit scope.
