@@ -111,4 +111,4 @@ devenv shell -- mondek policy-acceptance
 devenv shell -- python3 tests/browser/run.py --suite policy
 ```
 
-The acceptance command uses disposable Docker services and installed workers reading real local files. It exercises CLI planning/application, ownership/adoption, source and exception precedence, replay, conflicts, moving subjects, offline adoption and reconnect. The browser suite exercises managed inspection, source comparisons, explicit exceptions and live ownership/removal at desktop and narrow widths. Neither command deploys personal monitoring or contacts an external notification recipient.
+The acceptance command uses disposable Docker services and installed workers reading real local files. It exercises CLI planning/application, ownership/adoption, source and exception precedence, replay, conflicts, moving subjects, offline adoption and reconnect. The browser suite exercises managed inspection, source comparisons, explicit exceptions and live ownership/removal at desktop and narrow widths. Neither command modifies external installations or contacts an external notification recipient.
