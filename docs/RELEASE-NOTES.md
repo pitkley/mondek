@@ -1,13 +1,29 @@
-# Experimental alpha
+# Mondek 0.0.1a3
 
-Mondek's published alpha release is experimental. It includes a Phoenix/LiveView controller with PostgreSQL/Oban, an independently scheduled Python runner/SDK, standard packs, generic consumers, versioned protocols and real acceptance/browser suites.
+This experimental alpha adds optional PostgreSQL TLS and production webhooks, and improves database configuration and packaged startup. The Python SDK version is `0.0.1a3`, the controller version is `0.0.1-alpha.3`, and the intended Git/image tags are `v0.0.1a3` and `0.0.1a3`. Use matching controller/SDK releases or build both from the same reviewed source revision. Mondek remains experimental, with no stable compatibility or production-readiness guarantee.
 
-Start an empty local controller or the isolated demo using the [README](../README.md). For your own monitoring project, follow the [installation and distribution guide](DISTRIBUTION.md), retain the selected SDK artifact/checksum and keep runner state across updates. The [porting guide](MIGRATING-CONSUMERS.md) describes translating existing checks into a separate consumer project. Run a representative subset in parallel before expanding it.
+## PostgreSQL connections
 
-The controller provides result inventory and history, incidents, local notification delivery, delegated configuration with Git history, maintenance windows and runner/adoption inspection. Runners preserve original evidence identity and age through outages and restart. The maintained [coverage map](ACCEPTANCE-COVERAGE.md) distinguishes native, packaged smoke, selected browser and manual exhaustive verification.
+The controller supports plain PostgreSQL and optional TLS through `PGSSLMODE=disable|require|verify-ca|verify-full`. Plain connections remain the default. Verified modes support a private CA through `PGSSLROOTCERT`; `require` enforces encryption without authenticating the server, while `verify-full` verifies both the certificate chain and hostname. TLS modes never fall back to plaintext. Outside deployment mode, Ecto's `DATABASE_URL` `ssl=true` option remains available; conflicting TLS settings and unsupported URL `sslmode` are rejected. See [database setup](../deploy/README.md#optional-postgresql-tls).
 
-The SDK version is 0.0.1a2 and controller version is 0.0.1-alpha.2. These alpha versions do not establish a stable compatibility promise. Use matching published controller/SDK releases, or the same reviewed source revision when building locally. The [upgrade guide](UPGRADING.md) explains the fresh database baseline, state preservation and update verification; it does not promise arbitrary mixed versions or zero-downtime upgrades.
+`MONDEK_DATABASE_POOL_SIZE` now configures connections per controller instance, with the existing default of 12. It must be a positive integer. Production builds default to the standard PostgreSQL port 5432 and require an explicit database name through `PGDATABASE` or, outside deployment mode, `DATABASE_URL`. Development and test database defaults remain unchanged.
 
-See the [contract guide](../contracts/README.md) for protocol versioning and shared fixture coverage.
+## Webhooks and Microsoft Teams
 
-Release [0.0.1a2](https://github.com/pitkley/mondek/releases/tag/v0.0.1a2) publishes the controller image `ghcr.io/pitkley/mondek/controller:0.0.1a2` for Linux/amd64 and Linux/arm64 and the [mondek SDK on PyPI](https://pypi.org/project/mondek/0.0.1a2/). Source builds remain available for contributors. The sample runner image is a demonstration rather than a generic deployment base. See [licensing](LICENSING.md) for image inventory and notice coverage. Review the [controller access boundary](CONTROLLER-AUTH.md) before hosting an installation and [security guidance](../SECURITY.md) for private vulnerability reporting. Production replacement and production-readiness guarantees are outside this experimental alpha.
+Production notifications can use a generic webhook destination with a versioned Mondek JSON document or a custom JSON template. A shipped Microsoft Teams Adaptive Card template uses the same renderer and transport. Templates support typed field references, string concatenation, conditionals and bounded iteration, with JSON escaping and rendering limits; they do not execute application code. A local preview command renders lifecycle examples or supplied documents without starting services or sending requests. See [webhooks and Teams](WEBHOOK-NOTIFICATIONS.md).
+
+One installation-level destination receives new notifications. Destination IDs and frozen delivery snapshots provide a foundation for future routing, but this release does not add routing, fan-out or target management. Credentials and secret webhook URLs stay in private runtime configuration. Queued notifications retain their original body and destination binding; old destination definitions can remain configured while those queues drain. Template failures preserve admitted monitoring evidence and become inspectable exhausted deliveries. Delivery is bounded and at least once, so duplicate delivery remains possible. HTTP acceptance does not prove that a downstream workflow posted a card or that a person read it.
+
+## Packaged startup and documentation
+
+Packaged startup logs a concise migration count at INFO; detailed migration instructions move to DEBUG. The runtime image includes the SCTP library expected by Erlang, removing the missing `libsctp.so.1` warning. Migration errors continue to prevent startup.
+
+Installation documentation now reflects published GHCR images and PyPI packages, keeps local builds as a contributor alternative, and uses generic infrastructure and gateway examples.
+
+## Upgrade notes
+
+Back up PostgreSQL and each runner's durable state before upgrading. This release introduces no database schema migration. Startup continues to apply pending migrations automatically. Keep runner installation/state identities and verify fresh adopted measurements after replacing matching controller/SDK artifacts; see [upgrading](UPGRADING.md).
+
+Directly launched production controllers that previously relied on development defaults must explicitly set `PGPORT=55432` and `PGDATABASE=mondek_dev` if those remain their intended database settings. Otherwise set the actual database name and use the production port default of 5432. The maintained Compose recipes already supply both settings.
+
+Existing SMTP and local recording-webhook occurrences retain their formats and destinations. Keep inactive transport credentials and old webhook destination definitions available until their queued work drains. Authentication gateways remain necessary for externally accessible installations: Mondek has no built-in operator authentication or permission management. Review the [controller access boundary](CONTROLLER-AUTH.md) and the [acceptance coverage map](ACCEPTANCE-COVERAGE.md) for operational and verification limits. The sample runner image remains a demo, not a generic consumer deployment base.

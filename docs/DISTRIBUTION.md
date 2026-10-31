@@ -15,14 +15,14 @@ devenv shell -- uv build --project runner --out-dir .local/sdk
 devenv shell -- uv run --project runner --locked mondek-runner init \
   /absolute/my-monitoring --sdk-path ./runner
 mkdir -p /absolute/my-monitoring/vendor
-cp .local/sdk/mondek-0.0.1a2-py3-none-any.whl /absolute/my-monitoring/vendor/
+cp .local/sdk/mondek-0.0.1a3-py3-none-any.whl /absolute/my-monitoring/vendor/
 ```
 
 Replace the generated consumer's entire `[tool.uv.sources.mondek]` block with the following. Remove its `editable = true` line:
 
 ```toml
 [tool.uv.sources.mondek]
-path = "vendor/mondek-0.0.1a2-py3-none-any.whl"
+path = "vendor/mondek-0.0.1a3-py3-none-any.whl"
 ```
 
 Resolve and install explicitly using the selected Mondek toolchain:

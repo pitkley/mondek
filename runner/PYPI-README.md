@@ -5,7 +5,7 @@ Mondek is an experimental monitoring tool with code-defined Python checks and a 
 Python 3.13 or newer is required. With uv installed, create a monitoring project:
 
 ```sh
-uv tool install mondek==0.0.1a2
+uv tool install mondek==0.0.1a3
 mondek-runner init my-monitoring
 cd my-monitoring
 uv sync

@@ -4,7 +4,7 @@ requires-python = ">=3.13"
 
 [[package]]
 name = "mondek"
-version = "0.0.1a2"
+version = "0.0.1a3"
 source = { editable = "." }
 
 [package.dev-dependencies]
