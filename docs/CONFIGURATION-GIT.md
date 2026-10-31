@@ -23,26 +23,26 @@ Only `refs/heads/main` accepts changes. Tags, other refs, branch deletion and no
 
 If a UI save happened while you edited, fetch, inspect its changes and reconcile before retrying. Do not force-push. If a connection fails after submitting a push, fetch first: the requested commit may already be accepted. Repeating an accepted push does not create another configuration generation. Validation applies to the resulting main tree; intermediate commits remain Git history, not separately activated configurations. Review that history too before transferring it, and never commit secrets even temporarily.
 
-## Interactive access through the existing Cloudflare application
+## Interactive access through Cloudflare Access
 
-For the personal dogfood installation, `/configuration.git` uses the existing browser Access application and its tunnel audience. The runner service token is scoped to runner API paths and should not be widened for this test. Use your interactive identity first; unattended Git access can have a separately scoped service credential later. Cloudflare documents [CLI login and the application token header](https://developers.cloudflare.com/cloudflare-one/tutorials/cli/).
+If your installation uses Cloudflare Access, authorize `/configuration.git` and its subpaths through the appropriate Access application and tunnel audience. Keep runner service credentials scoped to runner API paths; use an interactive identity or a separately scoped service credential for configuration Git access. Cloudflare documents [CLI login and the application token header](https://developers.cloudflare.com/cloudflare-one/tutorials/cli/).
 
 With `cloudflared` installed, run this in Bash or Zsh on your workstation:
 
 ```sh
 cloudflared access login https://monitoring.example.test >/dev/null
-export WP_CF_HEADER="cf-access-token: $(cloudflared access token --app=https://monitoring.example.test)"
-wp_git() {
-  git --config-env=http.https://monitoring.example.test/.extraHeader=WP_CF_HEADER \
+export MONDEK_CF_HEADER="cf-access-token: $(cloudflared access token --app=https://monitoring.example.test)"
+mondek_git() {
+  git --config-env=http.https://monitoring.example.test/.extraHeader=MONDEK_CF_HEADER \
     -c credential.username=mondek "$@"
 }
-wp_git ls-remote https://monitoring.example.test/configuration.git refs/heads/main
-wp_git clone https://monitoring.example.test/configuration.git mondek-config
+mondek_git ls-remote https://monitoring.example.test/configuration.git refs/heads/main
+mondek_git clone https://monitoring.example.test/configuration.git mondek-config
 ```
 
-At Git's password prompt, supply the Mondek configuration token from `controller.env`, not a Cloudflare token. The Cloudflare header stays in the current shell environment, outside repository configuration and command-line arguments. Refresh it after your Access session expires; `unset WP_CF_HEADER` removes the shell copy when finished. A login redirect/Cloudflare denial concerns the outer gateway; a Mondek Basic-auth challenge concerns the inner configuration token. Never share either token in diagnostic output.
+At Git's password prompt, supply the Mondek configuration token from `controller.env`, not a Cloudflare token. The Cloudflare header stays in the current shell environment, outside repository configuration and command-line arguments. Refresh it after your Access session expires; `unset MONDEK_CF_HEADER` removes the shell copy when finished. A login redirect/Cloudflare denial concerns the outer gateway; a Mondek Basic-auth challenge concerns the inner configuration token. Never share either token in diagnostic output.
 
-For an initial write test without changing monitoring settings, enter the cloned directory, create an empty commit (`git commit --allow-empty -m 'Verify dogfood Git access'`) and use `wp_git push origin main`. History should show settings unchanged. Then test a deliberate UI adjustment followed by `wp_git pull --ff-only`, before reviewing a real parameter change through Git. A competing UI save may require fetching and reconciling even the empty test commit.
+For an initial write test without changing monitoring settings, enter the cloned directory, create an empty commit (`git commit --allow-empty -m 'Verify configuration Git access'`) and use `mondek_git push origin main`. History should show settings unchanged. Then test a deliberate UI adjustment followed by `mondek_git pull --ff-only`, before reviewing a real parameter change through Git. A competing UI save may require fetching and reconciling even the empty test commit.
 
 ## Repository format
 
@@ -84,4 +84,4 @@ devenv shell -- mondek configuration-acceptance
 devenv shell -- mondek configuration-acceptance --browser
 ```
 
-These use isolated Docker services, installed observers and ordinary Git HTTP clients. The optional browser checkpoint pauses before cleanup. Tests cover UI-equivalent saves, stale and invalid pushes, unsupported refs, measured adoption, controller restart and fresh-installation restoration with explicit exception mapping. Native tests additionally cover killed transactions, response loss and competing writers. They do not deploy personal monitoring or verify production gateway policy.
+These use isolated Docker services, installed observers and ordinary Git HTTP clients. The optional browser checkpoint pauses before cleanup. Tests cover UI-equivalent saves, stale and invalid pushes, unsupported refs, measured adoption, controller restart and fresh-installation restoration with explicit exception mapping. Native tests additionally cover killed transactions, response loss and competing writers. They do not modify external installations or verify production gateway policy.
