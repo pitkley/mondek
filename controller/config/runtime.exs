@@ -69,10 +69,24 @@ public_uri =
     end
   end
 
+database_url = env.("DATABASE_URL", nil)
+production_database? = config_env() == :prod or deployment?
+
 db =
-  if config_env() == :test,
-    do: env.("MONDEK_TEST_DATABASE", "mondek_test"),
-    else: env.("PGDATABASE", "mondek_dev")
+  cond do
+    config_env() == :test ->
+      env.("MONDEK_TEST_DATABASE", "mondek_test")
+
+    production_database? ->
+      case env.("PGDATABASE", nil) do
+        value when is_binary(value) and byte_size(value) > 0 -> value
+        _ when is_binary(database_url) and byte_size(database_url) > 0 -> nil
+        _ -> raise "PGDATABASE is required in production when DATABASE_URL is not set"
+      end
+
+    true ->
+      env.("PGDATABASE", "mondek_dev")
+  end
 
 database_pool_size =
   case Integer.parse(env.("MONDEK_DATABASE_POOL_SIZE", "12")) do
@@ -82,7 +96,7 @@ database_pool_size =
 
 config :mondek, Mondek.Repo,
   hostname: env.("PGHOST", "127.0.0.1"),
-  port: String.to_integer(env.("PGPORT", "55432")),
+  port: String.to_integer(env.("PGPORT", if(production_database?, do: "5432", else: "55432"))),
   username: env.("PGUSER", "mondek"),
   password: database_password,
   database: db,
@@ -92,7 +106,6 @@ config :mondek, Mondek.Repo,
 # Postgrex does not interpret libpq's PGSSLMODE environment variable.
 ssl_mode = env.("PGSSLMODE", nil)
 ssl_root_cert = env.("PGSSLROOTCERT", nil)
-database_url = env.("DATABASE_URL", nil)
 
 url_tls_options =
   if database_url,

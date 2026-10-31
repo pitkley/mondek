@@ -12,6 +12,7 @@ defmodule Mondek.RuntimeConfigurationTest do
 
     original = Map.new(variables, &{&1, System.get_env(&1)})
     Enum.each(variables, &System.delete_env/1)
+    System.put_env("PGDATABASE", "runtime_test")
 
     on_exit(fn ->
       Enum.each(original, fn
@@ -25,6 +26,64 @@ defmodule Mondek.RuntimeConfigurationTest do
 
   defp configuration do
     @runtime |> Config.Reader.read!(env: :prod) |> Keyword.fetch!(:mondek)
+  end
+
+  test "development and test database defaults remain isolated from production" do
+    System.delete_env("PGDATABASE")
+    System.delete_env("MONDEK_TEST_DATABASE")
+
+    for {environment, database} <- [dev: "mondek_dev", test: "mondek_test"] do
+      repo = Config.Reader.read!(@runtime, env: environment)[:mondek][Mondek.Repo]
+      assert repo[:database] == database
+      assert repo[:port] == 55432
+    end
+
+    System.put_env("PGDATABASE", "production_database")
+    System.put_env("MONDEK_TEST_DATABASE", "isolated_test")
+    repo = Config.Reader.read!(@runtime, env: :test)[:mondek][Mondek.Repo]
+    assert repo[:database] == "isolated_test"
+  end
+
+  test "production refuses missing and empty database names or empty URLs" do
+    for value <- [nil, ""], url <- [nil, ""] do
+      if value, do: System.put_env("PGDATABASE", value), else: System.delete_env("PGDATABASE")
+      if url, do: System.put_env("DATABASE_URL", url), else: System.delete_env("DATABASE_URL")
+
+      assert_raise RuntimeError,
+                   "PGDATABASE is required in production when DATABASE_URL is not set",
+                   &configuration/0
+    end
+  end
+
+  test "production accepts a database URL without PGDATABASE and preserves explicit ports" do
+    System.delete_env("PGDATABASE")
+    System.put_env("DATABASE_URL", "postgres://localhost/url_database")
+    repo = configuration()[Mondek.Repo]
+    assert repo[:database] == nil
+    effective = Keyword.merge(repo, Ecto.Repo.Supervisor.parse_url(repo[:url]))
+    assert effective[:database] == "url_database"
+    assert effective[:port] == 5432
+    System.delete_env("DATABASE_URL")
+    System.put_env("PGDATABASE", "explicit_database")
+    System.put_env("PGPORT", "6543")
+    assert configuration()[Mondek.Repo][:database] == "explicit_database"
+    assert configuration()[Mondek.Repo][:port] == 6543
+  end
+
+  test "deployment mode also avoids development database defaults in a dev build" do
+    deployment()
+    System.delete_env("PGDATABASE")
+
+    assert_raise RuntimeError,
+                 "PGDATABASE is required in production when DATABASE_URL is not set",
+                 fn ->
+                   Config.Reader.read!(@runtime, env: :dev)
+                 end
+
+    System.put_env("PGDATABASE", "deployment_database")
+    repo = Config.Reader.read!(@runtime, env: :dev)[:mondek][Mondek.Repo]
+    assert repo[:database] == "deployment_database"
+    assert repo[:port] == 5432
   end
 
   test "database pool size retains its default and accepts positive sizes in every environment" do
@@ -106,12 +165,13 @@ defmodule Mondek.RuntimeConfigurationTest do
     assert configuration()[:deployment_mode] == false
   end
 
-  test "local production builds retain the development defaults" do
+  test "production outside deployment uses explicit database configuration with local endpoint settings" do
     config = configuration()
     assert config[:deployment_mode] == false
     assert config[:seed_demo] == nil
     assert config[MondekWeb.Endpoint][:check_origin] == false
-    assert config[Mondek.Repo][:database] == "mondek_dev"
+    assert config[Mondek.Repo][:database] == "runtime_test"
+    assert config[Mondek.Repo][:port] == 5432
     assert config[Mondek.Repo][:password] == nil
   end
 
