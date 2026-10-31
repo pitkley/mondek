@@ -10,8 +10,17 @@ defmodule Mondek.NotificationWorker do
   def timeout(_job), do: :timer.minutes(1)
 
   @impl Oban.Worker
-  def backoff(%Oban.Job{args: %{"delivery_channel" => "smtp"}, attempt: attempt}),
-    do: min(900, 30 * attempt)
+  def backoff(%Oban.Job{
+        attempt: attempt,
+        unsaved_error: %{
+          reason: %Oban.PerformError{reason: {:error, {:webhook_retry_after, seconds}}}
+        }
+      }),
+      do: max(min(900, 30 * attempt), seconds)
+
+  def backoff(%Oban.Job{args: %{"delivery_channel" => channel}, attempt: attempt})
+      when channel in ["smtp", "webhook_http"],
+      do: min(900, 30 * attempt)
 
   def backoff(%Oban.Job{attempt: attempt}), do: min(30, attempt * 2)
   @impl Oban.Worker
@@ -97,10 +106,20 @@ defmodule Mondek.NotificationWorker do
   defp finish_attempt(occurrence, attempt, result, at, exhausted?) do
     {success?, status, error} =
       case result do
-        {:ok, :smtp} -> {true, nil, nil}
-        {:ok, {{_, code, _}, _, _}} when code in 200..299 -> {true, code, nil}
-        {:ok, {{_, code, _}, _, _}} -> {false, code, "Receiver rejected delivery"}
-        {:error, reason} -> {false, nil, failure_message(reason)}
+        {:ok, :smtp} ->
+          {true, nil, nil}
+
+        {:ok, {{_, code, _}, _, _}} when code in 200..299 ->
+          {true, code, nil}
+
+        {:ok, {{_, code, _}, _, _}} ->
+          {false, code, "Receiver rejected delivery"}
+
+        {:error, {:webhook_retry_after, code, _}} ->
+          {false, code, "Webhook receiver requested a later retry"}
+
+        {:error, reason} ->
+          {false, nil, failure_message(reason)}
       end
 
     Repo.transaction(fn ->
@@ -124,7 +143,7 @@ defmodule Mondek.NotificationWorker do
             status:
               cond do
                 success? -> "delivered"
-                exhausted? -> "exhausted"
+                exhausted? or result == {:error, :webhook_template_failed} -> "exhausted"
                 true -> "retrying"
               end,
             delivered_at: if(success?, do: at, else: nil)
@@ -137,7 +156,12 @@ defmodule Mondek.NotificationWorker do
     end)
 
     Monitoring.notify()
-    if success?, do: :ok, else: {:error, error}
+
+    case result do
+      {:error, :webhook_template_failed} -> {:discard, failure_message(:webhook_template_failed)}
+      {:error, {:webhook_retry_after, _, seconds}} -> {:error, {:webhook_retry_after, seconds}}
+      _ -> if success?, do: :ok, else: {:error, error}
+    end
   end
 
   defp failure_message(:smtp_authentication_rejected), do: "SMTP authentication was rejected"
@@ -161,6 +185,19 @@ defmodule Mondek.NotificationWorker do
 
   defp failure_message(:smtp_rejected_or_unavailable),
     do: "SMTP relay rejected delivery or the connection failed; acceptance may be uncertain"
+
+  defp failure_message(:webhook_template_failed),
+    do:
+      "Webhook template could not render this notification; fix the template for future notifications"
+
+  defp failure_message(:webhook_configuration_unavailable),
+    do: "Original webhook destination configuration is unavailable; restore its ID and URL"
+
+  defp failure_message(:webhook_transport_failed),
+    do: "Webhook connection, TLS verification or request failed; acceptance may be uncertain"
+
+  defp failure_message(:webhook_timeout_or_ambiguous),
+    do: "Webhook attempt timed out; receiver acceptance is uncertain"
 
   defp failure_message(reason), do: inspect(reason, limit: 20, printable_limit: 300)
 end

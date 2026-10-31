@@ -1,0 +1,115 @@
+{
+  "type": "message",
+  "attachments": [
+    {
+      "contentType": "application/vnd.microsoft.card.adaptive",
+      "contentUrl": null,
+      "content": {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.2",
+        "body": [
+          {
+            "type": "TextBlock",
+            "weight": "Bolder",
+            "wrap": true,
+            "text": {
+              "$ref": "notification.title"
+            }
+          },
+          {
+            "type": "TextBlock",
+            "wrap": true,
+            "text": {
+              "$ref": "notification.summary"
+            }
+          },
+          {
+            "type": "FactSet",
+            "facts": [
+              {
+                "title": "Health",
+                "value": {
+                  "$if": "evidence.display_health",
+                  "then": {
+                    "$ref": "evidence.display_health"
+                  },
+                  "else": "Target health tracked separately"
+                }
+              },
+              {
+                "title": "Measurement",
+                "value": {
+                  "$if": "evidence.source_at",
+                  "then": {
+                    "$ref": "evidence.source_at"
+                  },
+                  "else": "Unavailable"
+                }
+              },
+              {
+                "title": "Environment",
+                "value": {
+                  "$if": "evidence.environment",
+                  "then": {
+                    "$ref": "evidence.environment"
+                  },
+                  "else": "Unspecified"
+                }
+              },
+              {
+                "title": "Target",
+                "value": {
+                  "$if": "evidence.target",
+                  "then": {
+                    "$ref": "evidence.target.label"
+                  },
+                  "else": "See incident"
+                }
+              },
+              {
+                "title": "Scope",
+                "value": {
+                  "$ref": "evidence.scope"
+                }
+              },
+              {
+                "title": "Created",
+                "value": {
+                  "$ref": "notification.created_at"
+                }
+              },
+              {
+                "title": "Closure",
+                "value": {
+                  "$if": "incident.closure_reason",
+                  "then": {
+                    "$ref": "incident.closure_reason"
+                  },
+                  "else": "Open"
+                }
+              }
+            ]
+          },
+          {
+            "type": "TextBlock",
+            "wrap": true,
+            "isSubtle": true,
+            "text": {
+              "$ref": "notice"
+            }
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.OpenUrl",
+            "title": "Open incident",
+            "url": {
+              "$ref": "incident.url"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

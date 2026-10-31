@@ -4,7 +4,7 @@ defmodule Mondek.RuntimeConfigurationTest do
   use ExUnit.Case, async: false
 
   @runtime Path.expand("../../config/runtime.exs", __DIR__)
-  @variables ~w(MONDEK_RETENTION_RECEIPT_DAYS MONDEK_RETENTION_HISTORY_DAYS MONDEK_RETENTION_MAX_OBSERVATIONS MONDEK_DEPLOYMENT_MODE SECRET_KEY_BASE DATABASE_URL PGSSLMODE PGSSLROOTCERT PGPASSWORD PGHOST PGPORT PGUSER PGDATABASE PORT MONDEK_PUBLIC_URL MONDEK_SEED_DEMO MONDEK_NOTIFICATION_ADAPTER MONDEK_SMTP_HOST MONDEK_SMTP_PORT MONDEK_SMTP_TRANSPORT MONDEK_SMTP_USERNAME MONDEK_SMTP_PASSWORD MONDEK_SMTP_FROM MONDEK_SMTP_TO MONDEK_SMTP_TIMEOUT_MS)
+  @variables ~w(MONDEK_RETENTION_RECEIPT_DAYS MONDEK_RETENTION_HISTORY_DAYS MONDEK_RETENTION_MAX_OBSERVATIONS MONDEK_DEPLOYMENT_MODE SECRET_KEY_BASE DATABASE_URL PGSSLMODE PGSSLROOTCERT PGPASSWORD PGHOST PGPORT PGUSER PGDATABASE PORT MONDEK_PUBLIC_URL MONDEK_SEED_DEMO MONDEK_NOTIFICATION_ADAPTER MONDEK_WEBHOOK_CONFIG_FILE MONDEK_SMTP_HOST MONDEK_SMTP_PORT MONDEK_SMTP_TRANSPORT MONDEK_SMTP_USERNAME MONDEK_SMTP_PASSWORD MONDEK_SMTP_FROM MONDEK_SMTP_TO MONDEK_SMTP_TIMEOUT_MS)
 
   setup do
     variables =
@@ -59,7 +59,10 @@ defmodule Mondek.RuntimeConfigurationTest do
       "SECRET_KEY_BASE" => String.duplicate("test-only-secret-", 6),
       "PGPASSWORD" => "test-only-database-password",
       "MONDEK_PUBLIC_URL" => "https://monitoring.example.test",
-      "MONDEK_NOTIFICATION_ADAPTER" => "webhook"
+      "MONDEK_NOTIFICATION_ADAPTER" => "smtp",
+      "MONDEK_SMTP_HOST" => "relay",
+      "MONDEK_SMTP_FROM" => "mondek@example.invalid",
+      "MONDEK_SMTP_TO" => "operator@example.invalid"
     })
   end
 
@@ -276,6 +279,7 @@ defmodule Mondek.RuntimeConfigurationTest do
     assert configuration()[:notification_adapter] == :webhook
     deployment()
     System.delete_env("MONDEK_NOTIFICATION_ADAPTER")
+    Enum.each(~w(MONDEK_SMTP_HOST MONDEK_SMTP_FROM MONDEK_SMTP_TO), &System.delete_env/1)
 
     assert_raise ArgumentError, ~r/Invalid SMTP configuration/, &configuration/0
     smtp()
@@ -284,6 +288,43 @@ defmodule Mondek.RuntimeConfigurationTest do
     assert config[:smtp][:transport] == :plain
     assert config[:smtp][:port] == 25
     assert config[:smtp][:timeout_ms] == 10_000
+  end
+
+  test "inactive transports stay configured so their frozen queues can drain" do
+    path =
+      Path.join(
+        System.tmp_dir!(),
+        "mondek-runtime-webhook-#{System.unique_integer([:positive])}.json"
+      )
+
+    File.write!(
+      path,
+      Jason.encode!(%{
+        "active" => "ops",
+        "destinations" => %{
+          "ops" => %{"url" => "https://receiver.example.invalid/secret", "template" => "teams"}
+        }
+      })
+    )
+
+    File.chmod!(path, 0o600)
+    on_exit(fn -> File.rm(path) end)
+    deployment()
+    System.put_env("MONDEK_WEBHOOK_CONFIG_FILE", path)
+    config = configuration()
+    assert config[:notification_adapter] == :smtp
+    assert config[:webhook].active == "ops"
+    assert config[:smtp][:host] == "relay"
+    System.put_env("MONDEK_NOTIFICATION_ADAPTER", "webhook")
+    config = configuration()
+    assert config[:notification_adapter] == :webhook
+    assert config[:smtp][:host] == "relay"
+    assert config[:webhook].active == "ops"
+    System.delete_env("MONDEK_WEBHOOK_CONFIG_FILE")
+
+    assert_raise RuntimeError,
+                 "MONDEK_WEBHOOK_CONFIG_FILE is required for deployment webhooks",
+                 &configuration/0
   end
 
   test "SMTP credentials retain literal characters and require encrypted transport" do

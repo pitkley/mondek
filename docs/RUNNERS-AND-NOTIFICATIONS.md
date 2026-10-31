@@ -18,7 +18,7 @@ The dedicated notification inventory defaults to outstanding delivery. Exhausted
 
 Open a notification to inspect its original receiver, incident or result, controls, latest response and bounded attempt history. The exact detail remains available when the notification changes status and no longer matches the originating list filter. Returning to the list restores that filter and page, clamped if its last page disappeared. Reconnecting preserves the selected list page and unsent retry reason without submitting it.
 
-Manual retry requires a reason and reuses the original immutable notification and destination through the existing delivery policy. Failure delivery still respects acknowledgement and maintenance. Receiver acceptance is transport evidence: SMTP acceptance does not prove inbox delivery or that a person read the message. Lost replies can cause duplicate delivery. These views change inspection, not notification ownership, retry budgets or execution semantics.
+Manual retry requires a reason and reuses the original immutable notification and destination through the existing delivery policy. Failure delivery still respects acknowledgement and maintenance. Receiver acceptance is transport evidence: SMTP acceptance does not prove inbox delivery or that a person read the message; webhook HTTP acceptance does not establish that a downstream workflow posted a card. Configure [email](EMAIL-NOTIFICATIONS.md) or [webhooks and Teams](WEBHOOK-NOTIFICATIONS.md) on the controller. Lost replies can cause duplicate delivery. These views change inspection, not notification ownership, retry budgets or execution semantics.
 
 ## URLs and verification
 

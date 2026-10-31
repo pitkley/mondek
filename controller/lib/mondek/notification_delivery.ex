@@ -5,6 +5,10 @@ defmodule Mondek.NotificationDelivery do
 
   @mailbox ~r/\A[A-Za-z0-9.!#$%&'*+\/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\z/
 
+  def channel("mailto:" <> _), do: "smtp"
+  def channel("webhook:" <> _), do: "webhook_http"
+  def channel(_), do: "webhook"
+
   def validate_config!(options) do
     valid_host? =
       is_binary(options[:host]) && byte_size(options[:host]) in 1..253 &&
@@ -54,7 +58,11 @@ defmodule Mondek.NotificationDelivery do
 
       {put_in(payload, ["email", "message"], frozen), destination}
     else
-      {payload, Application.fetch_env!(:mondek, :webhook_url)}
+      if Application.get_env(:mondek, :webhook) do
+        Mondek.WebhookNotification.snapshot(payload, label, summary, measured_health)
+      else
+        {payload, Application.fetch_env!(:mondek, :webhook_url)}
+      end
     end
   end
 
@@ -97,6 +105,9 @@ defmodule Mondek.NotificationDelivery do
       {:error, :smtp_configuration_unavailable}
     end
   end
+
+  def deliver(%{destination: "webhook:" <> _} = occurrence),
+    do: Mondek.WebhookNotification.deliver(occurrence)
 
   def deliver(occurrence) do
     uri = URI.parse(occurrence.destination)
@@ -288,20 +299,20 @@ defmodule Mondek.NotificationDelivery do
   defp monitoring_reason("unavailable"), do: "Unavailable"
   defp monitoring_reason(_), do: "Measurement unavailable"
 
-  defp heading(%{
-         "incident_type" => "monitoring_loss",
-         "kind" => "resolved",
-         "closure_reason" => "monitoring_restored"
-       }),
-       do: "MONITORING RESTORED"
+  def heading(%{
+        "incident_type" => "monitoring_loss",
+        "kind" => "resolved",
+        "closure_reason" => "monitoring_restored"
+      }),
+      do: "MONITORING RESTORED"
 
-  defp heading(%{"incident_type" => "monitoring_loss", "kind" => "resolved"}), do: "CLOSED"
-  defp heading(%{"incident_type" => "monitoring_loss"}), do: "MONITORING LOST"
-  defp heading(%{"kind" => "resolved", "closure_reason" => "measured_recovery"}), do: "RECOVERED"
-  defp heading(%{"kind" => "resolved"}), do: "CLOSED"
-  defp heading(%{"kind" => "update"}), do: "UPDATED"
-  defp heading(%{"requested_fact" => %{"kind" => "impact"}}), do: "UPDATED"
-  defp heading(_), do: "PROBLEM"
+  def heading(%{"incident_type" => "monitoring_loss", "kind" => "resolved"}), do: "CLOSED"
+  def heading(%{"incident_type" => "monitoring_loss"}), do: "MONITORING LOST"
+  def heading(%{"kind" => "resolved", "closure_reason" => "measured_recovery"}), do: "RECOVERED"
+  def heading(%{"kind" => "resolved"}), do: "CLOSED"
+  def heading(%{"kind" => "update"}), do: "UPDATED"
+  def heading(%{"requested_fact" => %{"kind" => "impact"}}), do: "UPDATED"
+  def heading(_), do: "PROBLEM"
 
   defp closure(%{
          "incident_type" => "monitoring_loss",

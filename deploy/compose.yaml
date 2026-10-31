@@ -13,10 +13,10 @@ services:
       PGPASSWORD: ${PGPASSWORD:?Set PGPASSWORD in the private environment file}
       SECRET_KEY_BASE: ${SECRET_KEY_BASE:?Set SECRET_KEY_BASE in the private environment file}
       MONDEK_BIND_ADDRESS: 0.0.0.0
-      MONDEK_NOTIFICATION_ADAPTER: smtp
-      MONDEK_SMTP_HOST: ${MONDEK_SMTP_HOST:?Set the intended SMTP relay host}
-      MONDEK_SMTP_FROM: ${MONDEK_SMTP_FROM:?Set the notification sender address}
-      MONDEK_SMTP_TO: ${MONDEK_SMTP_TO:?Set the notification recipient address}
+      MONDEK_NOTIFICATION_ADAPTER: ${MONDEK_NOTIFICATION_ADAPTER:-smtp}
+      MONDEK_SMTP_HOST: ${MONDEK_SMTP_HOST:-}
+      MONDEK_SMTP_FROM: ${MONDEK_SMTP_FROM:-}
+      MONDEK_SMTP_TO: ${MONDEK_SMTP_TO:-}
       PORT: "4000"
     ports:
       - "127.0.0.1:${MONDEK_PORT:-4000}:4000"

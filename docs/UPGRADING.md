@@ -21,3 +21,5 @@ Prepared execution requires the current authenticated snapshot format and comple
 After a coordinated update, verify stable runner installation IDs, higher boot/session counters, unchanged scheduled-check identities and fresh measurements at the adopted revision. Verify retained incidents, rules/exceptions, configuration history and held/retrying notifications. A healthy controller or recent runner contact alone does not prove fresh monitoring.
 
 Restore a coordinated backup with its matching controller, consumer and locked Python environment if recovery is required. Restoring controller and runner state independently can change evidence or notification behavior; review those consequences before restarting.
+
+Webhook-enabled builds require no new database migration. Existing SMTP and local recording-webhook occurrences retain their formats and destinations. New production webhooks freeze a separate delivery envelope and bind a runtime destination ID to its URL fingerprint; retain old destination definitions and transport credentials until their queued work drains. See [webhook configuration and retry compatibility](WEBHOOK-NOTIFICATIONS.md).
