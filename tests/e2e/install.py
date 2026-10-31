@@ -145,6 +145,14 @@ def main() -> None:
             ).split()
             assert sorted(services) == ["controller", "postgres"]
             start_services(compose, run)
+            startup_logs = subprocess.check_output(
+                [*compose, "logs", "--no-color", "controller"], env=env, text=True
+            )
+            (output / "startup.log").write_text(startup_logs)
+            assert "Database migrations complete:" in startup_logs
+            assert "CREATE TABLE" not in startup_logs
+            assert 'execute "' not in startup_logs
+            assert "libsctp.so" not in startup_logs
             address = subprocess.check_output(
                 [*compose, "port", "controller", "4000"], env=env, text=True
             ).strip()

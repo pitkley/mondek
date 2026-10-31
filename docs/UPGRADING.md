@@ -6,7 +6,7 @@ Mondek is experimental. Run the controller and runner SDK from the same reviewed
 
 The initial database migration creates the current application schema and the pinned Oban schema. It requires a fresh database and refuses a database containing other migration versions. Historical pre-publication installations require a separately reviewed private transition; replacing migration records or pointing a fresh Compose project at an old volume is not an upgrade procedure. The baseline cannot be rolled back destructively through `ecto.rollback`.
 
-The packaged controller automatically applies pending Ecto migrations before starting the web application. Already applied migrations are skipped. A migration failure stops startup instead of serving against a partially upgraded schema. Ordinary Compose rebuild/restart updates therefore do not require a separate migration command.
+The packaged controller automatically applies pending Ecto migrations before starting the web application. Already applied migrations are skipped. Startup logs a concise count of applied migrations; detailed migration instructions are logged at DEBUG rather than INFO. A migration failure stops startup instead of serving against a partially upgraded schema. Ordinary Compose rebuild/restart updates therefore do not require a separate migration command.
 
 Subsequent schema changes use normal Ecto migrations. Inspect the release's migrations and version notes before upgrading. Stop conflicting controller versions before changing database contracts. Do not delete volumes or runner state to force a migration or snapshot to succeed.
 
