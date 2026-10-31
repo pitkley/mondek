@@ -74,13 +74,19 @@ db =
     do: env.("MONDEK_TEST_DATABASE", "mondek_test"),
     else: env.("PGDATABASE", "mondek_dev")
 
+database_pool_size =
+  case Integer.parse(env.("MONDEK_DATABASE_POOL_SIZE", "12")) do
+    {size, ""} when size > 0 -> size
+    _ -> raise "MONDEK_DATABASE_POOL_SIZE must be a positive integer"
+  end
+
 config :mondek, Mondek.Repo,
   hostname: env.("PGHOST", "127.0.0.1"),
   port: String.to_integer(env.("PGPORT", "55432")),
   username: env.("PGUSER", "mondek"),
   password: database_password,
   database: db,
-  pool_size: 12,
+  pool_size: database_pool_size,
   show_sensitive_data_on_connection_error: false
 
 # Postgrex does not interpret libpq's PGSSLMODE environment variable.
