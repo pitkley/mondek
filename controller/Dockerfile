@@ -25,7 +25,8 @@ COPY --from=assets /app/priv/static/assets ./priv/static/assets
 RUN mix compile --warnings-as-errors && mix phx.digest && mix release
 
 FROM debian:bookworm-20260824-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 ca-certificates curl git \
+# libsctp1 satisfies the bundled Erlang runtime's SCTP library dependency.
+RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 libsctp1 ca-certificates curl git \
     && rm -rf /var/lib/apt/lists/*
 # Debian gzip's notice spells its GFDL-1.3 reference as GFDL-3.
 RUN ln -s GFDL-1.3 /usr/share/common-licenses/GFDL-3
