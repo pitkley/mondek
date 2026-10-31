@@ -4,7 +4,7 @@ defmodule Mondek.RuntimeConfigurationTest do
   use ExUnit.Case, async: false
 
   @runtime Path.expand("../../config/runtime.exs", __DIR__)
-  @variables ~w(MONDEK_RETENTION_RECEIPT_DAYS MONDEK_RETENTION_HISTORY_DAYS MONDEK_RETENTION_MAX_OBSERVATIONS MONDEK_DEPLOYMENT_MODE SECRET_KEY_BASE DATABASE_URL PGPASSWORD PGHOST PGPORT PGUSER PGDATABASE PORT MONDEK_PUBLIC_URL MONDEK_SEED_DEMO MONDEK_NOTIFICATION_ADAPTER MONDEK_SMTP_HOST MONDEK_SMTP_PORT MONDEK_SMTP_TRANSPORT MONDEK_SMTP_USERNAME MONDEK_SMTP_PASSWORD MONDEK_SMTP_FROM MONDEK_SMTP_TO MONDEK_SMTP_TIMEOUT_MS)
+  @variables ~w(MONDEK_RETENTION_RECEIPT_DAYS MONDEK_RETENTION_HISTORY_DAYS MONDEK_RETENTION_MAX_OBSERVATIONS MONDEK_DEPLOYMENT_MODE SECRET_KEY_BASE DATABASE_URL PGSSLMODE PGSSLROOTCERT PGPASSWORD PGHOST PGPORT PGUSER PGDATABASE PORT MONDEK_PUBLIC_URL MONDEK_SEED_DEMO MONDEK_NOTIFICATION_ADAPTER MONDEK_SMTP_HOST MONDEK_SMTP_PORT MONDEK_SMTP_TRANSPORT MONDEK_SMTP_USERNAME MONDEK_SMTP_PASSWORD MONDEK_SMTP_FROM MONDEK_SMTP_TO MONDEK_SMTP_TIMEOUT_MS)
 
   setup do
     variables =
@@ -135,6 +135,69 @@ defmodule Mondek.RuntimeConfigurationTest do
     assert_raise RuntimeError,
                  "Deployment mode uses PGHOST, PGPORT, PGUSER, PGDATABASE and PGPASSWORD; remove DATABASE_URL",
                  &configuration/0
+  end
+
+  test "database TLS is opt-in and supports required encryption and verified modes" do
+    refute Keyword.has_key?(configuration()[Mondek.Repo], :ssl)
+    deployment()
+    System.put_env("PGSSLMODE", "disable")
+    assert configuration()[Mondek.Repo][:ssl] == false
+    System.put_env("PGSSLMODE", "require")
+    assert configuration()[Mondek.Repo][:ssl] == [verify: :verify_none]
+    System.put_env("PGSSLROOTCERT", "/run/certs/database-ca.pem")
+
+    for mode <- ["verify-ca", "verify-full"] do
+      System.put_env("PGSSLMODE", mode)
+      ssl = configuration()[Mondek.Repo][:ssl]
+      assert ssl[:verify] == :verify_peer
+      assert ssl[:cacertfile] == "/run/certs/database-ca.pem"
+      assert ssl[:server_name_indication] == :disable == (mode == "verify-ca")
+    end
+  end
+
+  test "invalid or conflicting database TLS settings fail without exposing values" do
+    for value <- ["", "prefer", "allow", "private-invalid-value"] do
+      System.put_env("PGSSLMODE", value)
+
+      assert_raise RuntimeError,
+                   "PGSSLMODE must be disable, require, verify-ca or verify-full",
+                   &configuration/0
+    end
+
+    System.delete_env("PGSSLMODE")
+    System.put_env("PGSSLROOTCERT", "/private/ca.pem")
+
+    assert_raise RuntimeError,
+                 "PGSSLROOTCERT requires PGSSLMODE=verify-ca or verify-full",
+                 &configuration/0
+
+    System.delete_env("PGSSLROOTCERT")
+    System.put_env("PGSSLMODE", "require")
+
+    for query <- ["ssl=true", "ssl=false"] do
+      System.put_env("DATABASE_URL", "postgres://private:secret@localhost/db?" <> query)
+
+      assert_raise RuntimeError,
+                   "Configure database TLS through PGSSLMODE or DATABASE_URL, not both",
+                   &configuration/0
+    end
+  end
+
+  test "development DATABASE_URL keeps Ecto ssl=true support" do
+    url = "postgres://localhost/mondek_dev?ssl=true"
+    System.put_env("DATABASE_URL", url)
+    assert configuration()[Mondek.Repo][:url] == url
+    refute Keyword.has_key?(configuration()[Mondek.Repo], :ssl)
+    assert Ecto.Repo.Supervisor.parse_url(url)[:ssl] == true
+    System.put_env("DATABASE_URL", "postgres://localhost/mondek_dev?sslmode=require")
+
+    assert_raise RuntimeError,
+                 "DATABASE_URL sslmode is unsupported; use PGSSLMODE or ssl=true",
+                 &configuration/0
+
+    System.put_env("DATABASE_URL", "postgres://localhost/mondek_dev")
+    System.put_env("PGSSLMODE", "require")
+    assert configuration()[Mondek.Repo][:ssl] == [verify: :verify_none]
   end
 
   test "public origin rejects insecure URLs and URL credentials or extra components" do
