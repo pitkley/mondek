@@ -1157,8 +1157,7 @@ defmodule Mondek.Monitoring do
   def enqueue_notification!(id, destination) do
     %{
       "occurrence_id" => id,
-      "delivery_channel" =>
-        if(String.starts_with?(destination, "mailto:"), do: "smtp", else: "webhook")
+      "delivery_channel" => Mondek.NotificationDelivery.channel(destination)
     }
     |> Mondek.NotificationWorker.new(
       max_attempts: Application.get_env(:mondek, :notification_max_attempts, 100)

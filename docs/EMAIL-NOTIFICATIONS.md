@@ -18,7 +18,7 @@ MONDEK_SMTP_TIMEOUT_MS=10000
 
 The sender and recipient must each be one bare email address, without display names or a comma-separated recipient list. A private relay may accept unauthenticated `plain` delivery. For a relay requiring credentials, set `MONDEK_SMTP_TRANSPORT=starttls` or `tls`, then provide both `MONDEK_SMTP_USERNAME` and `MONDEK_SMTP_PASSWORD`. STARTTLS is required when selected; encryption cannot silently fall back to plaintext. TLS uses the container's trusted certificate authorities and verifies the configured relay hostname. Authentication over plaintext is refused at startup. Missing or invalid configuration produces a value-free error.
 
-The controller must share a suitable private network with the relay. Another Compose project's default network is not automatically reachable. Keep relay credentials and actual addresses on the server. Do not pass these values as Docker build arguments or put them in a source repository. Project-scoped recipient/routing policy, multiple destinations and Discord remain follow-up work; the initial deployment has one installation-level destination.
+The controller must share a suitable private network with the relay. Another Compose project's default network is not automatically reachable. Keep relay credentials and actual addresses on the server. Do not pass these values as Docker build arguments or put them in a source repository. Generic [webhook notifications and Teams templates](WEBHOOK-NOTIFICATIONS.md) are also available. Project-scoped recipient/routing policy and multiple active destinations remain follow-up work; the initial deployment has one installation-level destination.
 
 ## What operators receive
 

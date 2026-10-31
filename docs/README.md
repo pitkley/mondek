@@ -27,7 +27,7 @@ Start with [operations and bounds](OPERATIONS.md), [check inventory](CHECK-INVEN
 | Task | Guide |
 | --- | --- |
 | Investigate gaps or lost monitoring | [Missing measurements](MEASUREMENT-INVESTIGATION.md), [coverage](COVERAGE.md) and [monitoring-loss notifications](MONITORING-LOSS.md) |
-| Inspect runners and delivery attempts | [Runners and notifications](RUNNERS-AND-NOTIFICATIONS.md) and [email setup](EMAIL-NOTIFICATIONS.md) |
+| Inspect runners and delivery attempts | [Runners and notifications](RUNNERS-AND-NOTIFICATIONS.md) and [email setup](EMAIL-NOTIFICATIONS.md) and [webhooks/Teams](WEBHOOK-NOTIFICATIONS.md) |
 | Acknowledge incidents or plan notification windows | [Acknowledgements](ACKNOWLEDGEMENTS.md), [maintenance](MAINTENANCE.md) and [repeating maintenance](RECURRING-MAINTENANCE.md) |
 | Retire or replace an observer | [Observer lifecycle](OBSERVER-LIFECYCLE.md) |
 | Review configuration history or restore it | [Configuration Git](CONFIGURATION-GIT.md) |

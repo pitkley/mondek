@@ -9,7 +9,7 @@ cp .env.example .env
 chmod 0600 .env
 ```
 
-Edit .env privately. Set a strong PGPASSWORD and a unique SECRET_KEY_BASE of at least 64 characters (`openssl rand -hex 64` can generate one). Set MONDEK_SMTP_HOST, MONDEK_SMTP_FROM, MONDEK_SMTP_TO and the matching port/transport for your intended relay. Supply paired credentials if required. No relay or recipient is created implicitly. See [SMTP settings](../docs/EMAIL-NOTIFICATIONS.md). Keep this file out of source control and diagnostic output; do not run `docker compose config` without --quiet when sharing logs.
+Edit .env privately. Set a strong PGPASSWORD and a unique SECRET_KEY_BASE of at least 64 characters (`openssl rand -hex 64` can generate one). Set MONDEK_SMTP_HOST, MONDEK_SMTP_FROM, MONDEK_SMTP_TO and the matching port/transport for your intended relay. Supply paired credentials if required. No relay or recipient is created implicitly. See [SMTP settings](../docs/EMAIL-NOTIFICATIONS.md), or select [webhooks and Teams](../docs/WEBHOOK-NOTIFICATIONS.md) instead. Keep this file out of source control and diagnostic output; do not run `docker compose config` without --quiet when sharing logs.
 
 ```sh
 docker compose up -d --wait
