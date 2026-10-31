@@ -87,3 +87,5 @@ Disposable harnesses retain `.local/acceptance/` or `.local/browser/` results, p
 ## Maintaining this map
 
 When adding or renaming a maintained acceptance command or browser suite, update its workflow invocation or intentional exclusion here. Verify the actual `scripts/mondek` dispatch and browser parser/default list, not just documentation mentions. Record local and hosted test results separately, including source revision, workload and limitations; a historical passing run does not establish that every current suite has passed.
+
+The focused `bash tests/postgres_tls/run.sh` suite provisions a disposable Compose project with a synthetic CA, a signed localhost certificate, `hostssl sameuser` and a separate plain-only database. It exercises actual Postgrex encrypted/plain queries, certificate hostname rejection and invalid CA rejection using the runtime configuration. It removes only its own resources on exit and requires local port 55439. Run it through devenv when changing database TLS; it is intentionally outside default CI.

@@ -83,7 +83,55 @@ config :mondek, Mondek.Repo,
   pool_size: 12,
   show_sensitive_data_on_connection_error: false
 
-if url = env.("DATABASE_URL", nil), do: config(:mondek, Mondek.Repo, url: url)
+# Postgrex does not interpret libpq's PGSSLMODE environment variable.
+ssl_mode = env.("PGSSLMODE", nil)
+ssl_root_cert = env.("PGSSLROOTCERT", nil)
+database_url = env.("DATABASE_URL", nil)
+
+url_tls_options =
+  if database_url,
+    do: URI.query_decoder(URI.parse(database_url).query || "") |> Enum.map(&elem(&1, 0)),
+    else: []
+
+if "sslmode" in url_tls_options do
+  raise "DATABASE_URL sslmode is unsupported; use PGSSLMODE or ssl=true"
+end
+
+if (ssl_mode || ssl_root_cert) && "ssl" in url_tls_options do
+  raise "Configure database TLS through PGSSLMODE or DATABASE_URL, not both"
+end
+
+ssl =
+  case ssl_mode do
+    nil ->
+      nil
+
+    "disable" ->
+      false
+
+    "require" ->
+      [verify: :verify_none]
+
+    mode when mode in ["verify-ca", "verify-full"] ->
+      trust =
+        if ssl_root_cert && ssl_root_cert != "",
+          do: [cacertfile: ssl_root_cert],
+          else: [cacerts: :public_key.cacerts_get()]
+
+      if mode == "verify-ca",
+        do: trust ++ [verify: :verify_peer, server_name_indication: :disable],
+        else: trust ++ [verify: :verify_peer]
+
+    _ ->
+      raise "PGSSLMODE must be disable, require, verify-ca or verify-full"
+  end
+
+if ssl_root_cert && ssl_mode not in ["verify-ca", "verify-full"] do
+  raise "PGSSLROOTCERT requires PGSSLMODE=verify-ca or verify-full"
+end
+
+if ssl != nil, do: config(:mondek, Mondek.Repo, ssl: ssl)
+if database_url, do: config(:mondek, Mondek.Repo, url: database_url)
 
 {:ok, bind_address} =
   env.("MONDEK_BIND_ADDRESS", "127.0.0.1")
