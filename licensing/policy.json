@@ -43,6 +43,13 @@
     "reason": "These locked optional platform packages are the esbuild executable distribution. They declare MIT and inherit the same-version esbuild package LICENSE.md; retain all platform artifact identities in the inventory."
   },
   "npm_supplements": {
+    "@patternfly/patternfly@6.7.0": {
+      "declared": "MIT",
+      "license": "MIT",
+      "notice": "licensing/PATTERNFLY-LICENSE.txt",
+      "source": "https://github.com/patternfly/patternfly/tree/8b47b37029ce6636663771d8086f95f0828aec42",
+      "reason": "The npm archive omits its MIT license file. Retain the notice from the exact upstream gitHead published for this version. The preview imports component CSS and tokens, without bundling optional font or icon assets."
+    },
     "lucide-static@1.59.0": {
       "declared": "ISC",
       "license": "ISC AND MIT",

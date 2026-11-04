@@ -20,12 +20,21 @@ defmodule MondekWeb.CoverageNavigation do
     end
   end
 
-  # Coverage can return to a specific incident or runner, never another coverage
+  # Coverage may return to an incident, runner or preview, never another coverage
   # URL. Their own helpers bound further context and prevent recursive chains.
   def origin(value) do
     MondekWeb.MonitoringIncidentNavigation.return_path(value) ||
-      MondekWeb.RunnerNavigation.return_path(value)
+      MondekWeb.RunnerNavigation.return_path(value) || preview_origin(value)
   end
+
+  defp preview_origin(value) when is_binary(value) do
+    if URI.parse(value).path |> Kernel.||("") |> String.starts_with?("/next"),
+      do: MondekWeb.InvestigationNavigation.safe_return_path(value)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp preview_origin(_), do: nil
 
   def return_path(value) when is_binary(value) and byte_size(value) <= 8192 do
     uri = URI.parse(value)

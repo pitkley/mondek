@@ -117,8 +117,8 @@ setup() {
 assets() {
   (cd controller/assets && npm ci --ignore-scripts && node icons.mjs)
   mkdir -p controller/priv/static/assets
-  "$ESBUILD_PATH" controller/assets/css/app.css --bundle --outfile=controller/priv/static/assets/app.css
-  NODE_PATH=controller/deps "$ESBUILD_PATH" controller/assets/js/app.js --bundle --target=es2022 --outfile=controller/priv/static/assets/app.js
+  "$ESBUILD_PATH" controller/assets/css/app.css controller/assets/css/preview.css --bundle --loader:.svg=file '--asset-names=preview-[name]-[hash]' --outdir=controller/priv/static/assets
+  NODE_PATH=controller/deps "$ESBUILD_PATH" controller/assets/js/app.js controller/assets/js/preview.js --bundle --target=es2022 --outdir=controller/priv/static/assets
 }
 
 test_prepare() {
