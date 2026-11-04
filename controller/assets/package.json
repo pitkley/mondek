@@ -3,12 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "build": "node icons.mjs && mkdir -p ../priv/static/assets && esbuild css/app.css --bundle --minify --outfile=../priv/static/assets/app.css && NODE_PATH=../deps esbuild js/app.js --bundle --minify --target=es2022 --outfile=../priv/static/assets/app.js"
+    "build": "node icons.mjs && mkdir -p ../priv/static/assets && esbuild css/app.css css/preview.css --bundle --minify --loader:.svg=file --asset-names=preview-[name]-[hash] --outdir=../priv/static/assets && NODE_PATH=../deps esbuild js/app.js js/preview.js --bundle --minify --target=es2022 --outdir=../priv/static/assets"
   },
   "devDependencies": {
     "esbuild": "0.27.2"
   },
   "dependencies": {
+    "@patternfly/patternfly": "6.7.0",
     "lucide-static": "1.59.0"
   }
 }

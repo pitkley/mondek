@@ -18,6 +18,10 @@ defmodule MondekWeb.Router do
     plug :require_json_write
   end
 
+  pipeline :preview do
+    plug :put_root_layout, html: {MondekWeb.PreviewLayouts, :root}
+  end
+
   # Browser forms can reach loopback services cross-origin. JSON writes require a
   # non-simple content type, so browsers must pass CORS preflight first; this API
   # does not grant cross-origin access. LiveView forms use the CSRF-protected path.
@@ -46,6 +50,13 @@ defmodule MondekWeb.Router do
   post "/configuration.git/git-receive-pack",
        MondekWeb.ConfigurationGitController,
        :receive_pack
+
+  scope "/next", MondekWeb do
+    pipe_through [:browser, :preview]
+    live "/", NextOverviewLive, :index
+    live "/results/:id", NextOverviewLive, :result
+    live "/expected/:id", NextOverviewLive, :expected
+  end
 
   scope "/", MondekWeb do
     pipe_through :browser

@@ -88,6 +88,7 @@ def run_suite(suite: str) -> bool:
             "check-groups",
             "grouped",
             "coverage",
+            "overview",
             "publishers",
             "fleet",
         }
@@ -113,7 +114,7 @@ def run_suite(suite: str) -> bool:
         command.extend(["-f", "examples/compose/rules.yaml"])
     elif suite == "grouped":
         command.extend(["-f", "examples/compose/grouped.yaml"])
-    elif suite in {"coverage", "publishers"}:
+    elif suite in {"coverage", "publishers", "overview"}:
         command.extend(["-f", "examples/compose/coverage.yaml"])
         if suite == "publishers":
             command.extend(["-f", "examples/compose/publishers.yaml"])
@@ -134,7 +135,7 @@ def run_suite(suite: str) -> bool:
         command.extend(["-f", "tests/browser/compose/diagnostics.yaml"])
     elif suite == "grouped":
         command.extend(["-f", "tests/browser/compose/grouped.yaml"])
-    elif suite in {"coverage", "publishers"}:
+    elif suite in {"coverage", "publishers", "overview"}:
         command.extend(["-f", "tests/browser/compose/coverage.yaml"])
     if suite == "parity":
         command.extend(["--profile", "capacity"])
@@ -189,7 +190,7 @@ def run_suite(suite: str) -> bool:
                     "coverage-service-b",
                     "browser",
                 ]
-                if suite in {"coverage", "publishers"}
+                if suite in {"coverage", "publishers", "overview"}
                 else ["controller", "target", "inventory-a", "inventory-b", "browser"]
                 if suite == "inventory"
                 else ["controller", "target", "groups-a", "groups-b", "browser"]
@@ -209,7 +210,7 @@ def run_suite(suite: str) -> bool:
                 else ["grouped-volume", "grouped-elasticsearch"]
                 if suite == "grouped"
                 else ["coverage-node-a", "coverage-service-a", "coverage-service-b"]
-                if suite in {"coverage", "publishers"}
+                if suite in {"coverage", "publishers", "overview"}
                 else ["inventory-a", "inventory-b"]
                 if suite == "inventory"
                 else ["groups-a", "groups-b"]
@@ -447,6 +448,7 @@ def main() -> int:
             "check-groups",
             "grouped",
             "coverage",
+            "overview",
             "publishers",
             "all",
         ],
@@ -476,6 +478,7 @@ def main() -> int:
             "check-groups",
             "grouped",
             "coverage",
+            "overview",
             "publishers",
         ]
         if args.suite == "all"

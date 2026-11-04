@@ -7,7 +7,7 @@ const output = process.env.MONDEK_BROWSER_OUTPUT || './test-results';
 const suite = process.env.MONDEK_BROWSER_SUITE || 'lifecycle';
 const video = process.env.MONDEK_BROWSER_VIDEO || 'off';
 if (!['off', 'retain-on-failure'].includes(video)) throw new Error(`Unknown video mode: ${video}`);
-if (!['discovery-configuration', 'linux', 'lifecycle', 'diagnostics', 'discovery', 'monitoring-loss', 'fleet', 'empty', 'parity', 'bulk', 'rules', 'policy', 'acknowledgements', 'maintenance', 'inventory', 'check-groups', 'grouped', 'coverage', 'publishers'].includes(suite)) throw new Error(`Unknown suite: ${suite}`);
+if (!['discovery-configuration', 'linux', 'lifecycle', 'diagnostics', 'discovery', 'monitoring-loss', 'fleet', 'empty', 'parity', 'bulk', 'rules', 'policy', 'acknowledgements', 'maintenance', 'inventory', 'check-groups', 'grouped', 'coverage', 'publishers', 'overview'].includes(suite)) throw new Error(`Unknown suite: ${suite}`);
 
 export default defineConfig({
   testDir: './specs',

@@ -333,6 +333,14 @@ def collect_npm(
                     )
                 expression = supplement["license"]
                 evidence_note = supplement["reason"]
+                if "notice" in supplement:
+                    notices.append(
+                        document(
+                            supplement["notice"],
+                            (root / supplement["notice"]).read_bytes(),
+                        )
+                    )
+                    sources.append({"url": supplement["source"]})
                 used_supplements.add(supplement_key)
             artifact_scope = (
                 "controller"

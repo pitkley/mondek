@@ -2,7 +2,11 @@
 
 Use these conventions when extending Mondek's existing interfaces. They preserve the approved light navigation, blue accents and compact evidence presentation; they do not introduce a new UI framework.
 
+The parallel [overview prototype](UI-OVERVIEW-PREVIEW.md) at `/next` deliberately evaluates a replacement layout using PatternFly's HTML/CSS components with LiveView. Its separate root layout and asset bundles isolate the experiment. The evidence, identity, action-scope and accessibility requirements below also apply there; legacy-specific layout conventions do not constrain that prototype.
+
 ## Visual hierarchy
+
+For the replacement prototype, treat exposed canvas text as a sign that content may be missing its parent section. Put filters in a list's toolbar, pagination in its footer, and headings, counts, empty states and explanations on the same surface as the content they describe. Use canvas space to separate coherent sections; avoid a separate card for every label. Summary and list columns should share a grid and content inset so comparable information lines up.
 
 - Lead each page with its stable section heading, then view tabs, then the selected view's content. Changing a tab must not unexpectedly replace a heading above it.
 - Put the operator's current task first: evidence during investigation, fields during editing, scope and changes during review, and the exact saved versions during adoption.

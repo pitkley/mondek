@@ -29,6 +29,7 @@ runner/*
 !runner/pyproject.toml
 !runner/uv.lock
 !runner/README.md
+!runner/PYPI-README.md
 !runner/LICENSE
 !runner/THIRD_PARTY_LICENSES.md
 !runner/mondek_runner/

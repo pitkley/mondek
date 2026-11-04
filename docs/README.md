@@ -39,4 +39,6 @@ Use [contributing](../CONTRIBUTING.md), [development commands](../DEVELOPMENT.md
 
 For implementation work, start with [protocol contracts and fixture enforcement](../contracts/README.md), [SDK/HTTP boundaries](API-BOUNDARIES.md), [transactions and locks](TRANSACTIONS-AND-LOCKS.md) or [UI conventions](UI-CONVENTIONS.md). These references describe the current implementation and its limits; the protocol's v1 marker is experimental, as explained in the [versioning guidance](../contracts/README.md#versioning).
 
+The parallel [LiveView overview prototype](UI-OVERVIEW-PREVIEW.md) describes the `/next` investigation flow, its PatternFly component foundation, data scope and focused verification.
+
 [Resource discovery settings](DISCOVERY-CONFIGURATION.md) explains monitored-host scope, reviewed saves and accepted inventory receipts.

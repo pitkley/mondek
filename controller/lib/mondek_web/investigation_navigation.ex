@@ -128,6 +128,19 @@ defmodule MondekWeb.InvestigationNavigation do
         uri.path == "/" ->
           "/"
 
+        is_binary(uri.path) &&
+            Regex.match?(
+              ~r"\A/next(?:/results/[a-f0-9-]{36}|/expected/[a-f0-9]{64})?\z",
+              uri.path
+            ) ->
+          filters =
+            params
+            |> Map.take(~w(search page healthy_page expected_page))
+            |> Map.new(fn {key, value} -> {key, String.slice(value, 0, 200)} end)
+
+          query = URI.encode_query(filters)
+          if query == "", do: uri.path, else: uri.path <> "?" <> query
+
         depth in [0, 1] && is_binary(uri.path) && String.starts_with?(uri.path, "/notifications") ->
           NotificationNavigation.return_path(value)
 
@@ -223,6 +236,9 @@ defmodule MondekWeb.InvestigationNavigation do
         cond do
           String.starts_with?(path || "", "/notifications/") ->
             "Back to notification"
+
+          path == "/next" || String.starts_with?(path || "", "/next/") ->
+            "Back to overview preview"
 
           String.starts_with?(path || "", "/runners/") ->
             "Back to runner"

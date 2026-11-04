@@ -1282,6 +1282,30 @@
     },
     {
       "ecosystem": "npm",
+      "evidence_note": "The npm archive omits its MIT license file. Retain the notice from the exact upstream gitHead published for this version. The preview imports component CSS and tokens, without bundling optional font or icon assets.",
+      "license": "MIT",
+      "name": "@patternfly/patternfly",
+      "notices": [
+        {
+          "path": "licensing/PATTERNFLY-LICENSE.txt",
+          "sha256": "afc12cbdb54b4ee09bc1b9b19feadb4f424e46a47f64860e9941606e18e12703",
+          "text": "MIT License\n\nCopyright (c) 2019 Red Hat, Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+        }
+      ],
+      "scope": "controller",
+      "sources": [
+        {
+          "url": "https://github.com/patternfly/patternfly/tree/8b47b37029ce6636663771d8086f95f0828aec42"
+        },
+        {
+          "integrity": "sha512-jV7bPxypppPtZA1XaJOz/uZsrIy2TA6Av18PLqAbHpZXDtzyHmFUEk3Sl21dQXEJmlMqniOh5Pv/6PHmmamJ9w==",
+          "url": "https://registry.npmjs.org/@patternfly/patternfly/-/patternfly-6.7.0.tgz"
+        }
+      ],
+      "version": "6.7.0"
+    },
+    {
+      "ecosystem": "npm",
       "license": "Apache-2.0",
       "name": "@playwright/test",
       "notices": [

@@ -395,6 +395,182 @@ defmodule Mondek.Inspection do
     }
   end
 
+  # Exact scope matching is only for optional related-result investigation.
+  # Ordinary overview rows retain their native stream identity.
+  defmacrop overview_identity(s, a) do
+    quote do
+      fragment(
+        "jsonb_build_array(?::text, ?::text, ?::text, ?::text, ?->>'kind', ?->>'key', CASE WHEN ?::text IS NULL OR ?::text IS NULL OR ?->>'key' IS NULL OR ?->>'kind' IS NULL THEN ?::text ELSE NULL END)",
+        unquote(a).source_id,
+        unquote(a).source_key,
+        unquote(s).result_key,
+        unquote(s).environment,
+        unquote(s).target,
+        unquote(s).target,
+        unquote(a).source_id,
+        unquote(a).source_key,
+        unquote(s).target,
+        unquote(s).target,
+        unquote(s).id
+      )
+    end
+  end
+
+  @doc "Bounded native result rows, with independent health and freshness for each runner."
+  def overview_results(filters, at) do
+    classified =
+      from [s, a, r] in base_streams(),
+        where: is_nil(s.retired_at),
+        select: %{
+          stream_id: s.id,
+          label: s.label,
+          check_label: a.label,
+          runner_label: r.label,
+          identity: overview_identity(s, a),
+          target_label: fragment("?->>'label'", s.target),
+          health: measured_health(s),
+          freshness: knowledge(s, a, r, ^at)
+        }
+
+    health =
+      Repo.one(
+        from c in subquery(classified),
+          select: %{
+            critical: filter(count(), c.health == "CRIT"),
+            warning: filter(count(), c.health == "WARN"),
+            healthy: filter(count(), c.health == "OK"),
+            not_measured: filter(count(), is_nil(c.health)),
+            unknown: filter(count(), c.health == "UNKNOWN")
+          }
+      )
+
+    search = filters["search"] || ""
+
+    matching =
+      from c in subquery(classified),
+        where:
+          fragment(
+            "strpos(lower(concat_ws(' ', ?, ?, ?, ?, ?::text)), lower(?)) > 0",
+            c.label,
+            c.check_label,
+            c.target_label,
+            c.runner_label,
+            c.identity,
+            ^search
+          )
+
+    %{
+      health: health,
+      attention: overview_page(matching, filters["page"], true, at),
+      healthy: overview_page(matching, filters["healthy_page"], false, at)
+    }
+  end
+
+  defp overview_page(results, requested_page, attention?, at) do
+    matching =
+      from c in results,
+        where: (c.freshness != "fresh" or is_nil(c.health) or c.health != "OK") == ^attention?
+
+    total = Repo.aggregate(matching, :count)
+    page = min(number(requested_page, 1, 1_000_000), max(1, ceil(total / 30)))
+
+    ids =
+      Repo.all(
+        from c in matching,
+          order_by: [
+            desc: fragment("? IS NOT DISTINCT FROM 'CRIT'", c.health),
+            desc: fragment("? IS NOT DISTINCT FROM 'WARN'", c.health),
+            asc: c.label,
+            asc: c.runner_label,
+            asc: c.stream_id
+          ],
+          offset: ^((page - 1) * 30),
+          limit: 30,
+          select: c.stream_id
+      )
+
+    rows =
+      Repo.all(
+        from [s, a, r] in base_streams(),
+          where: s.id in ^ids,
+          select: {s, a, r, knowledge(s, a, r, ^at)}
+      )
+      |> public_streams()
+
+    labels = Enum.map(rows, & &1["runner_label"])
+
+    ambiguous =
+      Repo.all(
+        from r in Runner,
+          where: r.label in ^labels,
+          group_by: r.label,
+          having: count() > 1,
+          select: r.label
+      )
+
+    rows =
+      Map.new(rows, fn row ->
+        label = row["runner_label"] || "Runner"
+        display = if label in ambiguous, do: label <> " (" <> row["runner_id"] <> ")", else: label
+        {row["id"], Map.put(row, "runner_display", display)}
+      end)
+
+    %{items: Enum.map(ids, &Map.fetch!(rows, &1)), total: total, page: page, page_size: 30}
+  end
+
+  defp overview_identity_value(stream) do
+    target = stream["target"] || %{}
+
+    fallback =
+      if Enum.any?(
+           [stream["source_id"], stream["source_key"], target["key"], target["kind"]],
+           &is_nil/1
+         ),
+         do: stream["id"]
+
+    [
+      stream["source_id"],
+      stream["source_key"],
+      stream["result_key"],
+      stream["environment"],
+      target["kind"],
+      target["key"],
+      fallback
+    ]
+  end
+
+  @doc "The selected result and a bounded set of its exact peer observations."
+  def overview_observers(id, at) do
+    with stream when not is_nil(stream) <- stream_detail(id, at) do
+      identity = overview_identity_value(stream)
+
+      query =
+        from [s, a, r] in base_streams(),
+          where:
+            is_nil(s.retired_at) and fragment("? = ?::jsonb", overview_identity(s, a), ^identity)
+
+      items =
+        Repo.all(
+          from [s, a, r] in query,
+            order_by: [
+              desc: s.id == ^id,
+              desc: fragment("? IS NOT DISTINCT FROM 'CRIT'", measured_health(s)),
+              desc: fragment("? IS NOT DISTINCT FROM 'WARN'", measured_health(s)),
+              asc: fragment("? IS NOT DISTINCT FROM 'fresh'", knowledge(s, a, r, ^at)),
+              asc: r.label,
+              asc: s.id
+            ],
+            limit: 25,
+            select: {s, a, r, knowledge(s, a, r, ^at)}
+        )
+        |> public_streams()
+
+      items = if stream["retired"], do: [stream | items], else: items
+      total = Repo.aggregate(query, :count) + if(stream["retired"], do: 1, else: 0)
+      %{identity: identity, items: items, total: total, selected: stream}
+    end
+  end
+
   @doc "Group-contiguous result pages, with summaries over every matching result."
   def list_grouped_streams(filters, at) do
     f = normalize(filters)
