@@ -3,24 +3,48 @@
 defmodule MondekWeb.NextOverviewLive do
   use MondekWeb, :live_view
   import MondekWeb.EvidencePresentation, only: [age: 2, time: 1, badge_text: 1, target_label: 1]
-  alias Mondek.{Coverage, Inspection, Monitoring}
+  alias Mondek.{Coverage, Inspection, Monitoring, OverviewFilters}
   alias MondekWeb.MonitoringUI
 
   @impl true
   def mount(_, _, socket) do
     if connected?(socket), do: Process.send_after(self(), :tick, 2_000)
-    {:ok, assign(socket, filters: %{}, selected_id: nil, panel: nil)}
+
+    {:ok,
+     assign(socket,
+       filters: %{},
+       selected_id: nil,
+       panel: nil,
+       filter_picker: nil,
+       filter_chips: []
+     )}
   end
 
   @impl true
   def handle_params(params, _, socket) do
-    filters =
-      params
-      |> Map.take(~w(search page healthy_page expected_page))
-      |> Enum.filter(fn {_, value} -> is_binary(value) end)
-      |> Map.new(fn {key, value} -> {key, String.slice(value, 0, 200)} end)
+    filters = OverviewFilters.params(params)
 
-    {:noreply, socket |> assign(filters: filters, selected_id: params["id"]) |> refresh()}
+    chips =
+      for {field, name} <- OverviewFilters.fields(),
+          {key, _kind} = selection <- List.wrap(OverviewFilters.selected(filters, field)) do
+        label =
+          case OverviewFilters.options(field, "", selection) do
+            [option] -> option.label
+            [] -> key
+          end
+
+        %{field: field, name: name, label: label}
+      end
+
+    {:noreply,
+     socket
+     |> assign(
+       filters: filters,
+       selected_id: params["id"],
+       filter_chips: chips,
+       filter_picker: nil
+     )
+     |> refresh()}
   end
 
   @impl true
@@ -36,9 +60,101 @@ defmodule MondekWeb.NextOverviewLive do
     if search == (socket.assigns.filters["search"] || "") do
       {:noreply, socket}
     else
-      filters = if search == "", do: %{}, else: %{"search" => search}
+      filters =
+        socket.assigns.filters
+        |> OverviewFilters.reset_pages()
+        |> Map.put("search", search)
+        |> OverviewFilters.params()
+
       {:noreply, push_patch(socket, to: path(filters), replace: true)}
     end
+  end
+
+  def handle_event("filter_open", params, socket) do
+    field = params["field"]
+
+    if List.keymember?(OverviewFilters.fields(), field, 0) do
+      chip = Enum.find(socket.assigns.filter_chips, &(&1.field == field))
+      draft = %{picker(field, "") | value: if(chip, do: chip.label, else: "")}
+      {:noreply, assign(socket, filter_picker: draft)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("filter_remove_edit", _, socket) do
+    case socket.assigns.filter_picker do
+      %{field: field} ->
+        filters =
+          socket.assigns.filters
+          |> OverviewFilters.remove(field)
+          |> OverviewFilters.reset_pages()
+
+        {:noreply, socket |> push_patch(to: path(filters)) |> show_filter_choices()}
+
+      nil ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("filter_close", %{"reopen" => true}, socket),
+    do: {:noreply, show_filter_choices(socket)}
+
+  def handle_event("filter_close", _, socket),
+    do: {:noreply, assign(socket, filter_picker: nil)}
+
+  def handle_event(event, %{"search" => query}, socket)
+      when event in ["filter_query", "filter_first"] and is_binary(query) do
+    case socket.assigns.filter_picker do
+      nil ->
+        {:noreply, socket}
+
+      %{field: field} ->
+        draft = picker(field, String.slice(String.replace(query, <<0>>, ""), 0, 200))
+
+        case {event, draft.options} do
+          {"filter_first", [option | _]} -> choose_filter(socket, field, option)
+          _ -> {:noreply, assign(socket, filter_picker: draft)}
+        end
+    end
+  end
+
+  def handle_event("filter_select", %{"key" => key, "kind" => kind}, socket) do
+    with %{field: field, options: options} <- socket.assigns.filter_picker,
+         option when not is_nil(option) <-
+           Enum.find(options, &(&1.key == key and &1.kind == kind)) do
+      choose_filter(socket, field, option)
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event(event, _, socket)
+      when event in ["filter_query", "filter_first", "filter_select"],
+      do: {:noreply, socket}
+
+  defp choose_filter(socket, field, option) do
+    filters =
+      socket.assigns.filters
+      |> OverviewFilters.put(field, {option.key, option.kind})
+      |> OverviewFilters.reset_pages()
+
+    {:noreply, socket |> push_patch(to: path(filters)) |> show_filter_choices()}
+  end
+
+  defp show_filter_choices(socket) do
+    socket
+    |> assign(filter_picker: nil)
+    |> push_event("overview-filter-ready", %{})
+  end
+
+  defp picker(field, query) do
+    %{
+      field: field,
+      title: Map.new(OverviewFilters.fields())[field],
+      value: query,
+      options: OverviewFilters.options(field, query)
+    }
   end
 
   defp refresh(socket) do
@@ -241,27 +357,7 @@ defmodule MondekWeb.NextOverviewLive do
           <section class="preview-list" aria-labelledby="preview-results-heading">
             <header class="preview-results-header">
               <h2 id="preview-results-heading" class="pf-v6-c-title pf-m-2xl">Results</h2>
-              <form
-                id="overview-search"
-                phx-change="search"
-                phx-submit="search"
-                class="preview-toolbar"
-                aria-label="Filter all result lists"
-              >
-                <label class="preview-search-label" for="preview-search">Search results and targets</label>
-                <span class="pf-v6-c-form-control preview-search-control"><input
-                  id="preview-search"
-                  type="search"
-                  name="search"
-                  value={@filters["search"] || ""}
-                  phx-debounce="300"
-                /></span>
-                <.link
-                  :if={@filters["search"] not in [nil, ""]}
-                  patch="/next"
-                  class="pf-v6-c-button pf-m-link"
-                >Clear</.link>
-              </form>
+              <.filter_picker picker={@filter_picker} filters={@filters} chips={@filter_chips} />
             </header>
             <section class="preview-table-group" aria-labelledby="preview-attention-heading">
               <div class="preview-section-heading">
@@ -280,15 +376,15 @@ defmodule MondekWeb.NextOverviewLive do
               </p>
               <p
                 :if={
-                  @overview.attention.total == 0 && @missing["total"] == 0 &&
+                  @overview.attention.total == 0 &&
                     (@snapshot["coverage"]["active"] > 0 || @declarations["scopes"] > 0)
                 }
                 class="preview-empty"
                 id="preview-no-attention"
               >
-                {if @filters["search"] in [nil, ""],
+                {if Enum.all?(~w(search environment target_key), &is_nil(@filters[&1])),
                   do: "No results currently need attention.",
-                  else: "No results needing attention match your search."}
+                  else: "No results needing attention match your filters."}
               </p>
               <.result_table
                 :if={@overview.attention.items != []}
@@ -307,7 +403,7 @@ defmodule MondekWeb.NextOverviewLive do
               />
             </section>
             <section
-              :if={@missing["total"] > 0}
+              :if={@declarations["missing"] > 0 || @missing["total"] > 0}
               id="preview-unobserved"
               class="preview-expected preview-table-group"
               aria-labelledby="preview-unobserved-heading"
@@ -321,7 +417,11 @@ defmodule MondekWeb.NextOverviewLive do
                   "monitoring gap"
                 )}</span>
               </div>
+              <p :if={@missing["total"] == 0} class="preview-empty">
+                No monitoring gaps match your filters.
+              </p>
               <table
+                :if={@missing["total"] > 0}
                 class="pf-v6-c-table pf-m-compact preview-table"
                 aria-label="Declared results with no selected runner"
               >
@@ -371,6 +471,7 @@ defmodule MondekWeb.NextOverviewLive do
                 </tbody>
               </table>
               <.pager
+                :if={@missing["total"] > 0}
                 listing={%{total: @missing["total"], page: @missing["page"], page_size: 25}}
                 filters={@filters}
                 key="expected_page"
@@ -459,6 +560,138 @@ defmodule MondekWeb.NextOverviewLive do
         </div>
       </main>
     </div>
+    """
+  end
+
+  defp filter_picker(assigns) do
+    ~H"""
+    <form
+      id="overview-search"
+      class="preview-toolbar"
+      phx-hook="OverviewFilterPicker"
+      phx-submit={if @picker, do: "filter_first", else: "search"}
+      phx-auto-recover="ignore"
+      aria-label="Filter all result lists"
+      data-step={@picker && @picker.field}
+      data-editing-filter={
+        to_string(!!(@picker && OverviewFilters.selected(@filters, @picker.field)))
+      }
+      data-value={if @picker, do: @picker.value, else: ""}
+      data-search={@filters["search"] || ""}
+    >
+      <div class="preview-search-field">
+        <span
+          :for={chip <- @chips}
+          :if={is_nil(@picker) || @picker.field != chip.field}
+          class="preview-filter-chip"
+        >
+          <button
+            type="button"
+            phx-click="filter_open"
+            phx-value-field={chip.field}
+            aria-label={"Edit #{chip.name} filter: #{chip.label}"}
+          >
+            <strong>{chip.name}:</strong> {chip.label}
+          </button>
+          <.link
+            patch={
+              path(@filters |> OverviewFilters.remove(chip.field) |> OverviewFilters.reset_pages())
+            }
+            aria-label={"Remove #{chip.name} filter"}
+          >×</.link>
+        </span>
+        <span :if={@filters["search"]} class="preview-filter-chip">
+          <span class="preview-search-token" title={@filters["search"]}>{@filters["search"]}</span>
+          <.link
+            patch={path(@filters |> Map.delete("search") |> OverviewFilters.reset_pages())}
+            aria-label="Clear search text"
+          >×</.link>
+        </span>
+        <div
+          id="overview-search-editor"
+          class={["preview-search-editor", @picker && "preview-filter-chip"]}
+        >
+          <span :if={@picker} class="preview-filter-draft">{@picker.title}:</span>
+          <input
+            id="preview-search"
+            name="search"
+            value={if @picker, do: @picker.value, else: ""}
+            aria-label={if @picker, do: @picker.title, else: "Search results and targets"}
+            placeholder={if @picker, do: "Find a value", else: "Search or filter results"}
+            maxlength="200"
+            autocomplete="off"
+            role="combobox"
+            aria-expanded="false"
+            aria-autocomplete="list"
+            aria-controls="overview-filter-options"
+          />
+        </div>
+      </div>
+      <div id="overview-filter-popup" class="preview-filter-popup">
+        <div
+          id="overview-filter-options"
+          role="listbox"
+          aria-label={if @picker, do: @picker.title, else: "Search and filters"}
+        >
+          <button
+            :if={!@picker}
+            type="submit"
+            role="option"
+            id="overview-search-text"
+            tabindex="-1"
+            aria-selected="false"
+            data-search-text
+            class="preview-filter-text-option"
+          >
+            <MondekWeb.Layouts.icon name="search" size={16} />
+            <span>Search for this text</span>
+          </button>
+          <div :if={!@picker} class="preview-filter-fields" role="group" aria-label="Add a filter">
+            <div class="preview-filter-group-label" aria-hidden="true">Add a filter</div>
+            <button
+              :for={{field, label} <- OverviewFilters.fields()}
+              :if={is_nil(OverviewFilters.selected(@filters, field))}
+              id={"overview-filter-#{field}"}
+              type="button"
+              role="option"
+              tabindex="-1"
+              aria-selected="false"
+              phx-click="filter_open"
+              phx-value-field={field}
+              data-filter-label={label}
+            >
+              <span class="preview-filter-option-chip">
+                <MondekWeb.Layouts.icon
+                  name={if field == "environment", do: "globe", else: "map-pin"}
+                  size={16}
+                />
+                <span>{label}</span>
+              </span>
+              <MondekWeb.Layouts.icon name="arrow" size={14} />
+            </button>
+          </div>
+          <button
+            :for={{option, index} <- Enum.with_index(if @picker, do: @picker.options, else: [])}
+            id={"overview-filter-option-#{index}"}
+            type="button"
+            role="option"
+            tabindex="-1"
+            aria-selected="false"
+            phx-click="filter_select"
+            phx-value-key={option.key}
+            phx-value-kind={option.kind}
+          >
+            <span>{option.label}</span>
+            <small :if={
+              option.kind != "" || String.downcase(option.key) != String.downcase(option.label)
+            }>
+              {if option.kind != "", do: option.kind <> " · "}{option.key}
+            </small>
+          </button>
+        </div>
+        <p :if={@picker && @picker.options == []} role="status">No matches</p>
+      </div>
+    </form>
     """
   end
 
@@ -675,7 +908,7 @@ defmodule MondekWeb.NextOverviewLive do
     """
   end
 
-  attr :value, :any, required: true
+  attr(:value, :any, required: true)
 
   defp state(assigns) do
     assigns = assign(assigns, text: state_text(assigns.value), tone: state_tone(assigns.value))

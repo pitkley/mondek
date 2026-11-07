@@ -57,7 +57,7 @@ defmodule MondekWeb.NextOverviewLiveTest do
     # A refresh must preserve the selected evidence and filtered return path.
     send(view.pid, :tick)
     assert render(view) =~ "overview-panel-title"
-    render_change(element(view, "#overview-search"), %{"search" => "Parcel"})
+    render_submit(element(view, "#overview-search"), %{"search" => "Parcel"})
     assert has_element?(view, "#overview-panel", "Observer A")
     view |> element("[data-overview-close]") |> render_click()
     assert_patch(view, "/next?search=Parcel")
@@ -90,11 +90,26 @@ defmodule MondekWeb.NextOverviewLiveTest do
   test "empty, unknown selections, and filtering never silently select another result" do
     {:ok, empty, _} = live(build_conn(), "/next")
     assert has_element?(empty, "#preview-onboarding")
+    refute has_element?(empty, "#preview-unobserved")
     {:ok, invalid, _} = live(build_conn(), "/next/results/not-a-result?search=queue")
     assert has_element?(invalid, "#overview-panel-title", "Result unavailable")
     assert has_element?(invalid, "[data-overview-close][href='/next?search=queue']")
     {:ok, missing, _} = live(build_conn(), "/next/expected/" <> String.duplicate("f", 64))
     assert has_element?(missing, "#overview-panel-title", "Result unavailable")
+  end
+
+  test "filter picker rejects malformed events and values outside its suggestions" do
+    {:ok, view, _} = live(build_conn(), "/next")
+    render_hook(view, "filter_open", %{"field" => "environment"})
+    assert has_element?(view, "#preview-search[aria-label=Environment]")
+
+    render_hook(view, "filter_query", %{"search" => ["production"]})
+    render_hook(view, "filter_first", %{})
+    render_hook(view, "filter_select", %{"key" => "production"})
+    render_hook(view, "filter_select", %{"key" => "production", "kind" => ""})
+
+    assert has_element?(view, "#preview-search[aria-label=Environment]")
+    refute_patched(view)
   end
 
   test "native rows page independently while related scopes remain bounded and exact" do
@@ -150,7 +165,7 @@ defmodule MondekWeb.NextOverviewLiveTest do
     {:ok, view, _} = live(build_conn(), "/next")
     assert has_element?(view, "#preview-no-attention", "No results currently need attention")
     assert has_element?(view, "#preview-healthy-results", "Service target")
-    render_change(element(view, "#overview-search"), %{"search" => "absent-target"})
+    render_submit(element(view, "#overview-search"), %{"search" => "absent-target"})
     assert_patch(view, "/next?search=absent-target")
     refute has_element?(view, "#preview-healthy-results")
     assert has_element?(view, "#preview-summary", "1 / 1")

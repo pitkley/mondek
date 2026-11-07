@@ -419,7 +419,7 @@ defmodule Mondek.Inspection do
   @doc "Bounded native result rows, with independent health and freshness for each runner."
   def overview_results(filters, at) do
     classified =
-      from [s, a, r] in base_streams(),
+      from([s, a, r] in base_streams(),
         where: is_nil(s.retired_at),
         select: %{
           stream_id: s.id,
@@ -427,14 +427,18 @@ defmodule Mondek.Inspection do
           check_label: a.label,
           runner_label: r.label,
           identity: overview_identity(s, a),
+          environment: s.environment,
+          target_key: fragment("?->>'key'", s.target),
+          target_kind: fragment("?->>'kind'", s.target),
           target_label: fragment("?->>'label'", s.target),
           health: measured_health(s),
           freshness: knowledge(s, a, r, ^at)
         }
+      )
 
     health =
       Repo.one(
-        from c in subquery(classified),
+        from(c in subquery(classified),
           select: %{
             critical: filter(count(), c.health == "CRIT"),
             warning: filter(count(), c.health == "WARN"),
@@ -442,12 +446,13 @@ defmodule Mondek.Inspection do
             not_measured: filter(count(), is_nil(c.health)),
             unknown: filter(count(), c.health == "UNKNOWN")
           }
+        )
       )
 
     search = filters["search"] || ""
 
     matching =
-      from c in subquery(classified),
+      from(c in subquery(classified),
         where:
           fragment(
             "strpos(lower(concat_ws(' ', ?, ?, ?, ?, ?::text)), lower(?)) > 0",
@@ -458,6 +463,23 @@ defmodule Mondek.Inspection do
             c.identity,
             ^search
           )
+      )
+
+    matching =
+      Enum.reduce(
+        [
+          {:environment, "environment"},
+          {:target_key, "target_key"},
+          {:target_kind, "target_kind"}
+        ],
+        matching,
+        fn {field, key}, query ->
+          case filters[key] do
+            nil -> query
+            value -> from(c in query, where: field(c, ^field) == ^value)
+          end
+        end
+      )
 
     %{
       health: health,
