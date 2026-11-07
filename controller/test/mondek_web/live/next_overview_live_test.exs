@@ -62,6 +62,19 @@ defmodule MondekWeb.NextOverviewLiveTest do
     view |> element("[data-overview-close]") |> render_click()
     assert_patch(view, "/next?search=Parcel")
     refute has_element?(view, "#overview-panel")
+
+    [incident] = Monitoring.list_incidents(%{}, now).items
+    id = incident["id"]
+    {:ok, incidents, _} = live(build_conn(), "/next/incidents")
+
+    render_hook(incidents, "filter_open", %{"field" => "type"})
+    render_hook(incidents, "filter_select", %{"key" => "health", "kind" => ""})
+    assert_patch(incidents, "/next/incidents?type=health")
+    render_click(element(incidents, "#preview-incident-health-#{id} a"))
+    assert_patch(incidents, "/next/incidents/health/#{id}?type=health")
+    assert has_element?(incidents, "#incident-heading", "Queue depth")
+    assert has_element?(incidents, "main", "Measured CRIT")
+    assert has_element?(incidents, "main a", "Open current result evidence")
   end
 
   test "a declaration excluded everywhere has a real placement panel, not onboarding or a fabricated result" do

@@ -676,6 +676,31 @@ defmodule Mondek.MonitoringLoss do
         _ -> if params["runner_id"] in [nil, ""], do: query, else: from(i in query, where: false)
       end
 
+    query =
+      case Mondek.OverviewFilters.params(params)["search"] do
+        nil ->
+          query
+
+        search ->
+          from i in query,
+            where:
+              fragment(
+                """
+                strpos(lower(concat_ws(' ', ?, ?, ?)), lower(?)) > 0 OR EXISTS (
+                  SELECT 1 FROM unnest(?) AS member
+                  WHERE strpos(lower(concat_ws(' ', member->>'label', member->>'environment',
+                    member->'target'->>'label', member->'target'->>'key')), lower(?)) > 0
+                )
+                """,
+                i.label,
+                i.source_id,
+                i.runner_id,
+                ^search,
+                i.member_snapshot,
+                ^search
+              )
+      end
+
     total = Repo.aggregate(query, :count)
     page = page(params["page"], total)
 
