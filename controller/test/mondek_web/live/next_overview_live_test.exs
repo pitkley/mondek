@@ -75,6 +75,25 @@ defmodule MondekWeb.NextOverviewLiveTest do
     assert has_element?(incidents, "#incident-heading", "Queue depth")
     assert has_element?(incidents, "main", "Measured CRIT")
     assert has_element?(incidents, "main a", "Open current result evidence")
+    assert has_element?(incidents, "#preview-delivery-heading")
+    assert has_element?(incidents, "#preview-history-heading")
+    render_click(element(incidents, "button", "Acknowledge incident"))
+
+    render_submit(element(incidents, "#preview-incident-ack-form"), %{
+      "mode" => "until_incident_ends",
+      "note" => "Reviewed in the incident drawer"
+    })
+
+    assert has_element?(incidents, "main", "Acknowledgement saved.")
+    assert has_element?(incidents, "main", "Reviewed in the incident drawer")
+    render_click(element(incidents, "button", "Manage acknowledgement"))
+
+    render_submit(element(incidents, "#preview-incident-ack-form"), %{
+      "mode" => "end",
+      "note" => "Investigation complete"
+    })
+
+    assert has_element?(incidents, "main", "Acknowledgement ended.")
   end
 
   test "a declaration excluded everywhere has a real placement panel, not onboarding or a fabricated result" do
