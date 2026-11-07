@@ -385,7 +385,28 @@ button,input { font: inherit; }
 }
 .preview-incident-table th:nth-child(2) { width: 42%; }
 .preview-incident-order { padding: 0 var(--preview-content-inset) 4px; }
-.preview-incident-panel { width: min(680px, calc(100% - 24px)); }
+.preview-incident-panel.preview-panel { width: min(680px, calc(100% - 24px)); }
+.preview-incident-page { min-width: 0; container-type: inline-size; }
+.preview-incident-page .preview-panel-tools { position: static; }
+.preview-detail-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.preview-detail-filter select {
+  padding: 4px 8px;
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 4px;
+  background: var(--pf-t--global--background--color--primary--default);
+  color: inherit;
+}
+@container (min-width: 960px) {
+  .preview-incident-page > .pf-v6-c-card__body {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    column-gap: 12px;
+    align-items: start;
+  }
+  .preview-incident-page > .pf-v6-c-card__body > * { grid-column: 1 / -1; }
+  .preview-incident-page [aria-labelledby="preview-ack-heading"]:has(+ [aria-labelledby="preview-maintenance-heading"]) { grid-column: 1; }
+  .preview-incident-page [aria-labelledby="preview-maintenance-heading"] { grid-column: 2; }
+}
 .preview-incident-panel .pf-v6-c-card__body { padding: 0 20px 20px; }
 .preview-incident-panel .preview-panel-tools {
   display: flex;
@@ -417,7 +438,7 @@ button,input { font: inherit; }
 .preview-incident-evidence h4,.preview-incident-finding { font-weight: 600; }
 .preview-incident-panel .preview-incident-footer { padding-inline: 0; }
 @media (max-width:700px) {
-  .preview-incident-panel { width: 100%; }
+  .preview-incident-panel.preview-panel { width: 100%; }
   .preview-incident-panel .pf-v6-c-card__body { padding: 0 16px 16px; }
 }
 
@@ -456,6 +477,15 @@ button,input { font: inherit; }
 .preview-incident-nested-facts :is(th,td) { padding-block: 5px; }
 .preview-incident-nested-facts tr:first-child > :is(th,td) { border-top: 0; }
 .preview-incident-nested-facts summary { cursor: pointer; }
+.preview-delivery-details { table-layout: fixed; }
+.preview-delivery-label-column { width: 11rem; }
+.preview-incident-nested-facts > .preview-delivery-details > tbody > tr > th {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 560px) {
+  .preview-delivery-label-column { width: 48%; }
+}
 .preview-contributor-table { table-layout: fixed; }
 .preview-contributor-table > thead > tr > th:first-child { width: 35%; }
 .preview-contributor-table > thead > tr > th:last-child { width: 65%; }

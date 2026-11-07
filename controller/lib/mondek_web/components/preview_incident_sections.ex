@@ -4,14 +4,21 @@ defmodule MondekWeb.PreviewIncidentSections do
   use MondekWeb, :html
   import MondekWeb.EvidencePresentation, only: [time: 1, badge_text: 1]
   alias Mondek.Monitoring
-  alias MondekWeb.{MonitoringUI, NotificationComponents}
+  alias MondekWeb.{MonitoringUI, NextOverviewLive, NotificationComponents}
   alias Phoenix.LiveView.JS
 
   def sections(assigns) do
+    {measurements, recent_executions} =
+      measurements(assigns.kind, assigns.incident, assigns.detail)
+
     assigns =
-      assign(assigns,
+      assigns
+      |> assign_new(:delivery_filter, fn -> [] end)
+      |> assign_new(:current, fn -> nil end)
+      |> assign(
         acknowledged: Monitoring.acknowledgement_active?(assigns.incident, assigns.now),
-        measurements: measurements(assigns.kind, assigns.incident, assigns.detail),
+        measurements: measurements,
+        recent_executions: recent_executions,
         earlier_attempts: Enum.group_by(assigns.detail["attempts"] || [], & &1["occurrence_id"])
       )
 
@@ -265,11 +272,76 @@ defmodule MondekWeb.PreviewIncidentSections do
           >
             {get_in(@detail, ["limits", "evidence", "missing"])} referenced measurements are unavailable.
           </p>
-          <div :for={measurement <- @measurements} class="preview-incident-evidence">
-            <p><strong>{measurement.summary}</strong></p>
-            <p class="preview-caption">{measurement.state} · {time(measurement.at)}</p>
-            <pre :if={measurement.details not in [nil, ""]} class="preview-findings">{measurement.details}</pre>
+          <.measurement_list
+            :if={@kind == "health"}
+            measurements={@measurements}
+          />
+          <div
+            :for={evidence <- @measurements}
+            :if={@kind == "loss"}
+            class="preview-incident-evidence"
+          >
+            <strong>{evidence["label"] || "Restored measurement"}</strong>
+            <table class="preview-incident-fact-table" aria-label="Restoration measurement">
+              <tbody>
+                <tr>
+                  <th scope="row">Result</th>
+                  <td>
+                    {if evidence["health"],
+                      do: badge_text(evidence["health"]),
+                      else: "Coverage observed"}
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Measured at</th><td>{time(evidence["source_at"])}</td>
+                </tr>
+                <tr :if={evidence["generation"]}>
+                  <th scope="row">Configuration version</th><td>{evidence["generation"]}</td>
+                </tr>
+                <tr :if={evidence["observation_id"]}>
+                  <th scope="row">Observation</th><td><code>{evidence["observation_id"]}</code></td>
+                </tr>
+              </tbody>
+            </table>
+            <.link
+              :if={evidence["stream_id"]}
+              href={
+                NextOverviewLive.path(
+                  %{"incident_return" => @current},
+                  :result,
+                  evidence["stream_id"]
+                )
+              }
+            >
+              Open current result evidence
+            </.link>
+            <.link
+              :if={evidence["coverage_id"]}
+              href={
+                NextOverviewLive.path(
+                  %{"incident_return" => @current},
+                  :expected,
+                  evidence["coverage_id"]
+                )
+              }
+            >
+              Review expected monitoring
+            </.link>
           </div>
+        </div>
+      </details>
+      <details
+        :if={@recent_executions != []}
+        id={"preview-recent-executions-" <> @incident["id"]}
+        class="preview-incident-history"
+        phx-mounted={JS.ignore_attributes("open")}
+      >
+        <summary>Other recent check executions</summary>
+        <div class="preview-incident-history-content">
+          <p class="preview-incident-evidence">
+            These measurements are outside the incident’s linked history and may include executions after it ended.
+          </p>
+          <.measurement_list measurements={@recent_executions} />
         </div>
       </details>
       <details
@@ -297,6 +369,7 @@ defmodule MondekWeb.PreviewIncidentSections do
       aria-labelledby="preview-delivery-heading"
     >
       <h3 id="preview-delivery-heading" class="preview-section-heading">Notification delivery</h3>
+      {render_slot(@delivery_filter)}
       <p
         :if={@delivery_feedback}
         class="preview-incident-evidence"
@@ -305,7 +378,9 @@ defmodule MondekWeb.PreviewIncidentSections do
         {elem(@delivery_feedback, 1)}
       </p>
       <p :if={(@detail["occurrences"] || []) == []} class="preview-incident-evidence">
-        No notifications are recorded for this incident.
+        {if (get_in(@detail, ["notification_page", "all_total"]) || 0) > 0,
+          do: "No notifications match this status.",
+          else: "No notifications are recorded for this incident."}
       </p>
       <table
         :if={(@detail["occurrences"] || []) != []}
@@ -319,7 +394,8 @@ defmodule MondekWeb.PreviewIncidentSections do
               <div class="preview-caption">{time(notice["inserted_at"])}</div>
             </th>
             <td class="preview-incident-nested-facts">
-              <table aria-label="Delivery details">
+              <table class="preview-delivery-details" aria-label="Delivery details">
+                <colgroup><col class="preview-delivery-label-column" /><col /></colgroup>
                 <tbody>
                   <tr>
                     <th scope="row">Status</th>
@@ -476,16 +552,17 @@ defmodule MondekWeb.PreviewIncidentSections do
 
   defp acknowledgement_scope("health", _), do: "this result’s health incident"
 
-  defp measurements("loss", incident, _) do
-    for evidence <- incident["closing_evidence"] || [] do
-      %{
-        summary: evidence["label"],
-        state: badge_text(evidence["health"] || evidence["knowledge"]),
-        at: evidence["source_at"],
-        details: nil
-      }
-    end
+  defp measurement_list(assigns) do
+    ~H"""
+    <div :for={measurement <- @measurements} class="preview-incident-evidence">
+      <p><strong>{measurement.summary}</strong></p>
+      <p class="preview-caption">{measurement.state} · {time(measurement.at)}</p>
+      <pre :if={measurement.details not in [nil, ""]} class="preview-findings">{measurement.details}</pre>
+    </div>
+    """
   end
+
+  defp measurements("loss", incident, _), do: {incident["closing_evidence"] || [], []}
 
   defp measurements("health", incident, detail) do
     ids = [
@@ -495,14 +572,23 @@ defmodule MondekWeb.PreviewIncidentSections do
       | Enum.map(detail["occurrences"] || [], &get_in(&1, ["payload", "observation_id"]))
     ]
 
-    for evidence <- detail["evidence"] || [],
-        detail["evidence_projection"] == "referenced_result_excerpts" || evidence["id"] in ids,
-        result <- get_in(evidence, ["payload", "results"]) || [],
-        !incident["result_key"] || result["key"] == incident["result_key"] do
+    {linked, recent} =
+      Enum.split_with(detail["evidence"] || [], fn evidence ->
+        detail["evidence_projection"] == "referenced_result_excerpts" || evidence["id"] in ids
+      end)
+
+    {result_measurements(linked, incident["result_key"]),
+     result_measurements(recent, incident["result_key"])}
+  end
+
+  defp result_measurements(evidence, result_key) do
+    for observation <- evidence,
+        result <- get_in(observation, ["payload", "results"]) || [],
+        !result_key || result["key"] == result_key do
       %{
         summary: result["summary"],
         state: badge_text(result["health"]),
-        at: result["source_at"] || evidence["evaluated_at"],
+        at: result["source_at"] || observation["evaluated_at"],
         details: result["details"]
       }
     end

@@ -567,6 +567,37 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
     render_patch(view, "/next/incidents?grouping=standalone")
     refute has_element?(view, "#preview-incident-health-#{first.id}")
     refute has_element?(view, "#preview-incident-health-#{group.id}")
+
+    render_patch(view, path <> "?grouping=shared")
+    view |> element("a", "Open as page") |> render_click()
+    full = path <> "/full"
+    assert_patch(view, full <> "?grouping=shared")
+    assert has_element?(view, "#incident-page h1")
+    refute has_element?(view, "#overview-panel")
+    refute has_element?(view, "#incidents-heading")
+
+    refute has_element?(view, "a", "Show historical contributors")
+    sample(one, "OK", 2)
+    send(view.pid, :tick)
+    refute has_element?(view, "a[href*='/health/#{first.id}/full']")
+    view |> element("a", "Show historical contributors") |> render_click()
+    assert_patch(view, full <> "?contributors=history&grouping=shared")
+    assert has_element?(view, "a[href*='/health/#{first.id}/full']")
+    refute has_element?(view, "a[href*='/health/#{second.id}/full']")
+
+    view
+    |> form("form:has(#preview-detail-notification_status)", notification_status: "exhausted")
+    |> render_change()
+
+    assert_patch(
+      view,
+      full <> "?contributors=history&grouping=shared&notification_status=exhausted"
+    )
+
+    assert has_element?(view, "#incident-page", "No notifications match this status.")
+
+    view |> element("a", "Back to incidents") |> render_click()
+    assert_patch(view, "/next/incidents?grouping=shared")
   end
 
   test "preview delivery markup excludes the destination and webhook delivery envelope" do
