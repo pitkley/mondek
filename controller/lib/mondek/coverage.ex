@@ -268,6 +268,8 @@ defmodule Mondek.Coverage do
     SELECT * FROM scopes WHERE
       (NOT ($1::jsonb ? 'source_id') OR source_id=$1::jsonb->>'source_id') AND
       (NOT ($1::jsonb ? 'environment') OR environment=$1::jsonb->>'environment') AND
+      (NOT ($1::jsonb ? 'target_kind') OR target_kind=$1::jsonb->>'target_kind') AND
+      (NOT ($1::jsonb ? 'target_key') OR target_key=$1::jsonb->>'target_key') AND
       (NOT ($1::jsonb ? 'runner_id') OR matches_runner) AND
       (NOT ($1::jsonb ? 'id') OR id=$1::jsonb->>'id') AND
       (NOT ($1::jsonb ? 'status') OR status=$1::jsonb->>'status') AND
@@ -534,9 +536,13 @@ defmodule Mondek.Coverage do
   defp filters(values) when is_map(values) do
     values
     |> Map.new(fn {k, v} -> {to_string(k), v} end)
-    |> Map.take(~w(source_id environment runner_id search status page id lifecycle))
-    |> Enum.filter(fn {_k, v} ->
-      (is_binary(v) and v != "" and byte_size(v) <= 200 and String.valid?(v) and
+    |> Map.take(
+      ~w(source_id environment target_kind target_key runner_id search status page id lifecycle)
+    )
+    |> Enum.filter(fn {key, v} ->
+      limit = if key in ~w(environment target_kind target_key), do: 800, else: 200
+
+      (is_binary(v) and v != "" and byte_size(v) <= limit and String.valid?(v) and
          not String.contains?(v, <<0>>)) or is_integer(v)
     end)
     |> Map.new()

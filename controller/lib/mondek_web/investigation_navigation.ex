@@ -133,10 +133,7 @@ defmodule MondekWeb.InvestigationNavigation do
               ~r"\A/next(?:/results/[a-f0-9-]{36}|/expected/[a-f0-9]{64})?\z",
               uri.path
             ) ->
-          filters =
-            params
-            |> Map.take(~w(search page healthy_page expected_page))
-            |> Map.new(fn {key, value} -> {key, String.slice(value, 0, 200)} end)
+          filters = Mondek.OverviewFilters.params(params)
 
           query = URI.encode_query(filters)
           if query == "", do: uri.path, else: uri.path <> "?" <> query

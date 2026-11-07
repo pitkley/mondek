@@ -7,7 +7,7 @@ const icons = {
   grid: 'grid-2x2', pulse: 'activity', sliders: 'sliders-vertical', server: 'server',
   disk: 'hard-drive', globe: 'globe', code: 'code-xml', shield: 'shield-check',
   send: 'send', clock: 'clock', check: 'check', plus: 'plus',
-  arrow: 'arrow-right', back: 'arrow-left', info: 'info', terminal: 'square-terminal',
+  search: 'search', 'map-pin': 'map-pin', arrow: 'arrow-right', back: 'arrow-left', info: 'info', terminal: 'square-terminal',
 };
 const symbols = await Promise.all(Object.entries(icons).map(async ([name, file]) => {
   const source = await readFile(new URL(`./node_modules/lucide-static/icons/${file}.svg`, import.meta.url), 'utf8');

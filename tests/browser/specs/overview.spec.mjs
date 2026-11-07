@@ -41,6 +41,108 @@ test('LiveView overview preserves independent evidence and missing declarations 
   }
   await checkpoint(page, testInfo, 'next-overview-desktop');
 
+  const filterQuery = page.getByRole('combobox');
+  await filterQuery.click();
+  await expect(filterQuery).toBeFocused();
+  await filterQuery.fill('tar');
+  await filterQuery.press('Enter');
+  await expect(filterQuery).toHaveAccessibleName('Target');
+  const firstValue = page.getByRole('option').first();
+  await expect(firstValue).toHaveAttribute('aria-selected', 'true');
+  await filterQuery.press('ArrowDown');
+  await expect(page.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true');
+  // Read the menu in the same task as input, before the server can reply.
+  const pending = await filterQuery.evaluate(input => {
+    input.value = 'no matching target';
+    input.dispatchEvent(new InputEvent('input', {bubbles: true}));
+    const listbox = document.getElementById(input.getAttribute('aria-controls'));
+    return {
+      busy: listbox.getAttribute('aria-busy'),
+      visibleOptions: listbox.querySelectorAll('[role="option"]:not([hidden])').length,
+      activeOption: input.getAttribute('aria-activedescendant'),
+    };
+  });
+  expect(pending).toEqual({busy: 'true', visibleOptions: 0, activeOption: null});
+  await expect(page.getByRole('status').filter({hasText: 'No matches'})).toBeVisible();
+  await expect(page.getByRole('listbox')).toHaveAttribute('aria-busy', 'false');
+  await filterQuery.fill('Node B');
+  await expect(page.getByRole('option')).toHaveCount(1);
+  await expect(page.getByRole('option')).toContainText('Node B');
+  await expect(page.getByRole('option')).toHaveAttribute('aria-selected', 'true');
+  await filterQuery.press('Enter');
+  await expect(page).toHaveURL(/target_key=/);
+  await expect(page.getByRole('option', {name: 'Environment', exact: true})).toBeVisible();
+  await expect(page.getByRole('option', {name: 'Target', exact: true})).toHaveCount(0);
+  await filterQuery.press('Backspace');
+  await expect(filterQuery).toHaveAccessibleName('Target');
+  await expect(filterQuery).toHaveValue('Node B');
+  await expect(page.getByRole('option', {name: /Node A/})).toBeVisible();
+  await expect.poll(() => filterQuery.evaluate(input => input.value.slice(input.selectionStart, input.selectionEnd))).toBe('Node B');
+  const targetChip = page.getByRole('button', {name: /Edit Target filter: Node B/});
+  await expect(targetChip).toHaveCount(0);
+  await filterQuery.press('Escape');
+  await expect(targetChip).toBeVisible();
+  await expect(filterQuery).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('#preview-unobserved tbody tr')).toHaveCount(1);
+  await expect(page.locator('#preview-no-attention')).toHaveText(
+    'No results needing attention match your filters.'
+  );
+  await expect(page.locator('#preview-attention')).toHaveCount(0);
+  await expect(page.locator('#preview-healthy-results')).toHaveCount(0);
+  await page.reload();
+  await connected(page);
+  await expect(page.getByRole('button', {name: /Edit Target filter: Node B/})).toBeVisible();
+  await page.locator(`#open-expected-${missing.id}`).click();
+  await expect(page).toHaveURL(/expected\/.*target_key=/);
+  await page.locator('[data-overview-close]').click();
+  await expect(page).toHaveURL(/\/next\?target_key=/);
+  await filterQuery.click();
+  await filterQuery.press('Backspace');
+  await expect(filterQuery).toHaveAccessibleName('Target');
+  await filterQuery.press('Backspace');
+  await expect(page).toHaveURL(/\/next$/);
+  await expect(filterQuery).toHaveAccessibleName('Search results and targets');
+  await expect(filterQuery).toBeFocused();
+  await expect(page.getByRole('option', {name: 'Target', exact: true})).toBeVisible();
+  await expect(page.getByRole('link', {name: 'Remove Target filter'})).toHaveCount(0);
+
+  await filterQuery.click();
+  await page.getByRole('option', {name: 'Environment', exact: true}).click();
+  await expect(filterQuery).toHaveAccessibleName('Environment');
+  await filterQuery.press('Backspace');
+  await expect(filterQuery).toHaveAccessibleName('Search results and targets');
+  await expect(page.getByRole('option', {name: 'Environment', exact: true})).toBeVisible();
+  await page.getByRole('option', {name: 'Environment', exact: true}).click();
+  await page.getByRole('option', {name: /^Staging/i}).click();
+  await expect(page).toHaveURL(/environment=staging/);
+  const gaps = page.locator('#preview-unobserved');
+  await expect(gaps).toContainText('No monitoring gaps match your filters.');
+  await expect(gaps.getByRole('table')).toHaveCount(0);
+  await expect(gaps.getByRole('navigation')).toHaveCount(0);
+  await expect(page.locator('#preview-attention')).toContainText('Critical');
+  await expect(page.locator('#preview-healthy-results')).toContainText('Healthy');
+  await page.locator('#preview-search').fill('Search service');
+  await page.locator('#preview-search').press('Enter');
+  await expect(page).toHaveURL(/environment=staging.*search=/);
+  await page.getByRole('link', {name: 'Clear search text'}).click();
+  await expect(page).toHaveURL(/\/next\?environment=staging$/);
+  await page.getByRole('button', {name: /Edit Environment filter/}).click();
+  await expect(filterQuery).toHaveAccessibleName('Environment');
+  await filterQuery.press('Escape');
+  await expect(filterQuery).toHaveAttribute('aria-expanded', 'false');
+  await expect(filterQuery).toHaveAccessibleName('Search results and targets');
+  await filterQuery.press('Backspace');
+  await expect(filterQuery).toHaveAccessibleName('Environment');
+  await filterQuery.fill('');
+  await filterQuery.press('Backspace');
+  await expect(page).toHaveURL(/\/next$/);
+
+  await page.setViewportSize({width: 320, height: 844});
+  await filterQuery.click();
+  await checkpoint(page, testInfo, 'next-overview-filter-320');
+  await filterQuery.press('Escape');
+  await page.setViewportSize({width: 1600, height: 1000});
+
   // Every row type selects and toggles, and the board stays in place.
   const attentionBox = await page.locator('#preview-attention').boundingBox();
   const healthyOpener = page.locator('#preview-healthy-results [data-overview-open]').first();
@@ -63,8 +165,10 @@ test('LiveView overview preserves independent evidence and missing declarations 
   await expect(page).toHaveURL(/\/next$/);
   const search = page.locator('#preview-search');
   await search.fill(staging.source_key);
+  await search.press('Enter');
   await expect(page).toHaveURL(new RegExp(`search=${encodeURIComponent(staging.source_key)}`));
   await expect(search).toBeFocused();
+  await expect(search).toHaveAttribute('aria-expanded', 'false');
   await expect(page.locator('#preview-attention [data-overview-open]')).toHaveCount(1);
   const opener = page.locator('#preview-attention [data-overview-open]');
   const openerId = await opener.getAttribute('id');
@@ -93,7 +197,7 @@ test('LiveView overview preserves independent evidence and missing declarations 
   await expect(page.locator('#overview-panel')).toHaveCount(0);
   await opener.click();
   await expect(page.locator('#overview-panel')).toBeVisible();
-  await search.click();
+  await search.click({position: {x: 8, y: 8}});
   await expect(page.locator('#overview-panel')).toHaveCount(0);
   await expect(search).toBeFocused();
   await opener.click();
