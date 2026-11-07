@@ -77,7 +77,6 @@ defmodule MondekWeb.NextOverviewLiveTest do
     assert has_element?(incidents, "main a", "Open current result evidence")
     assert has_element?(incidents, "#preview-delivery-heading")
     assert has_element?(incidents, "#preview-history-heading")
-    render_click(element(incidents, "button", "Acknowledge incident"))
 
     render_submit(element(incidents, "#preview-incident-ack-form"), %{
       "mode" => "until_incident_ends",
@@ -86,12 +85,43 @@ defmodule MondekWeb.NextOverviewLiveTest do
 
     assert has_element?(incidents, "main", "Acknowledgement saved.")
     assert has_element?(incidents, "main", "Reviewed in the incident drawer")
-    render_click(element(incidents, "button", "Manage acknowledgement"))
+    refute has_element?(incidents, "#preview-incident-ack-form")
+    render_click(element(incidents, "button", "Replace acknowledgement"))
 
     render_submit(element(incidents, "#preview-incident-ack-form"), %{
-      "mode" => "end",
-      "note" => "Investigation complete"
+      "mode" => "duration",
+      "amount" => "2",
+      "unit" => "hours",
+      "note" => ""
     })
+
+    assert %{"acknowledgement_mode" => "until", "acknowledgement_note" => "No note provided."} =
+             Monitoring.incident_detail(id)["incident"]
+
+    assert has_element?(
+             incidents,
+             "table[aria-label='Active acknowledgement']",
+             "No note provided"
+           )
+
+    refute has_element?(incidents, "#preview-incident-ack-form")
+    render_click(element(incidents, "button", "Replace acknowledgement"))
+
+    expiry = DateTime.add(Monitoring.now(), 3, :hour) |> DateTime.truncate(:second)
+
+    render_submit(element(incidents, "#preview-incident-ack-form"), %{
+      "mode" => "until",
+      "expires_at" => expiry |> DateTime.to_naive() |> NaiveDateTime.to_iso8601()
+    })
+
+    assert {:ok, saved_expiry, 0} =
+             DateTime.from_iso8601(
+               Monitoring.incident_detail(id)["incident"]["acknowledged_until"]
+             )
+
+    assert DateTime.compare(saved_expiry, expiry) == :eq
+
+    render_click(element(incidents, "button", "End acknowledgement"))
 
     assert has_element?(incidents, "main", "Acknowledgement ended.")
   end

@@ -477,8 +477,7 @@ test('prepare acknowledged monitoring loss and held delivery before controller r
     const original = await occurrence(request, episode.id);
     await page.goto(`/next/incidents/loss/${episode.id}`);
     await connected(page);
-    await page.getByRole('button', { name: 'Acknowledge incident', exact: true }).click();
-    await page.getByLabel('Note', { exact: true }).fill('Preserve this acknowledged monitoring episode across controller restart');
+    await page.getByLabel('Note (optional)', { exact: true }).fill('Preserve this acknowledged monitoring episode across controller restart');
     await keyboardSubmit(page, page.getByRole('button', { name: 'Save acknowledgement', exact: true }));
     await expect(page.getByText('Acknowledgement saved.', { exact: true })).toBeVisible();
     const retry = page.locator(`#preview-retry-${original.id}`);

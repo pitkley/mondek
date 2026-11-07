@@ -46,6 +46,7 @@ defmodule MondekWeb.NextIncidentsLive do
         assign(socket,
           control_review: nil,
           control_draft: %{},
+          control_replacing: false,
           control_feedback: nil,
           delivery_feedback: nil,
           retry_drafts: %{}
@@ -128,67 +129,76 @@ defmodule MondekWeb.NextIncidentsLive do
         _,
         %{assigns: %{incident: %{"status" => "open"} = incident}} = socket
       ) do
-    options = %{
-      "revision" => incident["acknowledgement_revision"],
-      "attention_revision" => incident["attention_revision"]
-    }
-
-    {:noreply, assign(socket, control_review: options, control_feedback: nil)}
+    {:noreply,
+     assign(socket, control_review: acknowledgement_revision(incident), control_feedback: nil)}
   end
 
-  def handle_event("cancel_control", _, socket),
-    do: {:noreply, assign(socket, control_review: nil, control_draft: %{}, control_feedback: nil)}
+  def handle_event(
+        "toggle_acknowledgement_replacement",
+        _,
+        %{assigns: %{incident: %{} = incident, control_replacing: replacing}} = socket
+      ) do
+    if Monitoring.acknowledgement_active?(incident) do
+      {:noreply,
+       assign(socket, control_replacing: !replacing, control_draft: %{}, control_feedback: nil)}
+    else
+      {:noreply, socket}
+    end
+  end
 
   def handle_event(
         "edit_acknowledgement",
-        %{"mode" => mode, "note" => note},
+        params,
         %{assigns: %{control_review: %{}}} = socket
-      )
-      when mode in ["until_incident_ends", "1h", "24h", "end"] and
-             is_binary(note) and byte_size(note) <= 2_000 do
-    {:noreply, assign(socket, control_draft: %{"mode" => mode, "note" => note})}
+      ) do
+    {:noreply, assign(socket, control_draft: acknowledgement_draft(params))}
   end
 
   def handle_event(
         "save_acknowledgement",
-        %{"mode" => mode, "note" => note},
+        params,
         %{assigns: %{control_review: %{} = review, id: id, kind: kind, live_action: action}} =
           socket
       )
-      when action in [:health, :loss] and mode in ["until_incident_ends", "1h", "24h", "end"] do
-    options =
-      case mode do
-        "1h" -> Map.merge(review, %{"mode" => "duration", "seconds" => 3600})
-        "24h" -> Map.merge(review, %{"mode" => "duration", "seconds" => 86_400})
-        _ -> Map.put(review, "mode", mode)
-      end
+      when action in [:health, :loss] do
+    draft = acknowledgement_draft(params)
+    socket = assign(socket, control_draft: draft)
+    note = Map.get(params, "note", "")
+
+    note =
+      if is_binary(note) && String.valid?(note) && String.trim(note) == "",
+        do: "No note provided.",
+        else: note
 
     result =
-      case kind do
-        "health" -> Monitoring.acknowledge(id, options, note)
-        "loss" -> MonitoringLoss.acknowledge(id, options, note)
+      with {:ok, options} <- acknowledgement_options(review, draft) do
+        apply_acknowledgement(kind, id, options, note)
       end
 
-    case result do
-      {:ok, _} ->
-        message = if mode == "end", do: "Acknowledgement ended.", else: "Acknowledgement saved."
+    acknowledgement_result(socket, result, "Acknowledgement saved.")
+  end
 
-        {:noreply,
-         socket
-         |> assign(control_review: nil, control_draft: %{}, control_feedback: {:ok, message})
-         |> refresh()}
+  def handle_event(
+        "end_acknowledgement",
+        _,
+        %{
+          assigns: %{
+            control_review: %{} = review,
+            id: id,
+            kind: kind,
+            live_action: action,
+            incident: %{} = incident
+          }
+        } = socket
+      )
+      when action in [:health, :loss] do
+    if Monitoring.acknowledgement_active?(incident) do
+      result =
+        apply_acknowledgement(kind, id, Map.put(review, "mode", "end"), "Ended by operator.")
 
-      {:error, :stale} ->
-        {:noreply,
-         socket
-         |> assign(
-           control_feedback: {:error, "The incident changed. Review it again before saving."}
-         )
-         |> refresh()}
-
-      {:error, reason} ->
-        {:noreply,
-         assign(socket, control_feedback: {:error, NotificationRetry.error_message(reason)})}
+      acknowledgement_result(socket, result, "Acknowledgement ended.")
+    else
+      {:noreply, socket}
     end
   end
 
@@ -230,6 +240,84 @@ defmodule MondekWeb.NextIncidentsLive do
   end
 
   def handle_event(_, _, socket), do: {:noreply, socket}
+
+  defp apply_acknowledgement("health", id, options, note),
+    do: Monitoring.acknowledge(id, options, note)
+
+  defp apply_acknowledgement("loss", id, options, note),
+    do: MonitoringLoss.acknowledge(id, options, note)
+
+  defp acknowledgement_result(socket, result, message) do
+    case result do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> assign(
+           control_review: nil,
+           control_draft: %{},
+           control_replacing: false,
+           control_feedback: {:ok, message}
+         )
+         |> refresh()}
+
+      {:error, :stale} ->
+        {:noreply,
+         socket
+         |> assign(
+           control_feedback: {:error, "The incident changed. Review it again before saving."}
+         )
+         |> refresh()}
+
+      {:error, reason} ->
+        {:noreply,
+         assign(socket, control_feedback: {:error, NotificationRetry.error_message(reason)})}
+    end
+  end
+
+  defp acknowledgement_revision(incident) do
+    %{
+      "revision" => incident["acknowledgement_revision"],
+      "attention_revision" => incident["attention_revision"]
+    }
+  end
+
+  defp acknowledgement_draft(params) do
+    params
+    |> Map.take(~w(mode amount unit expires_at note))
+    |> Map.filter(fn {_, value} ->
+      is_binary(value) and byte_size(value) <= 2_000 and String.valid?(value)
+    end)
+  end
+
+  defp acknowledgement_options(review, %{"mode" => mode})
+       when mode == "until_incident_ends",
+       do: {:ok, Map.put(review, "mode", mode)}
+
+  defp acknowledgement_options(review, %{"mode" => "duration"} = draft) do
+    units = %{"minutes" => 60, "hours" => 3600, "days" => 86_400}
+
+    with {amount, ""} when amount > 0 <- Integer.parse(draft["amount"] || ""),
+         seconds_per_unit when is_integer(seconds_per_unit) <- units[draft["unit"]] do
+      {:ok, Map.merge(review, %{"mode" => "duration", "seconds" => amount * seconds_per_unit})}
+    else
+      _ -> {:error, {:invalid, "Enter a positive whole number and choose a unit."}}
+    end
+  end
+
+  defp acknowledgement_options(review, %{"mode" => "until"} = draft) do
+    value = draft["expires_at"] || ""
+    value = if byte_size(value) == 16, do: value <> ":00", else: value
+
+    with {:ok, naive} <- NaiveDateTime.from_iso8601(value),
+         {:ok, utc} <- DateTime.from_naive(naive, "Etc/UTC") do
+      {:ok, Map.merge(review, %{"mode" => "until", "expires_at" => DateTime.to_iso8601(utc)})}
+    else
+      _ -> {:error, {:invalid, "Enter a future date and time in UTC."}}
+    end
+  end
+
+  defp acknowledgement_options(_, _),
+    do: {:error, {:invalid, "Choose when the acknowledgement should end."}}
 
   defp patch_filters(socket, changes) do
     next = socket.assigns.filters |> Map.merge(changes) |> Map.delete("page") |> filters()
@@ -408,7 +496,17 @@ defmodule MondekWeb.NextIncidentsLive do
           {"loss", detail, detail}
       end
 
-    assign(socket, now: now, kind: kind, detail: detail, incident: incident)
+    review =
+      socket.assigns.control_review ||
+        if incident && incident["status"] == "open", do: acknowledgement_revision(incident)
+
+    assign(socket,
+      now: now,
+      kind: kind,
+      detail: detail,
+      incident: incident,
+      control_review: review
+    )
   end
 
   defp opened_since(now, "24h"), do: DateTime.add(now, -1, :day)
@@ -650,6 +748,7 @@ defmodule MondekWeb.NextIncidentsLive do
           now={@now}
           review={@control_review}
           draft={@control_draft}
+          replacing={@control_replacing}
           feedback={@control_feedback}
           delivery_feedback={@delivery_feedback}
           retry_drafts={@retry_drafts}
