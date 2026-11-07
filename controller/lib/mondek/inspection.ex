@@ -1295,14 +1295,36 @@ defmodule Mondek.Inspection do
         }
 
     selected = from(x in subquery(selected))
+
+    selected =
+      case f["acknowledgement"] do
+        "acknowledged" -> from x in selected, where: x.acknowledgement_active
+        "unacknowledged" -> from x in selected, where: not x.acknowledgement_active
+        _ -> selected
+      end
+
+    selected =
+      case f["opened_since"] do
+        %DateTime{} = since -> from x in selected, where: x.opened_at >= ^since
+        _ -> selected
+      end
+
     {page, size, total} = page(selected, f)
 
     acknowledged_total =
       Repo.aggregate(from(x in selected, where: x.acknowledgement_active), :count)
 
+    ordered =
+      if f["priority_order"] == true,
+        do:
+          from(x in selected,
+            order_by: [asc: fragment("CASE WHEN ?='open' THEN 0 ELSE 1 END", x.status)]
+          ),
+        else: selected
+
     identities =
       Repo.all(
-        from x in selected,
+        from x in ordered,
           order_by: [
             asc: x.acknowledgement_active,
             desc:

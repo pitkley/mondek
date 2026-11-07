@@ -656,6 +656,19 @@ defmodule Mondek.MonitoringLoss do
     %{"open_count" => open, "acknowledged_count" => ack, "unacknowledged_count" => open - ack}
   end
 
+  defmacrop acknowledged(i, at) do
+    quote do
+      fragment(
+        "COALESCE(?='open' AND (?='until_incident_ends' OR (?='until' AND ?>?)), false)",
+        unquote(i).status,
+        unquote(i).acknowledgement_mode,
+        unquote(i).acknowledgement_mode,
+        unquote(i).acknowledged_until,
+        unquote(at)
+      )
+    end
+  end
+
   def list(params \\ %{}, at \\ Monitoring.now()) do
     params = Map.put_new(params, "status", "open")
     query = from(i in MonitoringIncident)
@@ -701,22 +714,35 @@ defmodule Mondek.MonitoringLoss do
               )
       end
 
+    query =
+      case params["acknowledgement"] do
+        "acknowledged" -> from i in query, where: acknowledged(i, ^at)
+        "unacknowledged" -> from i in query, where: not acknowledged(i, ^at)
+        _ -> query
+      end
+
+    query =
+      case params["opened_since"] do
+        %DateTime{} = since -> from i in query, where: i.opened_at >= ^since
+        _ -> query
+      end
+
     total = Repo.aggregate(query, :count)
     page = page(params["page"], total)
 
+    ordered =
+      if params["priority_order"] == true,
+        do:
+          from(i in query,
+            order_by: [asc: fragment("CASE WHEN ?='open' THEN 0 ELSE 1 END", i.status)]
+          ),
+        else: query
+
     items =
       Repo.all(
-        from i in query,
+        from i in ordered,
           order_by: [
-            asc:
-              fragment(
-                "CASE WHEN ?='open' AND (?='until_incident_ends' OR (?='until' AND ?>?)) THEN 1 ELSE 0 END",
-                i.status,
-                i.acknowledgement_mode,
-                i.acknowledgement_mode,
-                i.acknowledged_until,
-                ^at
-              ),
+            asc: fragment("CASE WHEN ? THEN 1 ELSE 0 END", acknowledged(i, ^at)),
             asc: fragment("CASE WHEN ?='open' THEN 0 ELSE 1 END", i.status),
             asc: i.opened_at,
             asc: i.id

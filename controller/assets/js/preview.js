@@ -95,7 +95,7 @@ const OverviewPanel = {
     this.selection = next;
     this.el.querySelector("#preview-related-results")?.removeAttribute("open");
     if (this.el.querySelector("#overview-panel")) this.focusPanel();
-    else if (document.activeElement?.id !== "preview-search") (document.getElementById(this.trigger) || document.getElementById("overview-heading"))?.focus({preventScroll: true});
+    else if (document.activeElement?.id !== "preview-search") (document.getElementById(this.trigger) || document.getElementById(this.el.dataset.panelHeading || "overview-heading"))?.focus({preventScroll: true});
   },
   syncOverlay() {
     const panel = this.el.querySelector("#overview-panel");
@@ -110,7 +110,7 @@ const OverviewPanel = {
   focusPanel() {
     const panel = this.el.querySelector("#overview-panel");
     if (panel) panel.scrollTop = 0;
-    this.el.querySelector("#overview-panel-title")?.focus({preventScroll: true});
+    if (panel) document.getElementById(panel.getAttribute("aria-labelledby"))?.focus({preventScroll: true});
   },
   destroyed() {
     this.narrow.removeEventListener("change", this.onResize);
