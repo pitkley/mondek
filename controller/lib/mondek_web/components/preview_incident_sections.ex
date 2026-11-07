@@ -189,48 +189,6 @@ defmodule MondekWeb.PreviewIncidentSections do
 
     <section
       class="preview-table-group preview-incident-section"
-      aria-labelledby="preview-delivery-heading"
-    >
-      <h3 id="preview-delivery-heading" class="preview-section-heading">Notification delivery</h3>
-      <p
-        :if={@delivery_feedback}
-        class="preview-incident-evidence"
-        role={if elem(@delivery_feedback, 0) == :error, do: "alert", else: "status"}
-      >
-        {elem(@delivery_feedback, 1)}
-      </p>
-      <p :if={(@detail["occurrences"] || []) == []} class="preview-incident-evidence">
-        No notifications are recorded for this incident.
-      </p>
-      <div :for={notice <- @detail["occurrences"] || []} class="preview-incident-evidence">
-        <h4>{badge_text(notice["kind"])} · {badge_text(notice["status"])}</h4>
-        <p class="preview-caption">
-          {time(notice["inserted_at"])} · {notice["attempt_count"] || 0} attempts
-        </p>
-        <p>{MondekWeb.NotificationComponents.notification_explanation(notice)}</p>
-        <p :if={notice["waiting_on_gates"]} class="preview-caption">
-          {MondekWeb.NotificationComponents.notification_gate_summary(notice)}
-        </p>
-        <p :if={notice["latest_attempt"]} class="preview-caption">
-          Latest attempt: {MondekWeb.NotificationComponents.attempt_result(notice["latest_attempt"])}
-        </p>
-        <form
-          :if={notice["can_retry"]}
-          id={"preview-retry-" <> notice["id"]}
-          class="preview-incident-form"
-          phx-submit="retry_delivery"
-          phx-auto-recover="ignore"
-        >
-          <input type="hidden" name="_id" value={notice["id"]} />
-          <label>Reason for retry
-          <input name="reason" required maxlength="500" value={@retry_drafts[notice["id"]]} /></label>
-          <button type="submit" class="pf-v6-c-button pf-m-secondary">Retry notification</button>
-        </form>
-      </div>
-    </section>
-
-    <section
-      class="preview-table-group preview-incident-section"
       aria-labelledby="preview-history-heading"
     >
       <h3 id="preview-history-heading" class="preview-section-heading">Incident history</h3>
@@ -284,8 +242,100 @@ defmodule MondekWeb.PreviewIncidentSections do
         </div>
       </details>
     </section>
+
+    <section
+      class="preview-table-group preview-incident-section"
+      aria-labelledby="preview-delivery-heading"
+    >
+      <h3 id="preview-delivery-heading" class="preview-section-heading">Notification delivery</h3>
+      <p
+        :if={@delivery_feedback}
+        class="preview-incident-evidence"
+        role={if elem(@delivery_feedback, 0) == :error, do: "alert", else: "status"}
+      >
+        {elem(@delivery_feedback, 1)}
+      </p>
+      <p :if={(@detail["occurrences"] || []) == []} class="preview-incident-evidence">
+        No notifications are recorded for this incident.
+      </p>
+      <table
+        :if={(@detail["occurrences"] || []) != []}
+        class="preview-incident-fact-table"
+        aria-labelledby="preview-delivery-heading"
+      >
+        <tbody>
+          <tr :for={notice <- @detail["occurrences"]}>
+            <th scope="row">
+              {badge_text(notice["kind"])}
+              <div class="preview-caption">{time(notice["inserted_at"])}</div>
+            </th>
+            <td class="preview-delivery-details">
+              <table aria-label="Delivery details">
+                <tbody>
+                  <tr>
+                    <th scope="row">Status</th>
+                    <td>
+                      <span class={["pf-v6-c-label", delivery_status_color(notice["status"])]}>
+                        <span class="pf-v6-c-label__content">{badge_text(notice["status"])}</span>
+                      </span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Details</th>
+                    <td>{MondekWeb.NotificationComponents.notification_explanation(notice)}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Attempts</th>
+                    <td>{notice["attempt_count"] || 0}</td>
+                  </tr>
+                  <tr :if={notice["waiting_on_gates"]}>
+                    <th scope="row">Waiting on</th>
+                    <td>{MondekWeb.NotificationComponents.notification_gate_summary(notice)}</td>
+                  </tr>
+                  <tr :if={notice["latest_attempt"]}>
+                    <th scope="row">Latest attempt</th>
+                    <td>
+                      {MondekWeb.NotificationComponents.attempt_result(notice["latest_attempt"])}
+                    </td>
+                  </tr>
+                  <tr :if={notice["can_retry"]}>
+                    <th scope="row">Retry</th>
+                    <td>
+                      <form
+                        id={"preview-retry-" <> notice["id"]}
+                        class="preview-incident-form"
+                        phx-submit="retry_delivery"
+                        phx-auto-recover="ignore"
+                      >
+                        <input type="hidden" name="_id" value={notice["id"]} />
+                        <label>Reason for retry
+                        <input
+                          name="reason"
+                          required
+                          maxlength="500"
+                          value={@retry_drafts[notice["id"]]}
+                        /></label>
+                        <div class="preview-incident-form-actions">
+                          <button type="submit" class="pf-v6-c-button pf-m-secondary">Retry notification</button>
+                        </div>
+                      </form>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
     """
   end
+
+  defp delivery_status_color("delivered"), do: "pf-m-green"
+  defp delivery_status_color("exhausted"), do: "pf-m-red"
+  defp delivery_status_color("retrying"), do: "pf-m-orange"
+  defp delivery_status_color("delivering"), do: "pf-m-blue"
+  defp delivery_status_color(_), do: nil
 
   defp acknowledgement_scope("loss", %{"scope_kind" => "runner"}),
     do: "this runner’s monitoring loss incident"
