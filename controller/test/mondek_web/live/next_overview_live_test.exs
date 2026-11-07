@@ -80,7 +80,7 @@ defmodule MondekWeb.NextOverviewLiveTest do
     assert_patch(incidents, "/next/incidents/health/#{id}?type=health")
     assert has_element?(incidents, "#incident-heading", "Queue depth")
     assert has_element?(incidents, "main", "Measured CRIT")
-    assert has_element?(incidents, "main a", "Open current result evidence")
+    assert has_element?(incidents, "main a", "View latest check result")
     assert has_element?(incidents, "#preview-delivery-heading")
     assert has_element?(incidents, "#preview-history-heading")
 
