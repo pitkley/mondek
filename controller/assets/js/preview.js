@@ -95,6 +95,7 @@ const OverviewPanel = {
     this.selection = next;
     this.el.querySelector("#preview-related-results")?.removeAttribute("open");
     if (this.el.querySelector("#overview-panel")) this.focusPanel();
+    else if (this.el.querySelector("#incident-page")) this.el.querySelector("#incident-heading")?.focus();
     else if (document.activeElement?.id !== "preview-search") (document.getElementById(this.trigger) || document.getElementById(this.el.dataset.panelHeading || "overview-heading"))?.focus({preventScroll: true});
   },
   syncOverlay() {
