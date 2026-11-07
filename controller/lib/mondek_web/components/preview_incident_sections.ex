@@ -18,58 +18,161 @@ defmodule MondekWeb.PreviewIncidentSections do
       class="preview-table-group preview-incident-section"
       aria-labelledby="preview-ack-heading"
     >
-      <h3 id="preview-ack-heading" class="preview-section-heading">Acknowledgement</h3>
-      <div class="preview-incident-evidence">
-        <p :if={@acknowledged}>
-          <strong>Acknowledged</strong>
-          {if @incident["acknowledged_until"],
-            do: "until " <> time(@incident["acknowledged_until"]),
-            else: "until this incident ends"}
-        </p>
-        <p :if={@acknowledged && @incident["acknowledgement_note"]}>
-          {@incident["acknowledgement_note"]}
-        </p>
-        <p :if={!@acknowledged && @incident["status"] == "open"}>No active acknowledgement.</p>
-        <p :if={@incident["status"] == "closed"}>This incident has ended.</p>
-        <p :if={@incident["status"] == "open"} class="preview-caption">
-          {acknowledgement_scope(@kind, @detail)} Acknowledgement pauses failure notifications while checks continue.
-        </p>
-        <button
-          :if={@incident["status"] == "open" && !@review}
-          type="button"
-          class="pf-v6-c-button pf-m-secondary"
-          phx-click="review_control"
+      <header class="preview-section-heading preview-ack-heading">
+        <h3 id="preview-ack-heading">Acknowledgement</h3>
+        <span
+          :if={@feedback && elem(@feedback, 0) == :ok}
+          class="pf-v6-c-label pf-m-green"
+          role="status"
         >
-          {if @acknowledged, do: "Manage acknowledgement", else: "Acknowledge incident"}
-        </button>
+          <span class="pf-v6-c-label__content">{elem(@feedback, 1)}</span>
+        </span>
+        <span
+          :if={
+            !@acknowledged && @incident["status"] == "open" &&
+              !match?({:ok, _}, @feedback)
+          }
+          class="preview-caption"
+        >
+          No active acknowledgement
+        </span>
+      </header>
+      <div :if={@acknowledged}>
+        <table
+          class="preview-incident-fact-table"
+          aria-label="Active acknowledgement"
+        >
+          <tbody>
+            <tr>
+              <th scope="row">Active until</th>
+              <td>
+                {if @incident["acknowledged_until"],
+                  do: time(@incident["acknowledged_until"]),
+                  else: "Incident ends"}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Note</th>
+              <td>
+                <span
+                  :if={@incident["acknowledgement_note"] in [nil, "", "No note provided."]}
+                  class="preview-caption"
+                >No note provided</span>
+                <span :if={@incident["acknowledgement_note"] not in [nil, "", "No note provided."]}>{@incident[
+                  "acknowledgement_note"
+                ]}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="preview-ack-active-actions">
+          <button
+            type="button"
+            class="pf-v6-c-button pf-m-secondary"
+            phx-click="toggle_acknowledgement_replacement"
+            aria-expanded={to_string(@replacing)}
+          >
+            {if @replacing, do: "Cancel replacement", else: "Replace acknowledgement"}
+          </button>
+          <button type="button" class="pf-v6-c-button pf-m-secondary" phx-click="end_acknowledgement">
+            End acknowledgement
+          </button>
+        </div>
+      </div>
+      <div
+        :if={!@acknowledged || @replacing || (@feedback && elem(@feedback, 0) == :error)}
+        class="preview-incident-evidence"
+      >
+        <p :if={@feedback && elem(@feedback, 0) == :error} role="alert">{elem(@feedback, 1)}</p>
+        <p :if={@incident["status"] == "closed"}>This incident has ended.</p>
         <form
-          :if={@incident["status"] == "open" && @review}
+          :if={@incident["status"] == "open" && @review && (!@acknowledged || @replacing)}
           id="preview-incident-ack-form"
-          class="preview-incident-form"
+          class="preview-incident-form preview-ack-form"
           phx-change="edit_acknowledgement"
           phx-submit="save_acknowledgement"
           phx-auto-recover="ignore"
         >
-          <label>
-            Duration
-            <select name="mode">
-              <option
-                value="until_incident_ends"
-                selected={@draft["mode"] in [nil, "until_incident_ends"]}
+          <% mode = @draft["mode"] || "until_incident_ends" %>
+          <fieldset class="preview-ack-timing" aria-describedby="preview-ack-effect">
+            <legend>
+              {if @acknowledged, do: "Replace acknowledgement", else: "Pause failure notifications"}
+            </legend>
+            <p id="preview-ack-effect" class="preview-caption preview-ack-effect">
+              Pauses failure notifications for {acknowledgement_scope(@kind, @detail)}. Checks continue.
+            </p>
+            <div class="preview-ack-options">
+              <div
+                :for={
+                  {value, label} <-
+                    [
+                      {"until_incident_ends", "Until incident ends"},
+                      {"duration", "For a duration"},
+                      {"until", "Until date and time"}
+                    ]
+                }
+                id={"preview-ack-option-" <> value}
+                class="preview-ack-option"
               >
-                Until this incident ends
-              </option>
-              <option value="1h" selected={@draft["mode"] == "1h"}>1 hour</option>
-              <option value="24h" selected={@draft["mode"] == "24h"}>24 hours</option>
-              <option :if={@acknowledged} value="end" selected={@draft["mode"] == "end"}>
-                End acknowledgement now
-              </option>
-            </select>
+                <label class="preview-ack-choice">
+                  <input type="radio" name="mode" value={value} checked={mode == value} />
+                  <span>{label}</span>
+                </label>
+                <div
+                  :if={mode == value && value == "duration"}
+                  class="preview-ack-fields preview-ack-duration"
+                >
+                  <label>
+                    Amount
+                    <input
+                      type="number"
+                      name="amount"
+                      min="1"
+                      step="1"
+                      required
+                      value={@draft["amount"] || "1"}
+                    />
+                  </label>
+                  <label>
+                    Unit
+                    <select name="unit">
+                      <option
+                        :for={unit <- ~w(minutes hours days)}
+                        value={unit}
+                        selected={unit == (@draft["unit"] || "hours")}
+                      >
+                        {unit}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+                <div :if={mode == value && value == "until"} class="preview-ack-fields">
+                  <label>
+                    Date and time (UTC)
+                    <input
+                      type="datetime-local"
+                      name="expires_at"
+                      required
+                      value={@draft["expires_at"]}
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+          <label class="preview-ack-note">
+            <span>Note <span class="preview-caption">(optional)</span></span>
+            <textarea
+              name="note"
+              maxlength="500"
+              rows="2"
+              placeholder="Add context for the incident history"
+            >{@draft["note"]}</textarea>
           </label>
-          <label>Note <textarea name="note" required maxlength="500" rows="2">{@draft["note"]}</textarea></label>
           <div class="preview-incident-form-actions">
-            <button type="submit" class="pf-v6-c-button pf-m-primary">Save acknowledgement</button>
-            <button type="button" class="pf-v6-c-button pf-m-link" phx-click="cancel_control">Cancel</button>
+            <button type="submit" class="pf-v6-c-button pf-m-primary">
+              {if @acknowledged, do: "Replace acknowledgement", else: "Save acknowledgement"}
+            </button>
             <button
               :if={
                 @review["revision"] != @incident["acknowledgement_revision"] ||
@@ -81,9 +184,6 @@ defmodule MondekWeb.PreviewIncidentSections do
             >Review current incident</button>
           </div>
         </form>
-        <p :if={@feedback} role={if elem(@feedback, 0) == :error, do: "alert", else: "status"}>
-          {elem(@feedback, 1)}
-        </p>
       </div>
     </section>
 
@@ -155,13 +255,15 @@ defmodule MondekWeb.PreviewIncidentSections do
         <summary>
           {if @kind == "loss", do: "Restoration evidence", else: "Measurement history"}
         </summary>
-        <p :if={@measurements == []} class="preview-incident-evidence">
-          No linked measurements are retained here.
-        </p>
-        <div :for={measurement <- @measurements} class="preview-incident-evidence">
-          <p><strong>{measurement.summary}</strong></p>
-          <p class="preview-caption">{measurement.state} · {time(measurement.at)}</p>
-          <pre :if={measurement.details not in [nil, ""]} class="preview-findings">{measurement.details}</pre>
+        <div class="preview-incident-history-content">
+          <p :if={@measurements == []} class="preview-incident-evidence">
+            No linked measurements are retained here.
+          </p>
+          <div :for={measurement <- @measurements} class="preview-incident-evidence">
+            <p><strong>{measurement.summary}</strong></p>
+            <p class="preview-caption">{measurement.state} · {time(measurement.at)}</p>
+            <pre :if={measurement.details not in [nil, ""]} class="preview-findings">{measurement.details}</pre>
+          </div>
         </div>
       </details>
       <details
@@ -170,13 +272,15 @@ defmodule MondekWeb.PreviewIncidentSections do
         phx-mounted={JS.ignore_attributes("open")}
       >
         <summary>Operator control history</summary>
-        <p :if={(@detail["controls"] || []) == []} class="preview-incident-evidence">
-          No operator controls are recorded.
-        </p>
-        <div :for={control <- @detail["controls"] || []} class="preview-incident-evidence">
-          <p><strong>{badge_text(control["kind"])}</strong></p>
-          <p :if={control["reason"]}>{control["reason"]}</p>
-          <p class="preview-caption">{control["actor"]} · {time(control["inserted_at"])}</p>
+        <div class="preview-incident-history-content">
+          <p :if={(@detail["controls"] || []) == []} class="preview-incident-evidence">
+            No operator controls are recorded.
+          </p>
+          <div :for={control <- @detail["controls"] || []} class="preview-incident-evidence">
+            <p><strong>{badge_text(control["kind"])}</strong></p>
+            <p :if={control["reason"]}>{control["reason"]}</p>
+            <p class="preview-caption">{control["actor"]} · {time(control["inserted_at"])}</p>
+          </div>
         </div>
       </details>
     </section>
@@ -184,14 +288,14 @@ defmodule MondekWeb.PreviewIncidentSections do
   end
 
   defp acknowledgement_scope("loss", %{"scope_kind" => "runner"}),
-    do: "Applies to this runner’s monitoring loss incident."
+    do: "this runner’s monitoring loss incident"
 
-  defp acknowledgement_scope("loss", _), do: "Applies to this source’s monitoring loss incident."
+  defp acknowledgement_scope("loss", _), do: "this source’s monitoring loss incident"
 
   defp acknowledgement_scope("health", %{"contributions" => _}),
-    do: "Applies to this shared health incident."
+    do: "this shared health incident"
 
-  defp acknowledgement_scope("health", _), do: "Applies to this result’s health incident."
+  defp acknowledgement_scope("health", _), do: "this result’s health incident"
 
   defp measurements("loss", incident, _) do
     for evidence <- incident["closing_evidence"] || [] do
