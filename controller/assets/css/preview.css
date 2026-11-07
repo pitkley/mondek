@@ -447,6 +447,13 @@ button,input { font: inherit; }
   background: var(--pf-t--global--background--color--primary--default);
 }
 .preview-incident-form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.preview-incident-fact-table .preview-delivery-details {
+  padding: 0;
+  border-inline-start: 1px solid var(--pf-t--global--border--color--default);
+}
+.preview-delivery-details table { width: 100%; border-collapse: collapse; }
+.preview-delivery-details :is(th,td) { padding-block: 5px; }
+.preview-delivery-details tr:first-child > :is(th,td) { border-top: 0; }
 
 /* The drawer has its own border. The card outline would scroll with its content. */
 .preview-incident-panel.pf-v6-c-card::before { content: none; }
