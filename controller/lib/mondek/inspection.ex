@@ -1208,91 +1208,16 @@ defmodule Mondek.Inspection do
   def list_incidents(filters, at) do
     f = normalize(filters)
 
-    query =
-      from i in Incident,
-        join: a in Assignment,
-        on: a.id == i.assignment_id,
-        left_join: s in ResultStream,
-        on: s.id == i.stream_id,
-        left_join: r in Runner,
-        on: r.id == a.runner_id,
-        left_join: g in Mondek.ConditionIncident,
-        on: g.id == i.condition_incident_id,
-        where: is_nil(g.id) or g.status == "closed" or i.status == "open"
+    query = filtered_incident_rows(f)
+    selected = incident_identities(query, at)
 
-    query =
-      case f["status"] do
-        "all" ->
-          query
-
-        "closed" ->
-          from([i, a, s, r, g] in query,
-            where: fragment("COALESCE(?, ?)", g.status, i.status) == "closed"
-          )
-
-        _ ->
-          from([i, a, s, r, g] in query,
-            where: fragment("COALESCE(?, ?)", g.status, i.status) == "open"
-          )
-      end
-
-    query =
-      if present?(f["runner_id"]) do
-        if uuid?(f["runner_id"]),
-          do: from([i, a, s, r] in query, where: a.runner_id == ^f["runner_id"]),
-          else: from([i, a, s, r] in query, where: false)
-      else
-        query
-      end
-
-    query =
-      if f["health"] in ~w(OK WARN CRIT UNKNOWN),
-        do:
-          from([i, a, s, r, g] in query,
-            where: fragment("COALESCE(?, ?)", g.health, i.health) == ^f["health"]
-          ),
-        else: query
-
-    query =
-      if present?(f["environment"]),
-        do: from([i, a, s, r] in query, where: i.environment == ^f["environment"]),
-        else: query
-
-    query =
-      if present?(f["search"]) do
-        term = "%" <> escape_like(f["search"]) <> "%"
-
-        from [i, a, s, r, g] in query,
-          where:
-            ilike(g.label, ^term) or ilike(g.key, ^term) or ilike(g.namespace, ^term) or
-              ilike(a.label, ^term) or ilike(s.label, ^term) or ilike(a.source_key, ^term) or
-              ilike(a.source_id, ^term) or ilike(fragment("?->>'label'", s.target), ^term) or
-              ilike(fragment("?->>'key'", s.target), ^term)
-      else
-        query
-      end
-
-    # Deduplicate exact operator incident identities before pagination. Scope
-    # filters match an active contribution of an open group, or retained members
-    # of a closed group; severity remains the whole incident's measured severity.
     selected =
-      from [i, a, s, r, g] in query,
-        distinct: true,
-        select: %{
-          id: type(fragment("COALESCE(?, ?)", g.id, i.id), :binary_id),
-          grouped: not is_nil(g.id),
-          health: type(fragment("COALESCE(?, ?)", g.health, i.health), :string),
-          status: type(fragment("COALESCE(?, ?)", g.status, i.status), :string),
-          acknowledgement_active:
-            fragment(
-              "CASE WHEN ? IS NULL THEN ? ELSE ? END",
-              g.id,
-              acknowledgement_active_sql(i, ^at),
-              acknowledgement_active_sql(g, ^at)
-            ),
-          opened_at:
-            type(fragment("COALESCE(?, ?)", g.opened_at, i.opened_at), :utc_datetime_usec)
-        }
+      if f["grouping"] == "all" do
+        members = f |> Map.put("grouping", "member") |> filtered_incident_rows()
+        union_all(selected, ^incident_identities(members, at))
+      else
+        selected
+      end
 
     selected = from(x in subquery(selected))
 
@@ -1346,7 +1271,7 @@ defmodule Mondek.Inspection do
     rows =
       Repo.all(
         from [i, a, s, r] in query,
-          where: i.id in ^standalone_ids and is_nil(i.condition_incident_id),
+          where: i.id in ^standalone_ids,
           select: {i, a, s, r}
       )
 
@@ -1428,6 +1353,107 @@ defmodule Mondek.Inspection do
       coverage: coverage(at),
       facets: facets()
     }
+  end
+
+  defp incident_rows(roll_up?) do
+    from i in Incident,
+      join: a in Assignment,
+      on: a.id == i.assignment_id,
+      left_join: s in ResultStream,
+      on: s.id == i.stream_id,
+      left_join: r in Runner,
+      on: r.id == a.runner_id,
+      left_join: g in Mondek.ConditionIncident,
+      on: g.id == i.condition_incident_id and ^roll_up?
+  end
+
+  defp filtered_incident_rows(f) do
+    roll_up? = f["grouping"] != "member"
+
+    query =
+      from [i, a, s, r, g] in incident_rows(roll_up?),
+        where: is_nil(g.id) or g.status == "closed" or i.status == "open"
+
+    query =
+      case f["grouping"] do
+        "shared" -> from([i] in query, where: not is_nil(i.condition_incident_id))
+        "standalone" -> from([i] in query, where: is_nil(i.condition_incident_id))
+        "member" -> from([i] in query, where: not is_nil(i.condition_incident_id))
+        _ -> query
+      end
+
+    query =
+      case f["status"] do
+        "all" ->
+          query
+
+        "closed" ->
+          from([i, a, s, r, g] in query,
+            where: fragment("COALESCE(?, ?)", g.status, i.status) == "closed"
+          )
+
+        _ ->
+          from([i, a, s, r, g] in query,
+            where: fragment("COALESCE(?, ?)", g.status, i.status) == "open"
+          )
+      end
+
+    query =
+      if present?(f["runner_id"]) do
+        if uuid?(f["runner_id"]),
+          do: from([i, a, s, r] in query, where: a.runner_id == ^f["runner_id"]),
+          else: from([i, a, s, r] in query, where: false)
+      else
+        query
+      end
+
+    query =
+      if f["health"] in ~w(OK WARN CRIT UNKNOWN),
+        do:
+          from([i, a, s, r, g] in query,
+            where: fragment("COALESCE(?, ?)", g.health, i.health) == ^f["health"]
+          ),
+        else: query
+
+    query =
+      if present?(f["environment"]),
+        do: from([i, a, s, r] in query, where: i.environment == ^f["environment"]),
+        else: query
+
+    if present?(f["search"]) do
+      term = "%" <> escape_like(f["search"]) <> "%"
+
+      from [i, a, s, r, g] in query,
+        where:
+          ilike(g.label, ^term) or ilike(g.key, ^term) or ilike(g.namespace, ^term) or
+            ilike(a.label, ^term) or ilike(s.label, ^term) or ilike(a.source_key, ^term) or
+            ilike(a.source_id, ^term) or ilike(fragment("?->>'label'", s.target), ^term) or
+            ilike(fragment("?->>'key'", s.target), ^term)
+    else
+      query
+    end
+  end
+
+  defp incident_identities(query, at) do
+    # Deduplicate exact operator incident identities before pagination. Scope
+    # filters match an active contribution of an open group, or retained members
+    # of a closed group; severity remains the whole incident's measured severity.
+    from [i, a, s, r, g] in query,
+      distinct: true,
+      select: %{
+        id: type(fragment("COALESCE(?, ?)", g.id, i.id), :binary_id),
+        grouped: not is_nil(g.id),
+        health: type(fragment("COALESCE(?, ?)", g.health, i.health), :string),
+        status: type(fragment("COALESCE(?, ?)", g.status, i.status), :string),
+        acknowledgement_active:
+          fragment(
+            "CASE WHEN ? IS NULL THEN ? ELSE ? END",
+            g.id,
+            acknowledgement_active_sql(i, ^at),
+            acknowledgement_active_sql(g, ^at)
+          ),
+        opened_at: type(fragment("COALESCE(?, ?)", g.opened_at, i.opened_at), :utc_datetime_usec)
+      }
   end
 
   def stream_detail(id, at) do

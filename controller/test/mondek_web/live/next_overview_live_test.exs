@@ -67,6 +67,12 @@ defmodule MondekWeb.NextOverviewLiveTest do
     id = incident["id"]
     {:ok, incidents, _} = live(build_conn(), "/next/incidents")
 
+    render_hook(incidents, "filter_open", %{"field" => "grouping"})
+    render_hook(incidents, "filter_select", %{"key" => "standalone"})
+    assert_patch(incidents, "/next/incidents?grouping=standalone")
+    assert has_element?(incidents, "#preview-incident-health-#{id}")
+    render_patch(incidents, "/next/incidents")
+
     render_hook(incidents, "filter_open", %{"field" => "type"})
     render_hook(incidents, "filter_select", %{"key" => "health", "kind" => ""})
     assert_patch(incidents, "/next/incidents?type=health")

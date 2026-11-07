@@ -4,13 +4,15 @@ defmodule MondekWeb.PreviewIncidentSections do
   use MondekWeb, :html
   import MondekWeb.EvidencePresentation, only: [time: 1, badge_text: 1]
   alias Mondek.Monitoring
+  alias MondekWeb.{MonitoringUI, NotificationComponents}
   alias Phoenix.LiveView.JS
 
   def sections(assigns) do
     assigns =
       assign(assigns,
         acknowledged: Monitoring.acknowledgement_active?(assigns.incident, assigns.now),
-        measurements: measurements(assigns.kind, assigns.incident, assigns.detail)
+        measurements: measurements(assigns.kind, assigns.incident, assigns.detail),
+        earlier_attempts: Enum.group_by(assigns.detail["attempts"] || [], & &1["occurrence_id"])
       )
 
     ~H"""
@@ -188,6 +190,46 @@ defmodule MondekWeb.PreviewIncidentSections do
     </section>
 
     <section
+      :if={@incident["status"] == "open"}
+      class="preview-table-group preview-incident-section"
+      aria-labelledby="preview-maintenance-heading"
+    >
+      <h3 id="preview-maintenance-heading" class="preview-section-heading">Maintenance</h3>
+      <table class="preview-incident-fact-table" aria-labelledby="preview-maintenance-heading">
+        <tbody>
+          <tr :for={window <- @maintenance_windows}>
+            <th scope="row">Active window</th>
+            <td>
+              <.link href={"/maintenance/" <> window["id"]}>
+                {window["name"] || window["reason"] || "View maintenance window"}
+              </.link>
+              <span class="preview-caption"> · Ends {time(window["ends_at"])}</span>
+            </td>
+          </tr>
+          <tr :if={@kind == "loss"}>
+            <th scope="row">Monitoring loss notifications</th>
+            <td>
+              Maintenance pauses a monitoring loss notification only if the window covers every result in that notification’s scope.
+            </td>
+          </tr>
+          <tr :if={@detail["contributions"]}>
+            <th scope="row">Active coverage</th>
+            <td>
+              {@detail["counts"]["maintained"]} of {@detail["counts"]["open"]} failing results in maintenance
+            </td>
+          </tr>
+          <tr :if={@kind == "health" && !@detail["contributions"] && @maintenance_windows == []}>
+            <th scope="row">Active windows</th>
+            <td>No active maintenance for this result.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="preview-recorded-actions">
+        <.link href={maintenance_href(@kind, @incident)}>Review maintenance</.link>
+      </div>
+    </section>
+
+    <section
       class="preview-table-group preview-incident-section"
       aria-labelledby="preview-history-heading"
     >
@@ -217,6 +259,12 @@ defmodule MondekWeb.PreviewIncidentSections do
           <p :if={@measurements == []} class="preview-incident-evidence">
             No linked measurements are retained here.
           </p>
+          <p
+            :if={(get_in(@detail, ["limits", "evidence", "missing"]) || 0) > 0}
+            class="preview-incident-evidence"
+          >
+            {get_in(@detail, ["limits", "evidence", "missing"])} referenced measurements are unavailable.
+          </p>
           <div :for={measurement <- @measurements} class="preview-incident-evidence">
             <p><strong>{measurement.summary}</strong></p>
             <p class="preview-caption">{measurement.state} · {time(measurement.at)}</p>
@@ -240,6 +288,7 @@ defmodule MondekWeb.PreviewIncidentSections do
             <p class="preview-caption">{control["actor"]} · {time(control["inserted_at"])}</p>
           </div>
         </div>
+        <.history_limit limit={get_in(@detail, ["limits", "controls"])} label="operator controls" />
       </details>
     </section>
 
@@ -269,7 +318,7 @@ defmodule MondekWeb.PreviewIncidentSections do
               {badge_text(notice["kind"])}
               <div class="preview-caption">{time(notice["inserted_at"])}</div>
             </th>
-            <td class="preview-delivery-details">
+            <td class="preview-incident-nested-facts">
               <table aria-label="Delivery details">
                 <tbody>
                   <tr>
@@ -282,7 +331,7 @@ defmodule MondekWeb.PreviewIncidentSections do
                   </tr>
                   <tr>
                     <th scope="row">Details</th>
-                    <td>{MondekWeb.NotificationComponents.notification_explanation(notice)}</td>
+                    <td>{NotificationComponents.notification_explanation(notice)}</td>
                   </tr>
                   <tr>
                     <th scope="row">Attempts</th>
@@ -290,12 +339,63 @@ defmodule MondekWeb.PreviewIncidentSections do
                   </tr>
                   <tr :if={notice["waiting_on_gates"]}>
                     <th scope="row">Waiting on</th>
-                    <td>{MondekWeb.NotificationComponents.notification_gate_summary(notice)}</td>
+                    <td>{NotificationComponents.notification_gate_summary(notice)}</td>
+                  </tr>
+                  <tr :if={notice["next_retry_at"]}>
+                    <th scope="row">Next eligible attempt</th>
+                    <td>{NotificationComponents.retry_time(notice["next_retry_at"], @now)}</td>
+                  </tr>
+                  <tr :if={
+                    notice["waiting_on_gates"] && notice["maintenance_windows"] not in [nil, []]
+                  }>
+                    <th scope="row">Maintenance</th>
+                    <td>
+                      <div :for={window <- notice["maintenance_windows"]}>
+                        <.link href={"/maintenance/" <> window["id"]}>{window["name"] ||
+                          window["reason"] || "View window"}</.link>
+                      </div>
+                    </td>
                   </tr>
                   <tr :if={notice["latest_attempt"]}>
                     <th scope="row">Latest attempt</th>
                     <td>
-                      {MondekWeb.NotificationComponents.attempt_result(notice["latest_attempt"])}
+                      {NotificationComponents.attempt_result(notice["latest_attempt"])}
+                    </td>
+                  </tr>
+                  <% earlier =
+                    Enum.reject(
+                      @earlier_attempts[notice["id"]] || [],
+                      &(&1["id"] == get_in(notice, ["latest_attempt", "id"]))
+                    ) %>
+                  <tr :if={earlier != []}>
+                    <th scope="row">Attempt history</th>
+                    <td>
+                      <details
+                        id={"preview-attempts-" <> notice["id"]}
+                        phx-mounted={JS.ignore_attributes("open")}
+                      >
+                        <summary>Earlier attempts ({length(earlier)})</summary>
+                        <table aria-label="Earlier delivery attempts">
+                          <tbody>
+                            <tr :for={attempt <- earlier}>
+                              <th scope="row">{time(attempt["started_at"])}</th>
+                              <td>{NotificationComponents.attempt_result(attempt)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </details>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Original delivery</th>
+                    <td>
+                      <details
+                        id={"preview-payload-" <> notice["id"]}
+                        phx-mounted={JS.ignore_attributes("open")}
+                      >
+                        <summary>Original notification payload</summary>
+                        <pre class="preview-findings">{Jason.encode!(Map.drop(notice["payload"], ["webhook_delivery"]), pretty: true)}</pre>
+                      </details>
                     </td>
                   </tr>
                   <tr :if={notice["can_retry"]}>
@@ -315,6 +415,9 @@ defmodule MondekWeb.PreviewIncidentSections do
                           maxlength="500"
                           value={@retry_drafts[notice["id"]]}
                         /></label>
+                        <p class="preview-caption">
+                          Retrying starts a new attempt budget and can deliver a duplicate. Acknowledgements and maintenance still apply.
+                        </p>
                         <div class="preview-incident-form-actions">
                           <button type="submit" class="pf-v6-c-button pf-m-secondary">Retry notification</button>
                         </div>
@@ -327,9 +430,35 @@ defmodule MondekWeb.PreviewIncidentSections do
           </tr>
         </tbody>
       </table>
+      <.history_limit limit={get_in(@detail, ["limits", "occurrences"])} label="notifications" />
+      <.history_limit limit={get_in(@detail, ["limits", "attempts"])} label="delivery attempts" />
+      {render_slot(@delivery_pagination)}
     </section>
     """
   end
+
+  defp history_limit(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :shown,
+        assigns.limit && (assigns.limit["shown"] || assigns.limit["returned"])
+      )
+
+    ~H"""
+    <p
+      :if={is_integer(@shown) && @shown < @limit["total"]}
+      class="preview-recorded-actions preview-caption"
+    >
+      Showing {@shown} of {@limit["total"]} {@label}.
+    </p>
+    """
+  end
+
+  defp maintenance_href("health", %{"assignment_id" => id} = incident) when is_binary(id),
+    do: MonitoringUI.maintenance_path(id, incident["stream_id"], false)
+
+  defp maintenance_href(_, _), do: "/maintenance"
 
   defp delivery_status_color("delivered"), do: "pf-m-green"
   defp delivery_status_color("exhausted"), do: "pf-m-red"

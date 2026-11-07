@@ -3,10 +3,17 @@
 defmodule MondekWeb.NextIncidentsLive do
   use MondekWeb, :live_view
   import MondekWeb.EvidencePresentation, only: [age: 2, time: 1, badge_text: 1, target_label: 1]
-  alias Mondek.{Monitoring, MonitoringLoss}
+  alias Mondek.{Maintenance, Monitoring, MonitoringLoss}
   alias MondekWeb.{NotificationRetry, PreviewIncidentSections}
 
   @types [{"all", "All types"}, {"health", "Health failure"}, {"loss", "Monitoring loss"}]
+  @groupings [
+    {"top", "Top-level incidents"},
+    {"all", "Any grouping"},
+    {"shared", "Shared incidents"},
+    {"standalone", "Standalone health incidents"},
+    {"member", "Members of shared incidents"}
+  ]
   @statuses [{"open", "Open"}, {"closed", "Closed"}, {"all", "Any status"}]
   @severities [
     {"all", "Any severity"},
@@ -26,10 +33,11 @@ defmodule MondekWeb.NextIncidentsLive do
     {"30d", "Last 30 days"}
   ]
   @filter_fields [
-    {"status", "Status", "check"},
-    {"type", "Type", "pulse"},
+    {"grouping", "Grouping", "server"},
+    {"status", "Status", "info"},
+    {"type", "Type", "grid"},
     {"severity", "Severity", "pulse"},
-    {"acknowledgement", "Acknowledgement", "check"},
+    {"acknowledgement", "Acknowledgement", "shield"},
     {"opened", "Opened", "clock"}
   ]
 
@@ -61,7 +69,7 @@ defmodule MondekWeb.NextIncidentsLive do
        filters: filters(params),
        filter_picker: nil,
        id: params["id"],
-       member_page: number(params["member_page"])
+       detail_filters: detail_filters(params)
      )
      |> refresh()}
   end
@@ -78,7 +86,7 @@ defmodule MondekWeb.NextIncidentsLive do
   end
 
   def handle_event("filter_open", %{"field" => field}, socket)
-      when field in ["type", "status", "severity", "acknowledgement", "opened"] do
+      when field in ["type", "status", "severity", "acknowledgement", "opened", "grouping"] do
     value = socket.assigns.filters[field]
     label = if value == "all", do: "", else: option_label(field, value)
     {:noreply, assign(socket, filter_picker: %{picker(field, "") | value: label})}
@@ -343,6 +351,7 @@ defmodule MondekWeb.NextIncidentsLive do
   end
 
   defp choices("type"), do: @types
+  defp choices("grouping"), do: @groupings
   defp choices("status"), do: @statuses
   defp choices("severity"), do: @severities
   defp choices("acknowledgement"), do: @acknowledgements
@@ -362,6 +371,7 @@ defmodule MondekWeb.NextIncidentsLive do
 
     %{
       "type" => choice(params["type"], @types),
+      "grouping" => choice(params["grouping"], @groupings),
       "status" => choice(params["status"], @statuses),
       "severity" => choice(params["severity"], @severities),
       "acknowledgement" => choice(params["acknowledgement"], @acknowledgements),
@@ -398,13 +408,22 @@ defmodule MondekWeb.NextIncidentsLive do
          is_binary(uri.path) &&
          Regex.match?(~r"\A/next/incidents/(health|loss)/[0-9a-f-]{36}\z", uri.path) do
       params = URI.decode_query(uri.query || "")
-      with_query(uri.path, Map.put(filters(params), "member_page", number(params["member_page"])))
+      with_query(uri.path, Map.merge(filters(params), detail_filters(params)))
     end
   rescue
     ArgumentError -> nil
   end
 
   def return_path(_), do: nil
+
+  defp detail_filters(params) do
+    %{
+      "member_page" => number(params["member_page"]),
+      "notification_page" => number(params["notification_page"]),
+      "healthy_page" => number(params["healthy_page"]),
+      "contributors" => if(params["contributors"] == "uncovered", do: "uncovered", else: "all")
+    }
+  end
 
   defp list_path(filters), do: with_query("/next/incidents", filters)
 
@@ -414,12 +433,16 @@ defmodule MondekWeb.NextIncidentsLive do
       |> Enum.reject(fn {key, value} ->
         {key, value} in [
           {"type", "all"},
+          {"grouping", "top"},
           {"status", "open"},
           {"severity", "all"},
           {"acknowledgement", "all"},
           {"opened", "all"},
           {"page", "1"},
-          {"member_page", "1"}
+          {"member_page", "1"},
+          {"notification_page", "1"},
+          {"healthy_page", "1"},
+          {"contributors", "all"}
         ]
       end)
       |> URI.encode_query()
@@ -434,7 +457,8 @@ defmodule MondekWeb.NextIncidentsLive do
 
   defp refresh_listing(%{assigns: %{filters: filters}} = socket, now) do
     severity = filters["severity"]
-    type = if filters["type"] == "all" && severity != "all", do: "health", else: filters["type"]
+    health_only? = severity != "all" || filters["grouping"] not in ["top", "all"]
+    type = if filters["type"] == "all" && health_only?, do: "health", else: filters["type"]
 
     domain =
       filters
@@ -445,7 +469,7 @@ defmodule MondekWeb.NextIncidentsLive do
       |> Map.put("opened_since", opened_since(now, filters["opened"]))
 
     health = if type != "loss", do: Monitoring.list_incidents(domain, now)
-    loss = if type != "health" && severity == "all", do: MonitoringLoss.list(domain, now)
+    loss = if type != "health" && !health_only?, do: MonitoringLoss.list(domain, now)
     health_rows = if health, do: Enum.map(health.items, &row("health", &1, now)), else: []
     loss_rows = if loss, do: Enum.map(loss["items"], &row("loss", &1, now)), else: []
 
@@ -483,16 +507,24 @@ defmodule MondekWeb.NextIncidentsLive do
   defp refresh_detail(%{assigns: %{live_action: :index}} = socket, _now), do: socket
 
   defp refresh_detail(socket, now) do
-    %{live_action: action, id: id, member_page: page} = socket.assigns
+    %{live_action: action, id: id, detail_filters: filters} = socket.assigns
 
     {kind, detail, incident} =
       case action do
         :health ->
-          detail = Monitoring.incident_detail(id, now, %{"page" => page})
+          detail =
+            Monitoring.incident_detail(id, now, %{
+              "page" => filters["member_page"],
+              "state" => filters["contributors"],
+              "contradiction_page" => filters["healthy_page"],
+              "notification_status" => "all",
+              "notification_page" => filters["notification_page"]
+            })
+
           {"health", detail, detail && detail["incident"]}
 
         :loss ->
-          detail = MonitoringLoss.detail(id, now, %{"members_page" => page})
+          detail = MonitoringLoss.detail(id, now, %{"members_page" => filters["member_page"]})
           {"loss", detail, detail}
       end
 
@@ -505,9 +537,23 @@ defmodule MondekWeb.NextIncidentsLive do
       kind: kind,
       detail: detail,
       incident: incident,
+      maintenance_windows: active_maintenance(kind, incident, now),
       control_review: review
     )
   end
+
+  defp active_maintenance("health", %{"status" => "open"} = incident, now) do
+    windows =
+      cond do
+        id = incident["stream_id"] -> Maintenance.for_stream(id, now)
+        id = incident["assignment_id"] -> Maintenance.for_assignment(id, now)
+        true -> []
+      end
+
+    Enum.filter(windows, &(&1["status"] == "active"))
+  end
+
+  defp active_maintenance(_, _, _), do: []
 
   defp opened_since(now, "24h"), do: DateTime.add(now, -1, :day)
   defp opened_since(now, "7d"), do: DateTime.add(now, -7, :day)
@@ -525,6 +571,7 @@ defmodule MondekWeb.NextIncidentsLive do
       id: incident["id"],
       title: title(kind, incident),
       context: context(incident),
+      contribution_count: incident["contribution_count"],
       health: incident["health"],
       status: incident["status"],
       opened_at: incident["opened_at"],
@@ -546,7 +593,8 @@ defmodule MondekWeb.NextIncidentsLive do
       incident["environment_label"] || incident["environment"],
       incident["runner_label"],
       if(incident["scope_kind"] == "coverage", do: incident["source_id"]),
-      if(incident["member_count"], do: count(incident["member_count"], "affected result"))
+      if(incident["member_count"], do: count(incident["member_count"], "affected result")),
+      if(incident["condition_incident_id"], do: "Shared incident member")
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" · ")
@@ -640,6 +688,7 @@ defmodule MondekWeb.NextIncidentsLive do
                   data-overview-open
                   class="preview-result-link"
                 >{row.title}</.link>
+                <.shared_incident_badge :if={row.contribution_count} count={row.contribution_count} />
                 <span :if={row.context != ""} class="preview-caption">{row.context}</span>
               </td>
               <td class="pf-v6-c-table__td" data-label="Type">{type_label(row.kind)}</td>
@@ -687,7 +736,7 @@ defmodule MondekWeb.NextIncidentsLive do
           path(
             assigns.kind,
             assigns.id,
-            Map.put(assigns.filters, "member_page", assigns.member_page)
+            Map.merge(assigns.filters, assigns.detail_filters)
           ),
         title: detail_title(assigns.kind, assigns.detail, assigns.incident)
       )
@@ -708,13 +757,17 @@ defmodule MondekWeb.NextIncidentsLive do
           </div>
         </div>
         <header class="preview-incident-intro">
-          <p :if={@incident} class="preview-caption">
+          <p :if={@incident && !@detail["contributions"]} class="preview-caption">
             {type_label(@kind)}<span :if={@incident["scope_kind"] == "coverage"}> · {@incident[
               "source_id"
             ]}</span>
           </p>
           <h2 id="incident-heading" tabindex="-1" class="pf-v6-c-title pf-m-2xl">{@title}</h2>
           <div :if={@incident} class="preview-incident-meta">
+            <.shared_incident_badge
+              :if={@detail["contributions"]}
+              count={@detail["counts"]["total"]}
+            />
             <.severity :if={@incident["health"]} health={@incident["health"]} />
             <.incident_state
               status={@incident["status"]}
@@ -752,9 +805,20 @@ defmodule MondekWeb.NextIncidentsLive do
           feedback={@control_feedback}
           delivery_feedback={@delivery_feedback}
           retry_drafts={@retry_drafts}
-        />
+          maintenance_windows={@maintenance_windows}
+        >
+          <:delivery_pagination>
+            <.detail_pages
+              :if={@detail["notification_page"]}
+              listing={@detail["notification_page"]}
+              current={@current}
+              param="notification_page"
+              label="Notification pages"
+            />
+          </:delivery_pagination>
+        </PreviewIncidentSections.sections>
         <footer :if={@incident} class="preview-incident-footer">
-          <a href={legacy_path(@kind, @id, @current)}>Open full incident page</a>
+          <a href={legacy_path(@kind, @id, @current)}>Open legacy incident details</a>
         </footer>
       </div>
     </section>
@@ -845,26 +909,162 @@ defmodule MondekWeb.NextIncidentsLive do
       <div :if={!@detail["contributions"] && @incident["stream_id"]} class="preview-recorded-actions">
         <a href={evidence_path(:result, @incident["stream_id"], @current)}>Open current result evidence →</a>
       </div>
-      <div :for={contribution <- @detail["contributions"] || []} class="preview-incident-evidence">
-        <h4>
-          {get_in(contribution, ["stream", "label"]) || get_in(contribution, ["assignment", "label"])}
-        </h4>
-        <p>
-          {badge_text(contribution["last_failure_health"])} · {badge_text(
-            contribution["contribution_state"]
-          )}
-        </p>
-        <p :if={contribution["measured_result"]}>{contribution["measured_result"]["summary"]}</p>
-        <a
-          :if={contribution["incident"]["stream_id"]}
-          href={evidence_path(:result, contribution["incident"]["stream_id"], @current)}
-        >Open current result evidence</a>
+      <div :if={@incident["condition_incident_id"]} class="preview-recorded-actions">
+        <.link patch={related_incident_path(@current, @incident["condition_incident_id"])}>
+          Open shared incident and its notifications
+        </.link>
       </div>
-      <.member_pages
+      <table
+        :if={
+          @detail["contributions"] &&
+            (@incident["status"] == "open" || (@incident["impacts"] || []) != [])
+        }
+        class="preview-incident-fact-table"
+        aria-label="Shared incident summary"
+      >
+        <tbody>
+          <tr :if={(@incident["impacts"] || []) != []}>
+            <th scope="row">Impacts</th>
+            <td>{Enum.map_join(@incident["impacts"], ", ", &(&1["label"] || &1["key"]))}</td>
+          </tr>
+          <tr :if={@incident["status"] == "open"}>
+            <th scope="row">Failure notifications</th>
+            <td>
+              <p>
+                Unpaused for {@detail["counts"]["uncovered"]} of {@detail["counts"]["open"]} failing results
+              </p>
+              <.link
+                :if={@detail["contribution_page"]["state"] == "uncovered"}
+                patch={detail_path(@current, %{"contributors" => "all", "member_page" => "1"})}
+              >Show all contributing results</.link>
+              <.link
+                :if={
+                  @detail["contribution_page"]["state"] != "uncovered" &&
+                    @detail["counts"]["uncovered"] > 0
+                }
+                patch={detail_path(@current, %{"contributors" => "uncovered", "member_page" => "1"})}
+              >Show results with unpaused notifications</.link>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p :if={@detail["contributions"] == []} class="preview-recorded-actions">
+        No contributing results match this view.
+      </p>
+      <table
+        :if={@detail["contributions"] not in [nil, []]}
+        class="preview-incident-fact-table preview-contributor-table"
+        aria-label="Contributing results"
+      >
+        <thead>
+          <tr>
+            <th scope="col">Result</th><th scope="col">Incident details</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={contribution <- @detail["contributions"]}>
+            <th scope="row">
+              <.link patch={related_incident_path(@current, contribution["incident"]["id"])}>
+                {get_in(contribution, ["stream", "label"]) ||
+                  get_in(contribution, ["assignment", "label"])}
+              </.link>
+              <div :if={contribution["incident"]["stream_id"]} class="preview-caption">
+                <a href={evidence_path(:result, contribution["incident"]["stream_id"], @current)}>
+                  Current result evidence
+                </a>
+              </div>
+            </th>
+            <td class="preview-incident-nested-facts">
+              <table aria-label="Contributor details">
+                <tbody>
+                  <tr>
+                    <th scope="row">Last failure</th>
+                    <td>
+                      <.severity health={contribution["last_failure_health"]} />
+                      <p :if={contribution["measured_result"]}>
+                        {contribution["measured_result"]["summary"]}
+                      </p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row">State</th>
+                    <td>
+                      <span class={[
+                        "pf-v6-c-label",
+                        contribution_state_color(contribution["contribution_state"])
+                      ]}>
+                        <span class="pf-v6-c-label__content">{badge_text(
+                          contribution["contribution_state"]
+                        )}</span>
+                      </span>
+                    </td>
+                  </tr>
+                  <tr :if={
+                    contribution["incident"]["status"] == "open" &&
+                      (contribution["coverage"]["uncovered"] ||
+                         contribution["coverage"]["shared_acknowledgement"] ||
+                         contribution["coverage"]["individual_acknowledgement"] ||
+                         contribution["coverage"]["maintenance_windows"] not in [nil, []])
+                  }>
+                    <th scope="row">Notifications</th>
+                    <td>
+                      <p :if={contribution["coverage"]["uncovered"]}>Not paused</p>
+                      <p :if={contribution["coverage"]["shared_acknowledgement"]}>
+                        Paused by shared acknowledgement
+                      </p>
+                      <p :if={contribution["coverage"]["individual_acknowledgement"]}>
+                        Paused by individual acknowledgement
+                      </p>
+                      <p :for={window <- contribution["coverage"]["maintenance_windows"] || []}>
+                        Paused for maintenance:
+                        <.link href={"/maintenance/" <> window["id"]}>{window["name"] ||
+                          window["reason"] || "View maintenance"}</.link>
+                        <span class="preview-caption"> · Ends {time(window["ends_at"])}</span>
+                      </p>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <.detail_pages
         :if={@detail["contribution_page"]}
         listing={@detail["contribution_page"]}
         current={@current}
+        param="member_page"
+        label="Contributing result pages"
       />
+      <details
+        :if={(get_in(@detail, ["contradiction_page", "total"]) || 0) > 0}
+        id={"preview-confirmed-healthy-" <> @incident["id"]}
+        class="preview-incident-history"
+        phx-mounted={Phoenix.LiveView.JS.ignore_attributes("open")}
+      >
+        <summary>Last confirmed healthy results ({@detail["contradiction_page"]["total"]})</summary>
+        <div class="preview-incident-history-content">
+          <p class="preview-incident-evidence">
+            These results share the same condition. Their last confirmed measurements were healthy, but collection may now be stale or unavailable.
+          </p>
+          <table class="preview-incident-fact-table" aria-label="Last confirmed healthy results">
+            <tbody>
+              <tr :for={stream <- @detail["contradictions"]}>
+                <th scope="row">
+                  <.link href={evidence_path(:result, stream["id"], @current)}>{stream["label"]}</.link>
+                </th>
+                <td>{get_in(stream, ["current", "summary"])}</td>
+              </tr>
+            </tbody>
+          </table>
+          <.detail_pages
+            listing={@detail["contradiction_page"]}
+            current={@current}
+            param="healthy_page"
+            label="Last confirmed healthy result pages"
+          />
+        </div>
+      </details>
     </section>
     """
   end
@@ -908,17 +1108,32 @@ defmodule MondekWeb.NextIncidentsLive do
       <p :if={@detail["members"]["truncated"]} class="preview-incident-evidence">
         {length(@detail["members"]["items"])} of {@detail["member_count"]} affected results retained here.
       </p>
-      <.member_pages listing={@detail["members"]} current={@current} />
+      <.detail_pages
+        listing={@detail["members"]}
+        current={@current}
+        param="member_page"
+        label="Affected result pages"
+      />
     </section>
     """
   end
 
-  defp member_pages(assigns) do
+  defp related_incident_path(current, id) do
+    params = URI.decode_query(URI.parse(current).query || "")
+    path("health", id, filters(params))
+  end
+
+  defp detail_path(current, changes) do
+    uri = URI.parse(current)
+    with_query(uri.path, Map.merge(URI.decode_query(uri.query || ""), changes))
+  end
+
+  defp detail_pages(assigns) do
     ~H"""
     <nav
       :if={@listing["total"] > @listing["page_size"]}
       class="preview-pager"
-      aria-label="Affected result pages"
+      aria-label={@label}
     >
       <.page_links
         page={@listing["page"]}
@@ -926,12 +1141,7 @@ defmodule MondekWeb.NextIncidentsLive do
         total={@listing["total"]}
         url={
           fn p ->
-            uri = URI.parse(@current)
-
-            with_query(
-              uri.path,
-              Map.put(URI.decode_query(uri.query || ""), "member_page", to_string(p))
-            )
+            detail_path(@current, %{@param => to_string(p)})
           end
         }
       />
@@ -948,6 +1158,20 @@ defmodule MondekWeb.NextIncidentsLive do
     <.link :if={@page < @pages} patch={@url.(@page + 1)}>Next</.link>
     """
   end
+
+  defp shared_incident_badge(assigns) do
+    ~H"""
+    <span class="pf-v6-c-label pf-m-blue">
+      <span class="pf-v6-c-label__content">
+        Shared incident · {count(@count, "member")}
+      </span>
+    </span>
+    """
+  end
+
+  defp contribution_state_color("open"), do: "pf-m-blue"
+  defp contribution_state_color("recovered"), do: "pf-m-green"
+  defp contribution_state_color(_), do: nil
 
   defp severity(assigns) do
     ~H"""

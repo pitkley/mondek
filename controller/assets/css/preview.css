@@ -332,6 +332,7 @@ button,input { font: inherit; }
   background: var(--pf-t--global--background--color--action--plain--clicked);
 }
 .preview-filter-chip button { padding: 3px 7px; text-align: left; overflow-wrap: anywhere; color: inherit; background: transparent; border: 0; cursor: pointer; }
+.preview-filter-chip button svg { vertical-align: -2px; margin-inline-end: 2px; }
 .preview-filter-chip a { padding: 3px 7px; text-decoration: none; border-left: 1px solid var(--pf-t--global--border--color--default); }
 @media(max-width:700px) {
   .preview-filter-popup { width: 100%; }
@@ -447,13 +448,27 @@ button,input { font: inherit; }
   background: var(--pf-t--global--background--color--primary--default);
 }
 .preview-incident-form-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.preview-incident-fact-table .preview-delivery-details {
+.preview-incident-fact-table .preview-incident-nested-facts {
   padding: 0;
   border-inline-start: 1px solid var(--pf-t--global--border--color--default);
 }
-.preview-delivery-details table { width: 100%; border-collapse: collapse; }
-.preview-delivery-details :is(th,td) { padding-block: 5px; }
-.preview-delivery-details tr:first-child > :is(th,td) { border-top: 0; }
+.preview-incident-nested-facts table { width: 100%; border-collapse: collapse; }
+.preview-incident-nested-facts :is(th,td) { padding-block: 5px; }
+.preview-incident-nested-facts tr:first-child > :is(th,td) { border-top: 0; }
+.preview-incident-nested-facts summary { cursor: pointer; }
+.preview-contributor-table { table-layout: fixed; }
+.preview-contributor-table > thead > tr > th:first-child { width: 35%; }
+.preview-contributor-table > thead > tr > th:last-child { width: 65%; }
+.preview-incident-nested-facts > table > tbody > tr > th {
+  width: 1%;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.preview-contributor-table > thead {
+  background: color-mix(in srgb, var(--pf-t--global--color--nonstatus--gray--default) 55%, transparent);
+}
+.preview-contributor-table > tbody > tr + tr > :is(th,td) { border-top-width: 2px; }
+.preview-contributor-table > tbody > tr > th .preview-caption { margin-top: 4px; }
 
 /* The drawer has its own border. The card outline would scroll with its content. */
 .preview-incident-panel.pf-v6-c-card::before { content: none; }

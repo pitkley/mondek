@@ -523,6 +523,87 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
     assert has_element?(view, "#contribution-#{first.id}", "Maintenance:")
   end
 
+  test "preview filters maintained contributors and links their individual incidents" do
+    [one, two] = inventory(2)
+    sample(one, "CRIT", 1, [@impact])
+    sample(two, "WARN", 1)
+    group = Repo.one!(ConditionIncident)
+    first = Repo.get_by!(Incident, assignment_id: one.id)
+    second = Repo.get_by!(Incident, assignment_id: two.id)
+    assert {:ok, window} = reviewed_maintenance_fixture(one.id, 3600, "Replace this disk")
+
+    path = "/next/incidents/health/#{group.id}"
+    {:ok, view, _} = live(build_conn(), path)
+    assert has_element?(view, "#preview-incident-health-#{group.id}")
+    refute has_element?(view, "#preview-incident-health-#{first.id}")
+    assert has_element?(view, "#preview-maintenance-heading + table", "1 of 2")
+    assert has_element?(view, "a[href='/maintenance/#{window["id"]}']")
+    assert has_element?(view, "a[href='/next/incidents/health/#{first.id}']")
+    assert has_element?(view, "summary", "Original notification payload")
+
+    view |> element("a", "Show results with unpaused notifications") |> render_click()
+    assert_patch(view, path <> "?contributors=uncovered")
+    refute has_element?(view, "a[href='/next/incidents/health/#{first.id}']")
+
+    view |> element("a[href='/next/incidents/health/#{second.id}']") |> render_click()
+    assert_patch(view, "/next/incidents/health/#{second.id}")
+    assert has_element?(view, "a[href='#{path}']", "Open shared incident and its notifications")
+
+    assert has_element?(view, "#preview-chip-grouping", "Top-level incidents")
+    view |> element("a[aria-label='Remove Grouping filter']") |> render_click()
+    assert_patch(view, "/next/incidents?grouping=all")
+    refute has_element?(view, "#preview-chip-grouping")
+    assert has_element?(view, "#preview-incident-health-#{group.id}")
+    assert has_element?(view, "#preview-incident-health-#{first.id}")
+    assert has_element?(view, "#preview-incident-health-#{second.id}")
+
+    render_hook(view, "filter_open", %{"field" => "grouping"})
+    render_hook(view, "filter_select", %{"key" => "member"})
+    assert_patch(view, "/next/incidents?grouping=member")
+    refute has_element?(view, "#preview-incident-health-#{group.id}")
+    assert has_element?(view, "#preview-incident-health-#{first.id}")
+    assert has_element?(view, "#preview-incident-health-#{second.id}")
+
+    render_patch(view, "/next/incidents?grouping=standalone")
+    refute has_element?(view, "#preview-incident-health-#{first.id}")
+    refute has_element?(view, "#preview-incident-health-#{group.id}")
+  end
+
+  test "preview delivery markup excludes the destination and webhook delivery envelope" do
+    [check] = inventory(1)
+    sample(check, "CRIT", 1)
+    group = Repo.one!(ConditionIncident)
+    now = Monitoring.now()
+    detail = Monitoring.incident_detail(group.id, now, %{"notification_status" => "all"})
+    [notice | _] = detail["occurrences"]
+    secret = "https://receiver.example.invalid/private-hook-token"
+
+    notice =
+      notice
+      |> put_in(["destination"], secret)
+      |> put_in(["payload", "webhook_delivery"], %{"body" => "private-delivery-body"})
+
+    html =
+      render_component(&MondekWeb.PreviewIncidentSections.sections/1,
+        incident: detail["incident"],
+        detail: Map.put(detail, "occurrences", [notice]),
+        kind: "health",
+        now: now,
+        review: nil,
+        draft: %{},
+        replacing: false,
+        feedback: nil,
+        delivery_feedback: nil,
+        retry_drafts: %{},
+        maintenance_windows: [],
+        delivery_pagination: []
+      )
+
+    assert html =~ "Original notification payload"
+    refute html =~ secret
+    refute html =~ "private-delivery-body"
+  end
+
   test "paging, filtering, ticks and form recovery preserve reviewed acknowledgement settings" do
     rows = inventory(26)
     Enum.each(rows, &sample(&1, "CRIT", 1))
