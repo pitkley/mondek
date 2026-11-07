@@ -538,16 +538,40 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
     refute has_element?(view, "#preview-incident-health-#{first.id}")
     assert has_element?(view, "#preview-maintenance-heading + table", "1 of 2")
     assert has_element?(view, "a[href='/maintenance/#{window["id"]}']")
-    assert has_element?(view, "a[href='/next/incidents/health/#{first.id}']")
+    assert has_element?(view, "a[href='/next/incidents/health/#{first.id}?from_shared=1']")
     assert has_element?(view, "summary", "Original notification payload")
 
     view |> element("a", "Show results with unpaused notifications") |> render_click()
     assert_patch(view, path <> "?contributors=uncovered")
-    refute has_element?(view, "a[href='/next/incidents/health/#{first.id}']")
+    refute has_element?(view, "a[href='/next/incidents/health/#{first.id}?from_shared=1']")
 
-    view |> element("a[href='/next/incidents/health/#{second.id}']") |> render_click()
-    assert_patch(view, "/next/incidents/health/#{second.id}")
+    child_path = "/next/incidents/health/#{second.id}?from_shared=1"
+
+    view
+    |> element(
+      "a[href='/next/incidents/health/#{second.id}?contributors=uncovered&from_shared=1']"
+    )
+    |> render_click()
+
+    child_path =
+      String.replace(child_path, "?from_shared=1", "?contributors=uncovered&from_shared=1")
+
+    assert_patch(view, child_path)
     assert has_element?(view, "a[href='#{path}']", "Open shared incident and its notifications")
+
+    view |> element("a", "View latest check result") |> render_click()
+    result_path = child_path <> "&result=#{second.stream_id}"
+    assert_patch(view, result_path)
+    assert has_element?(view, "#overview-panel-title")
+    assert has_element?(view, "nav[aria-label='Investigation trail'] a[href='#{child_path}']")
+    assert has_element?(view, "#incidents-heading")
+
+    view
+    |> element("nav[aria-label='Investigation trail'] a", "Shared incident")
+    |> render_click()
+
+    assert_patch(view, path <> "?contributors=uncovered")
+    refute has_element?(view, "#overview-panel-title")
 
     assert has_element?(view, "#preview-chip-grouping", "Top-level incidents")
     view |> element("a[aria-label='Remove Grouping filter']") |> render_click()

@@ -174,16 +174,7 @@ defmodule MondekWeb.NextOverviewLive do
     panel =
       case socket.assigns.live_action do
         :result ->
-          case Inspection.overview_observers(socket.assigns.selected_id, now) do
-            nil ->
-              %{kind: :not_found}
-
-            observers ->
-              Map.merge(observers, %{
-                kind: :result,
-                inspection: Monitoring.stream_inspection(socket.assigns.selected_id, now)
-              })
-          end
+          load_result_panel(socket.assigns.selected_id, now) || %{kind: :not_found}
 
         :expected ->
           case Coverage.scope(socket.assigns.selected_id, now) do
@@ -594,7 +585,20 @@ defmodule MondekWeb.NextOverviewLive do
     """
   end
 
-  defp result_panel(assigns) do
+  def load_result_panel(id, now) do
+    if observers = Inspection.overview_observers(id, now) do
+      Map.merge(observers, %{kind: :result, inspection: Monitoring.stream_inspection(id, now)})
+    end
+  end
+
+  def result_panel(assigns) do
+    assigns =
+      assigns
+      |> assign_new(:show_incident_links, fn -> true end)
+      |> assign_new(:peer_path, fn ->
+        &path(Map.put(assigns.filters, "incident_return", assigns.incident_return), :result, &1)
+      end)
+
     ~H"""
     <h2 id="overview-panel-title" tabindex="-1" class="pf-v6-c-title pf-m-xl">
       {target_label(@panel.selected["target"])}
@@ -644,7 +648,9 @@ defmodule MondekWeb.NextOverviewLive do
       >Full result and configuration</a>
     </section>
     <section
-      :if={Enum.any?(@panel.inspection["incidents"], &(&1["status"] == "open"))}
+      :if={
+        @show_incident_links && Enum.any?(@panel.inspection["incidents"], &(&1["status"] == "open"))
+      }
       class="preview-evidence"
     >
       <h3 class="pf-v6-c-title pf-m-md">Open health incidents for the selected observation</h3>
@@ -663,9 +669,7 @@ defmodule MondekWeb.NextOverviewLive do
         These declarations match the same scope. Code, settings and collection access can differ.
       </p>
       <p :for={peer <- Enum.reject(@panel.items, &(&1["id"] == @panel.selected["id"]))}>
-        <.link patch={
-          path(Map.put(@filters, "incident_return", @incident_return), :result, peer["id"])
-        }>{peer["runner_label"] || "Runner"} · {String.slice(
+        <.link patch={@peer_path.(peer["id"])}>{peer["runner_label"] || "Runner"} · {String.slice(
           peer["runner_id"] || "",
           0,
           8
