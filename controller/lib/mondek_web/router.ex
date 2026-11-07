@@ -56,6 +56,9 @@ defmodule MondekWeb.Router do
     live "/", NextOverviewLive, :index
     live "/results/:id", NextOverviewLive, :result
     live "/expected/:id", NextOverviewLive, :expected
+    live "/incidents", NextIncidentsLive, :index
+    live "/incidents/health/:id", NextIncidentsLive, :health
+    live "/incidents/loss/:id", NextIncidentsLive, :loss
   end
 
   scope "/", MondekWeb do

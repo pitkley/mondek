@@ -4,7 +4,6 @@ defmodule MondekWeb.NextOverviewLive do
   use MondekWeb, :live_view
   import MondekWeb.EvidencePresentation, only: [age: 2, time: 1, badge_text: 1, target_label: 1]
   alias Mondek.{Coverage, Inspection, Monitoring, OverviewFilters}
-  alias MondekWeb.MonitoringUI
 
   @impl true
   def mount(_, _, socket) do
@@ -41,6 +40,7 @@ defmodule MondekWeb.NextOverviewLive do
      |> assign(
        filters: filters,
        selected_id: params["id"],
+       incident_return: MondekWeb.NextIncidentsLive.return_path(params["incident_return"]),
        filter_chips: chips,
        filter_picker: nil
      )
@@ -145,7 +145,7 @@ defmodule MondekWeb.NextOverviewLive do
   defp show_filter_choices(socket) do
     socket
     |> assign(filter_picker: nil)
-    |> push_event("overview-filter-ready", %{})
+    |> push_event("preview-filter-ready", %{})
   end
 
   defp picker(field, query) do
@@ -211,7 +211,12 @@ defmodule MondekWeb.NextOverviewLive do
       panel: panel,
       page_title: "Overview preview",
       list_path: path(filters),
-      current_path: path(filters, socket.assigns.live_action, socket.assigns.selected_id)
+      current_path:
+        path(
+          Map.put(filters, "incident_return", socket.assigns.incident_return),
+          socket.assigns.live_action,
+          socket.assigns.selected_id
+        )
     )
   end
 
@@ -239,73 +244,7 @@ defmodule MondekWeb.NextOverviewLive do
       data-updated-at={Monitoring.iso(@now)}
       data-selection={if @panel, do: path(%{}, @live_action, @selected_id), else: ""}
     >
-      <a class="preview-skip pf-v6-c-button pf-m-link" href="#main-content">Skip to content</a>
-      <header class="preview-masthead">
-        <.link patch="/next" class="preview-brand">mondek</.link>
-        <span class="preview-caption">Overview preview</span>
-        <details id="preview-theme-picker" class="preview-theme-picker" phx-update="ignore">
-          <summary class="pf-v6-c-button pf-m-plain" aria-label="Choose theme">
-            <span aria-hidden="true">◐</span><span class="preview-theme-title">Theme</span>
-          </summary>
-          <fieldset class="preview-theme-menu">
-            <legend>Light themes</legend>
-            <label :for={
-              {value, name, description} <- [
-                {"pearl", "Pearl", "Near-white canvas · white surfaces"},
-                {"clear", "Clear", "White canvas · blue accents"},
-                {"mist", "Mist", "Cool canvas · white surfaces"},
-                {"linen", "Linen", "Warm canvas · teal accents"},
-                {"original", "Original", "Previous gray palette"}
-              ]
-            }>
-              <input
-                type="radio"
-                name="preview-theme"
-                value={value}
-                checked={value == "pearl"}
-                data-preview-theme-choice
-              />
-              <span><strong>{name}</strong><span class="preview-caption">{description}</span></span>
-            </label>
-          </fieldset>
-        </details>
-        <a class="pf-v6-c-button pf-m-link" href="/">Open existing UI</a>
-      </header>
-      <aside class="preview-sidebar">
-        <.link patch="/next" class="preview-sidebar-brand"><span
-          class="preview-brand-mark"
-          aria-hidden="true"
-        >m</span><span>mondek<span class="preview-caption">Monitoring</span></span></.link>
-        <nav class="pf-v6-c-nav" aria-label="Main navigation">
-          <ul class="pf-v6-c-nav__list">
-            <li class="pf-v6-c-nav__item">
-              <.link patch={@list_path} class="pf-v6-c-nav__link pf-m-current" aria-current="page"><MondekWeb.Layouts.icon
-                name="grid"
-                size={18}
-              /><span>Overview</span></.link>
-            </li>
-          </ul>
-          <h2 class="preview-nav-heading">Existing pages</h2>
-          <ul class="pf-v6-c-nav__list">
-            <li
-              :for={
-                {label, href, icon} <- [
-                  {"Incidents", "/incidents", "pulse"},
-                  {"Checks", "/checks", "check"},
-                  {"Maintenance", "/maintenance", "clock"},
-                  {"Configuration", "/configuration", "sliders"},
-                  {"Runners", "/runners", "server"},
-                  {"Notifications", "/notifications", "send"}
-                ]
-              }
-              class="pf-v6-c-nav__item"
-            >
-              <a href={href} class="pf-v6-c-nav__link"><MondekWeb.Layouts.icon name={icon} size={18} /><span>{label}</span></a>
-            </li>
-          </ul>
-        </nav>
-        <a href="/licenses" class="preview-credits">Licenses and credits</a>
-      </aside>
+      <MondekWeb.PreviewLayouts.navigation active={:overview} overview_path={@list_path} />
       <main
         id="main-content"
         class={["preview-main", @panel && "preview-has-selection"]}
@@ -357,7 +296,25 @@ defmodule MondekWeb.NextOverviewLive do
           <section class="preview-list" aria-labelledby="preview-results-heading">
             <header class="preview-results-header">
               <h2 id="preview-results-heading" class="pf-v6-c-title pf-m-2xl">Results</h2>
-              <.filter_picker picker={@filter_picker} filters={@filters} chips={@filter_chips} />
+              <MondekWeb.PreviewFilters.filter_picker
+                picker={@filter_picker}
+                chips={@filter_chips}
+                fields={
+                  Enum.map(OverviewFilters.fields(), fn {key, label} ->
+                    {key, label, if(key == "environment", do: "globe", else: "map-pin")}
+                  end)
+                }
+                search={@filters["search"]}
+                remove={
+                  fn field ->
+                    path(@filters |> OverviewFilters.remove(field) |> OverviewFilters.reset_pages())
+                  end
+                }
+                clear_search={path(@filters |> Map.delete("search") |> OverviewFilters.reset_pages())}
+                form_label="Filter all result lists"
+                label="Search results and targets"
+                placeholder="Search or filter results"
+              />
             </header>
             <section class="preview-table-group" aria-labelledby="preview-attention-heading">
               <div class="preview-section-heading">
@@ -522,6 +479,11 @@ defmodule MondekWeb.NextOverviewLive do
           >
             <div class="pf-v6-c-card__body">
               <div class="preview-panel-tools">
+                <a
+                  :if={@incident_return}
+                  href={@incident_return}
+                  class="pf-v6-c-button pf-m-link preview-panel-back"
+                >← Back to incident</a>
                 <.link
                   patch={@list_path}
                   data-overview-close
@@ -545,6 +507,7 @@ defmodule MondekWeb.NextOverviewLive do
                 now={@now}
                 current_path={@current_path}
                 filters={@filters}
+                incident_return={@incident_return}
               />
               <.expected_panel
                 :if={@panel.kind == :expected}
@@ -560,138 +523,6 @@ defmodule MondekWeb.NextOverviewLive do
         </div>
       </main>
     </div>
-    """
-  end
-
-  defp filter_picker(assigns) do
-    ~H"""
-    <form
-      id="overview-search"
-      class="preview-toolbar"
-      phx-hook="OverviewFilterPicker"
-      phx-submit={if @picker, do: "filter_first", else: "search"}
-      phx-auto-recover="ignore"
-      aria-label="Filter all result lists"
-      data-step={@picker && @picker.field}
-      data-editing-filter={
-        to_string(!!(@picker && OverviewFilters.selected(@filters, @picker.field)))
-      }
-      data-value={if @picker, do: @picker.value, else: ""}
-      data-search={@filters["search"] || ""}
-    >
-      <div class="preview-search-field">
-        <span
-          :for={chip <- @chips}
-          :if={is_nil(@picker) || @picker.field != chip.field}
-          class="preview-filter-chip"
-        >
-          <button
-            type="button"
-            phx-click="filter_open"
-            phx-value-field={chip.field}
-            aria-label={"Edit #{chip.name} filter: #{chip.label}"}
-          >
-            <strong>{chip.name}:</strong> {chip.label}
-          </button>
-          <.link
-            patch={
-              path(@filters |> OverviewFilters.remove(chip.field) |> OverviewFilters.reset_pages())
-            }
-            aria-label={"Remove #{chip.name} filter"}
-          >×</.link>
-        </span>
-        <span :if={@filters["search"]} class="preview-filter-chip">
-          <span class="preview-search-token" title={@filters["search"]}>{@filters["search"]}</span>
-          <.link
-            patch={path(@filters |> Map.delete("search") |> OverviewFilters.reset_pages())}
-            aria-label="Clear search text"
-          >×</.link>
-        </span>
-        <div
-          id="overview-search-editor"
-          class={["preview-search-editor", @picker && "preview-filter-chip"]}
-        >
-          <span :if={@picker} class="preview-filter-draft">{@picker.title}:</span>
-          <input
-            id="preview-search"
-            name="search"
-            value={if @picker, do: @picker.value, else: ""}
-            aria-label={if @picker, do: @picker.title, else: "Search results and targets"}
-            placeholder={if @picker, do: "Find a value", else: "Search or filter results"}
-            maxlength="200"
-            autocomplete="off"
-            role="combobox"
-            aria-expanded="false"
-            aria-autocomplete="list"
-            aria-controls="overview-filter-options"
-          />
-        </div>
-      </div>
-      <div id="overview-filter-popup" class="preview-filter-popup">
-        <div
-          id="overview-filter-options"
-          role="listbox"
-          aria-label={if @picker, do: @picker.title, else: "Search and filters"}
-        >
-          <button
-            :if={!@picker}
-            type="submit"
-            role="option"
-            id="overview-search-text"
-            tabindex="-1"
-            aria-selected="false"
-            data-search-text
-            class="preview-filter-text-option"
-          >
-            <MondekWeb.Layouts.icon name="search" size={16} />
-            <span>Search for this text</span>
-          </button>
-          <div :if={!@picker} class="preview-filter-fields" role="group" aria-label="Add a filter">
-            <div class="preview-filter-group-label" aria-hidden="true">Add a filter</div>
-            <button
-              :for={{field, label} <- OverviewFilters.fields()}
-              :if={is_nil(OverviewFilters.selected(@filters, field))}
-              id={"overview-filter-#{field}"}
-              type="button"
-              role="option"
-              tabindex="-1"
-              aria-selected="false"
-              phx-click="filter_open"
-              phx-value-field={field}
-              data-filter-label={label}
-            >
-              <span class="preview-filter-option-chip">
-                <MondekWeb.Layouts.icon
-                  name={if field == "environment", do: "globe", else: "map-pin"}
-                  size={16}
-                />
-                <span>{label}</span>
-              </span>
-              <MondekWeb.Layouts.icon name="arrow" size={14} />
-            </button>
-          </div>
-          <button
-            :for={{option, index} <- Enum.with_index(if @picker, do: @picker.options, else: [])}
-            id={"overview-filter-option-#{index}"}
-            type="button"
-            role="option"
-            tabindex="-1"
-            aria-selected="false"
-            phx-click="filter_select"
-            phx-value-key={option.key}
-            phx-value-kind={option.kind}
-          >
-            <span>{option.label}</span>
-            <small :if={
-              option.kind != "" || String.downcase(option.key) != String.downcase(option.label)
-            }>
-              {if option.kind != "", do: option.kind <> " · "}{option.key}
-            </small>
-          </button>
-        </div>
-        <p :if={@picker && @picker.options == []} role="status">No matches</p>
-      </div>
-    </form>
     """
   end
 
@@ -818,7 +649,12 @@ defmodule MondekWeb.NextOverviewLive do
     >
       <h3 class="pf-v6-c-title pf-m-md">Open health incidents for the selected observation</h3>
       <p :for={incident <- Enum.filter(@panel.inspection["incidents"], &(&1["status"] == "open"))}>
-        <a href={MonitoringUI.parent_incident_path(incident, @current_path)}>Inspect incident and acknowledgement</a>
+        <a href={
+          MondekWeb.NextIncidentsLive.path(
+            "health",
+            incident["condition_incident_id"] || incident["id"]
+          )
+        }>Open health incident</a>
       </p>
     </section>
     <details :if={@panel.total > 1} id="preview-related-results" class="preview-evidence">
@@ -827,7 +663,9 @@ defmodule MondekWeb.NextOverviewLive do
         These declarations match the same scope. Code, settings and collection access can differ.
       </p>
       <p :for={peer <- Enum.reject(@panel.items, &(&1["id"] == @panel.selected["id"]))}>
-        <.link patch={path(@filters, :result, peer["id"])}>{peer["runner_label"] || "Runner"} · {String.slice(
+        <.link patch={
+          path(Map.put(@filters, "incident_return", @incident_return), :result, peer["id"])
+        }>{peer["runner_label"] || "Runner"} · {String.slice(
           peer["runner_id"] || "",
           0,
           8

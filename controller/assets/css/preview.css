@@ -155,7 +155,8 @@ button,input { font: inherit; }
 .preview-search-field:focus-within { outline: 2px solid var(--pf-t--global--color--brand--default); outline-offset: 1px; }
 .preview-search-field input { flex: 1 1 12ch; min-width: 0; padding: 2px 4px; background: transparent; color: inherit; border: 0; outline: none; }
 .preview-search-editor { display: flex; align-items: center; flex: 1 1 12ch; min-width: 0; }
-.preview-search-editor.preview-filter-chip { flex: 0 1 28ch; max-width: 100%; padding: 1px 4px; }
+.preview-search-editor.preview-filter-chip { flex: 0 1 auto; max-width: 100%; padding: 1px 4px; }
+.preview-search-editor.preview-filter-chip input { flex: 0 1 auto; field-sizing: content; min-width: 3ch; }
 .preview-filter-draft { flex: none; padding: 0 3px; font-size: 13px; font-weight: 600; }
 .preview-search-token { max-width: min(220px, 100%); padding: 3px 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview-section-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; padding: 9px var(--preview-content-inset); }
@@ -334,4 +335,38 @@ button,input { font: inherit; }
 .preview-filter-chip a { padding: 3px 7px; text-decoration: none; border-left: 1px solid var(--pf-t--global--border--color--default); }
 @media(max-width:700px) {
   .preview-filter-popup { width: 100%; }
+}
+
+.preview-incident-meta,.preview-incident-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.preview-incident-search,.preview-incident-intro,.preview-incident-footer {
+  padding: 10px var(--preview-content-inset);
+}
+.preview-incident-intro {
+  border-bottom: 1px solid var(--pf-t--global--border--color--default);
+}
+.preview-incident-search .preview-toolbar { margin: 0; }
+.preview-incident-intro,.preview-incident-evidence {
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+.preview-incident-intro > a { margin-bottom: 4px; }
+.preview-incident-meta { font-size: 13px; }
+.preview-incident-evidence {
+  padding: 8px var(--preview-content-inset);
+  border-top: 1px solid var(--pf-t--global--border--color--default);
+}
+.preview-incident-evidence h3 { font-weight: 600; }
+.preview-incident-evidence a,.preview-incident-footer a { font-size: 13px; }
+@media (max-width:700px) {
+  #incidents-preview .preview-table td[data-label="Opened"]::before {
+    content: "Opened ";
+    font-size: 12px;
+  }
 }

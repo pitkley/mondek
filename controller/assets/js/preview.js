@@ -120,11 +120,11 @@ const OverviewPanel = {
   }
 };
 
-const OverviewFilterPicker = {
+const PreviewFilterPicker = {
   mounted() {
     this.input = this.el.querySelector("#preview-search");
     this.open = false;
-    this.handleEvent("overview-filter-ready", () => {
+    this.handleEvent("preview-filter-ready", () => {
       this.input.focus({preventScroll: true});
       this.show();
     });
@@ -216,8 +216,42 @@ const OverviewFilterPicker = {
     if (option) this.input.setAttribute("aria-activedescendant", option.id);
     else this.input.removeAttribute("aria-activedescendant");
   },
+  moveBetweenChips(event) {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key) ||
+        event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
+
+    const direction = event.key === "ArrowLeft" ? -1 : 1;
+    const fields = this.el.dataset.chipFields.split(" ").filter(Boolean);
+    const step = this.chipMove ? this.chipMove.step : this.step;
+    const index = step ? fields.indexOf(step) : fields.length;
+    if (index < 0) return false;
+
+    if (!this.chipMove) {
+      const {value, selectionStart, selectionEnd} = this.input;
+      const wholeChipSelected = step && selectionStart === 0 && selectionEnd === value.length;
+      const boundary = direction < 0 ? 0 : value.length;
+      const atBoundary = selectionStart === boundary && selectionEnd === boundary;
+      if ((!wholeChipSelected && !atBoundary) || (step && value !== this.initialChipValue)) return false;
+    }
+
+    const next = index + direction;
+    if (next < 0 || next > fields.length) return false;
+    event.preventDefault();
+    if (!step && !this.chipMove) this.draftSearch = this.input.value;
+
+    const move = {step: fields[next]};
+    this.chipMove = move;
+    clearTimeout(this.queryTimer);
+    const done = () => {
+      if (this.chipMove === move) this.chipMove = null;
+    };
+    if (move.step) this.pushEvent("filter_open", {field: move.step}, done);
+    else this.pushEvent("filter_close", {reopen: true}, done);
+    return true;
+  },
   keydown(event) {
     if (event.target !== this.input || event.isComposing) return;
+    if (this.moveBetweenChips(event)) return;
     if (event.key === "Escape" && this.input.getAttribute("aria-expanded") === "true") {
       event.preventDefault();
       event.stopPropagation();
@@ -271,6 +305,7 @@ const OverviewFilterPicker = {
     }
   },
   updated() {
+    this.input = this.el.querySelector("#preview-search");
     const next = this.el.dataset.step;
     if (next !== this.step || this.optionValue !== this.el.dataset.value) this.activeOption = null;
     this.optionValue = this.el.dataset.value;
@@ -279,8 +314,13 @@ const OverviewFilterPicker = {
       this.open = !!next;
       this.input.value = this.el.dataset.value;
       if (next) {
+        this.initialChipValue = this.input.value;
         this.input.focus({preventScroll: true});
         if (this.el.dataset.editingFilter === "true") this.input.select();
+      } else if (this.draftSearch !== undefined) {
+        this.input.value = this.draftSearch;
+        this.input.setSelectionRange(0, 0);
+        this.draftSearch = undefined;
       }
     }
     if (!next && this.search !== this.el.dataset.search) this.input.value = "";
@@ -296,7 +336,7 @@ const OverviewFilterPicker = {
 
 const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute("content");
 const liveSocket = new LiveSocket("/live", Socket, {
-  params: {_csrf_token: csrfToken}, hooks: {OverviewPanel, OverviewFilterPicker}
+  params: {_csrf_token: csrfToken}, hooks: {OverviewPanel, PreviewFilterPicker}
 });
 liveSocket.connect();
 window.liveSocket = liveSocket;
