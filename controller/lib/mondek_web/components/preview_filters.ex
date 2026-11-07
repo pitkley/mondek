@@ -47,6 +47,7 @@ defmodule MondekWeb.PreviewFilters do
               phx-value-field={chip.field}
               aria-label={"Edit #{chip.name} filter: #{chip.label}"}
             >
+              <MondekWeb.Layouts.icon name={elem(List.keyfind(@fields, chip.field, 0), 2)} size={14} />
               <strong>{chip.name}:</strong> {chip.label}
             </button>
             <.link
