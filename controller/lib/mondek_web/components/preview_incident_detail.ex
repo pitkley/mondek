@@ -7,6 +7,8 @@ defmodule MondekWeb.PreviewIncidentDetail do
   alias Mondek.Monitoring
   alias MondekWeb.{PreviewDetail, PreviewIncidentSections}
 
+  attr :target, :any, default: nil
+  attr :entity, :string, default: nil
   attr :incident, :any, required: true
   attr :detail, :any, required: true
   attr :kind, :string, required: true
@@ -107,6 +109,9 @@ defmodule MondekWeb.PreviewIncidentDetail do
       maintenance_windows={@maintenance_windows}
       current={@current}
       id_prefix={@id_prefix}
+      target={@target}
+      entity={@entity}
+      result_path={@result_path}
     >
       <:delivery_filter>
         <.detail_filter
@@ -116,6 +121,8 @@ defmodule MondekWeb.PreviewIncidentDetail do
           label="Delivery status"
           choices={@delivery_statuses}
           value={@detail_filters["notification_status"]}
+          target={@target}
+          entity={@entity}
         />
       </:delivery_filter>
       <:delivery_pagination>
@@ -441,13 +448,17 @@ defmodule MondekWeb.PreviewIncidentDetail do
   end
 
   defp detail_filter(assigns) do
+    assigns = assigns |> assign_new(:target, fn -> nil end) |> assign_new(:entity, fn -> nil end)
+
     ~H"""
     <form
       id={@id_prefix <> "preview-filter-detail-" <> @field}
       phx-change="filter_incident_detail"
+      phx-target={@target}
       phx-auto-recover="ignore"
       class="preview-recorded-actions preview-detail-filter"
     >
+      <input :if={@entity} type="hidden" name="entity" value={@entity} />
       <label for={@id_prefix <> "preview-detail-" <> @field}>{@label}</label>
       <select id={@id_prefix <> "preview-detail-" <> @field} name={@field}>
         <option :for={{value, label} <- @choices} value={value} selected={@value == value}>

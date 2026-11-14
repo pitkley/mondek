@@ -7,6 +7,8 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
   alias Mondek.{ConditionIncident, Control}
   alias MondekWeb.IncidentLive
 
+  alias MondekWeb.InvestigationTrail
+
   @endpoint MondekWeb.Endpoint
   @impact %{"key" => "writes-blocked", "label" => "Writes blocked"}
 
@@ -537,7 +539,9 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
         ] do
       base = prefix <> "/#{child.stream_id}" <> if(full?, do: "/full", else: "")
       host = base <> "?search=volume"
-      incident = base <> "?incident=health%3A#{group.id}&search=volume"
+      initial = if full?, do: [], else: [{"result", child.stream_id}]
+      incident = InvestigationTrail.path(host, initial ++ [{"health", group.id}])
+      returned_host = InvestigationTrail.path(host, initial)
       {:ok, view, _} = live(build_conn(), host)
 
       root = if full?, do: "#preview-result-page", else: "#overview-panel"
@@ -557,22 +561,25 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
       if full? do
         assert has_element?(view, "#preview-result-page[inert]")
       else
-        assert has_element?(view, "[data-panel-back-path='#{host}']")
+        assert has_element?(view, "[data-panel-back-path='#{returned_host}']")
       end
 
       view |> element("[data-overview-close]") |> render_click()
-      assert_patch(view, host)
+      assert_patch(view, returned_host)
 
       {:ok, direct, _} = live(build_conn(), incident)
       assert has_element?(direct, "#overview-panel", "Contributing results")
-      view_path = base <> "?from_shared=1&incident=health%3A#{child.id}&search=volume"
+
+      view_path =
+        InvestigationTrail.path(host, initial ++ [{"health", group.id}, {"health", child.id}])
+
       direct |> element("#overview-panel a[href='#{view_path}']") |> render_click()
       assert_patch(direct, view_path)
       assert has_element?(direct, "#overview-panel", "Recorded failure")
       assert has_element?(direct, "[data-panel-back-path='#{incident}']")
 
       direct |> element("#overview-panel a", "View latest check result") |> render_click()
-      assert_patch(direct, host)
+      assert_patch(direct, returned_host)
       refute has_element?(direct, "[data-panel-back-path]")
 
       if full? do
@@ -599,34 +606,42 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
     refute has_element?(view, "#preview-incident-health-#{first.id}")
     assert has_element?(view, "#preview-maintenance-heading + table", "1 of 2")
     assert has_element?(view, "a[href^='/next/maintenance/#{window["id"]}?']")
-    assert has_element?(view, "a[href='/next/incidents/health/#{first.id}?from_shared=1']")
+    first_path = InvestigationTrail.path(path, [{"health", group.id}, {"health", first.id}])
+    assert has_element?(view, "a[href='#{first_path}']")
     assert has_element?(view, "summary", "Original notification payload")
 
     view |> element("a", "Show results with unpaused notifications") |> render_click()
-    assert_patch(view, path <> "?contributors=uncovered")
-    refute has_element?(view, "a[href='/next/incidents/health/#{first.id}?from_shared=1']")
 
-    child_path = "/next/incidents/health/#{second.id}?from_shared=1"
+    parent_path =
+      InvestigationTrail.path(path, [{"health", group.id}], %{"contributors" => "uncovered"})
 
-    view
-    |> element(
-      "a[href='/next/incidents/health/#{second.id}?contributors=uncovered&from_shared=1']"
-    )
-    |> render_click()
+    assert_patch(view, parent_path)
+    refute has_element?(view, "#overview-panel a[href*='health%3A#{first.id}']")
 
     child_path =
-      String.replace(child_path, "?from_shared=1", "?contributors=uncovered&from_shared=1")
+      InvestigationTrail.path(path, [{"health", group.id}, {"health", second.id}], %{
+        "contributors" => "uncovered"
+      })
+
+    view |> element("#overview-panel a[href='#{child_path}']") |> render_click()
 
     assert_patch(view, child_path)
 
     assert has_element?(
              view,
-             "a[href='#{path}?contributors=uncovered']",
+             "a[href='#{parent_path}']",
              "Open shared incident and its notifications"
            )
 
     view |> element("a", "View latest check result") |> render_click()
-    result_path = child_path <> "&result=#{second.stream_id}"
+
+    result_path =
+      InvestigationTrail.path(
+        path,
+        [{"health", group.id}, {"health", second.id}, {"result", second.stream_id}],
+        %{"contributors" => "uncovered"}
+      )
+
     assert_patch(view, result_path)
 
     configuration_href =
@@ -640,14 +655,14 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
 
     assert URI.decode_query(URI.parse(configuration_href).query)["return_to"] == result_path
     assert has_element?(view, "#overview-panel-title")
-    assert has_element?(view, "nav[aria-label='Investigation trail'] a[href='#{child_path}']")
+    assert has_element?(view, "[data-panel-back-path='#{child_path}'] a")
     assert has_element?(view, "#incidents-heading")
 
     view
-    |> element("nav[aria-label='Investigation trail'] a", "Shared incident")
+    |> element("[data-panel-back-path='#{parent_path}'] a")
     |> render_click()
 
-    assert_patch(view, path <> "?contributors=uncovered")
+    assert_patch(view, parent_path)
     refute has_element?(view, "#overview-panel-title")
 
     assert has_element?(view, "#preview-chip-grouping", "Top-level incidents")
@@ -671,8 +686,15 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
 
     render_patch(view, path <> "?grouping=shared")
     view |> element("a", "Open as page") |> render_click()
-    full = path <> "/full"
-    assert_patch(view, full <> "?grouping=shared")
+
+    full =
+      InvestigationTrail.path(path, [{"health", group.id}], %{
+        "grouping" => "shared",
+        "surface" => "page",
+        "page_entity" => "health:#{group.id}"
+      })
+
+    assert_patch(view, full)
     assert has_element?(view, "#incident-page h1")
     refute has_element?(view, "#overview-panel")
     refute has_element?(view, "#incidents-heading")
@@ -680,18 +702,22 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
     refute has_element?(view, "a", "Show historical contributors")
     sample(one, "OK", 2)
     send(view.pid, :tick)
-    refute has_element?(view, "a[href*='incident=health%3A#{first.id}']")
+    refute has_element?(view, "a[href*='health%3A#{first.id}']")
     view |> element("a", "Show historical contributors") |> render_click()
-    assert_patch(view, full <> "?contributors=history&grouping=shared")
-    assert has_element?(view, "a[href*='incident=health%3A#{first.id}']")
-    refute has_element?(view, "a[href*='incident=health%3A#{second.id}']")
 
-    view |> element("a[href*='incident=health%3A#{first.id}']") |> render_click()
+    history_path =
+      InvestigationTrail.path(full, [{"health", group.id}], %{"contributors" => "history"})
+
+    assert_patch(view, history_path)
+    assert has_element?(view, "a[href*='health%3A#{first.id}']")
+    refute has_element?(view, "a[href*='health%3A#{second.id}']")
+
+    view |> element("a[href*='health%3A#{first.id}']") |> render_click()
     assert has_element?(view, "#incident-page h1")
     assert has_element?(view, "#overview-panel h2")
     view |> element("#overview-panel a", "View latest check result") |> render_click()
     assert has_element?(view, "#overview-panel", "Check result")
-    assert has_element?(view, "[data-panel-back-path*='incident=health%3A#{first.id}']")
+    assert has_element?(view, "[data-panel-back-path*='health%3A#{first.id}']")
     view |> element("[data-overview-close]") |> render_click()
     assert has_element?(view, "#overview-panel h2")
     view |> element("[data-overview-close]") |> render_click()
@@ -703,7 +729,9 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
 
     assert_patch(
       view,
-      full <> "?contributors=history&grouping=shared&notification_status=exhausted"
+      InvestigationTrail.path(history_path, [{"health", group.id}], %{
+        "notification_status" => "exhausted"
+      })
     )
 
     assert has_element?(view, "#incident-page", "No notifications match this status.")
@@ -718,11 +746,23 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
     group = Repo.one!(ConditionIncident)
     child = Repo.get_by!(Incident, assignment_id: check.id)
 
-    for {path, next_path} <- [
-          {"/next/incidents/health/#{group.id}", "/next/incidents/health/#{group.id}/full"},
-          {"/next/checks/#{child.stream_id}?incident=health:#{group.id}",
-           "/next/checks/#{child.stream_id}?incident=health:#{group.id}&notification_status=all"}
+    for path <- [
+          "/next/incidents/health/#{group.id}",
+          InvestigationTrail.path("/next/checks/#{child.stream_id}", [
+            {"result", child.stream_id},
+            {"health", group.id}
+          ])
         ] do
+      params = URI.decode_query(URI.parse(path).query || "")
+      trail = InvestigationTrail.resolve(params, InvestigationTrail.initial(URI.parse(path).path))
+
+      next_path =
+        InvestigationTrail.path(path, trail, %{
+          "surface" => "page",
+          "page_entity" => "health:#{group.id}"
+        })
+
+      token = "health:#{group.id}"
       {:ok, view, _} = live(build_conn(), path)
 
       draft = %{
@@ -733,10 +773,19 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
       }
 
       if has_element?(view, "table[aria-label='Active acknowledgement']") do
-        render_hook(view, "toggle_acknowledgement_replacement", %{})
+        render_hook(
+          with_target(view, "#investigation-stack"),
+          "toggle_acknowledgement_replacement",
+          %{"entity" => token}
+        )
       end
 
-      render_hook(view, "edit_acknowledgement", draft)
+      render_hook(
+        with_target(view, "#investigation-stack"),
+        "edit_acknowledgement",
+        Map.put(draft, "entity", token)
+      )
+
       send(view.pid, :tick)
       assert has_element?(view, "textarea[name=note]", "Still investigating")
       render_patch(view, next_path)
@@ -752,18 +801,35 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
                  "Other operator"
                )
 
-      render_hook(view, "save_acknowledgement", draft)
+      render_hook(
+        with_target(view, "#investigation-stack"),
+        "save_acknowledgement",
+        Map.put(draft, "entity", token)
+      )
+
       assert has_element?(view, "[role=alert]", "The incident changed")
       # Another operator's active acknowledgement can hide the replacement form.
       # The owning LiveView must retain the submitted draft and captured revision.
-      state = :sys.get_state(view.pid).socket.assigns
-      assert state.control_draft == draft
-      assert state.control_review == review
-      assert state.control_review != MondekWeb.PreviewIncidentControls.revision(state.incident)
+      controls = recovered_controls(view, {"health", group.id})
+      assert controls.draft == draft
+      assert controls.review == review
+
+      assert controls.review !=
+               MondekWeb.PreviewIncidentControls.revision(
+                 Monitoring.incident_detail(group.id)["incident"]
+               )
+
       assert Repo.get!(ConditionIncident, group.id).acknowledgement_note == "Other operator"
 
-      render_hook(view, "review_control", %{})
-      render_hook(view, "save_acknowledgement", draft)
+      render_hook(with_target(view, "#investigation-stack"), "review_control", %{
+        "entity" => token
+      })
+
+      render_hook(
+        with_target(view, "#investigation-stack"),
+        "save_acknowledgement",
+        Map.put(draft, "entity", token)
+      )
 
       assert has_element?(
                view,
@@ -771,19 +837,25 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
                "Still investigating"
              )
 
-      render_hook(view, "retry_delivery", %{"_id" => Ecto.UUID.generate(), "reason" => "Retry"})
+      render_hook(with_target(view, "#investigation-stack"), "retry_delivery", %{
+        "entity" => token,
+        "_id" => Ecto.UUID.generate(),
+        "reason" => "Retry"
+      })
+
       assert has_element?(view, "[role=alert]", "no longer eligible")
 
-      other_entity =
-        if String.starts_with?(path, "/next/checks/"),
-          do: "/next/checks/#{child.stream_id}?incident=health:#{child.id}",
-          else: "/next/incidents/health/#{child.id}"
+      render_patch(
+        view,
+        InvestigationTrail.path(path, [{"health", child.id}], %{
+          "surface" => nil,
+          "page_entity" => nil
+        })
+      )
 
-      render_patch(view, other_entity)
-      state = :sys.get_state(view.pid).socket.assigns
-      assert state.id == child.id
-      assert state.control_draft == %{}
-      assert state.delivery_feedback == nil
+      controls = recovered_controls(view, {"health", child.id})
+      assert controls.draft == %{}
+      assert controls.retry_drafts == %{}
     end
 
     {:ok, list, _} = live(build_conn(), "/next/checks")
@@ -1223,6 +1295,22 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
            )
 
     assert has_element?(view, ".flash", "Individual acknowledgement ended.")
+  end
+
+  defp recovered_controls(view, identity) do
+    token =
+      view
+      |> element("#investigation-stack-recovery input[name=snapshot]")
+      |> render()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("input")
+      |> LazyHTML.attribute("value")
+      |> hd()
+
+    {:ok, %{states: states}} =
+      Phoenix.Token.verify(MondekWeb.Endpoint, "investigation-drafts-v1", token, max_age: 60)
+
+    Map.fetch!(states, identity)
   end
 
   defp inventory(count) do

@@ -4,7 +4,14 @@ defmodule MondekWeb.NextOverviewLive do
   use MondekWeb, :live_view
   import MondekWeb.EvidencePresentation, only: [age: 2, time: 1, badge_text: 1, target_label: 1]
   alias Mondek.{ChecksFilters, Coverage, CoverageFilters, Inspection, Monitoring, OverviewFilters}
-  alias MondekWeb.{NextIncidentsLive, PreviewCoverage, PreviewDetail, PreviewIncidentControls}
+
+  alias MondekWeb.{
+    NextIncidentsLive,
+    PreviewCoverage,
+    PreviewDetail,
+    InvestigationStack,
+    InvestigationTrail
+  }
 
   @impl true
   def mount(_, _, socket) do
@@ -65,15 +72,14 @@ defmodule MondekWeb.NextOverviewLive do
        filter_chips: chips,
        filter_picker: nil
      )
-     |> NextIncidentsLive.setup_detail(
-       params,
-       if socket.assigns.live_action != :expected do
-         path(
-           Map.put(filters, "incident_return", incident_return),
-           socket.assigns.live_action,
-           params["id"]
-         )
-       end
+     |> assign(
+       investigation_params: params,
+       investigation_host:
+         URI.parse(uri).path <>
+           if(URI.parse(uri).query, do: "?" <> URI.parse(uri).query, else: ""),
+       investigation_root: InvestigationTrail.root(URI.parse(uri).path),
+       initial_trail: InvestigationTrail.initial(URI.parse(uri).path),
+       incident_selection: nil
      )
      |> refresh()}
   end
@@ -178,81 +184,7 @@ defmodule MondekWeb.NextOverviewLive do
       when event in ["filter_query", "filter_first", "filter_select"],
       do: {:noreply, socket}
 
-  def handle_event(event, _, %{assigns: %{incident_selection: nil}} = socket)
-      when event in ~w(filter_incident_detail review_control toggle_acknowledgement_replacement
-                       edit_acknowledgement save_acknowledgement end_acknowledgement retry_delivery),
-      do: {:noreply, socket}
-
-  def handle_event(
-        "filter_incident_detail",
-        %{"notification_status" => value},
-        %{assigns: %{incident: %{}}} = socket
-      ) do
-    {:noreply,
-     push_patch(socket, to: NextIncidentsLive.delivery_filter_path(socket.assigns, value))}
-  end
-
-  def handle_event(
-        "review_control",
-        _,
-        %{assigns: %{incident: %{"status" => "open"} = incident}} = socket
-      ),
-      do:
-        {:noreply,
-         assign(socket,
-           control_review: PreviewIncidentControls.revision(incident),
-           control_feedback: nil
-         )}
-
-  def handle_event(
-        "toggle_acknowledgement_replacement",
-        _,
-        %{assigns: %{incident: %{} = incident, control_replacing: replacing}} = socket
-      ) do
-    if Monitoring.acknowledgement_active?(incident),
-      do:
-        {:noreply,
-         assign(socket, control_replacing: !replacing, control_draft: %{}, control_feedback: nil)},
-      else: {:noreply, socket}
-  end
-
-  def handle_event("edit_acknowledgement", params, %{assigns: %{control_review: %{}}} = socket),
-    do: {:noreply, assign(socket, control_draft: PreviewIncidentControls.draft(params))}
-
-  def handle_event(
-        "save_acknowledgement",
-        params,
-        %{assigns: %{control_review: %{} = review, id: id, kind: kind}} = socket
-      ),
-      do: apply_control_result(socket, PreviewIncidentControls.save(kind, id, review, params))
-
-  def handle_event(
-        "end_acknowledgement",
-        _,
-        %{assigns: %{control_review: %{} = review, id: id, kind: kind, incident: %{} = incident}} =
-          socket
-      ),
-      do: apply_control_result(socket, PreviewIncidentControls.finish(kind, id, review, incident))
-
-  def handle_event(
-        "retry_delivery",
-        %{"_id" => id, "reason" => reason},
-        %{assigns: %{detail: %{} = detail}} = socket
-      ),
-      do:
-        apply_control_result(
-          socket,
-          PreviewIncidentControls.retry(detail, socket.assigns.retry_drafts, id, reason)
-        )
-
   def handle_event(_, _, socket), do: {:noreply, socket}
-
-  defp apply_control_result(socket, {changes, refresh?}) do
-    socket = assign(socket, changes)
-
-    {:noreply,
-     if(refresh?, do: NextIncidentsLive.refresh_detail(socket, Monitoring.now()), else: socket)}
-  end
 
   defp choose_filter(socket, field, option) do
     filter_module = socket.assigns.filter_module
@@ -288,7 +220,6 @@ defmodule MondekWeb.NextOverviewLive do
     filters = Map.put(assigns.filters, "incident_return", assigns.incident_return)
 
     socket
-    |> NextIncidentsLive.refresh_detail(now)
     |> assign(
       now: now,
       panel: panel,
@@ -307,7 +238,6 @@ defmodule MondekWeb.NextOverviewLive do
         do: MondekWeb.PreviewResult.load(assigns.selected_id, now) || %{kind: :not_found}
 
     socket
-    |> NextIncidentsLive.refresh_detail(now)
     |> assign(
       now: now,
       panel: panel,
@@ -378,8 +308,6 @@ defmodule MondekWeb.NextOverviewLive do
         _ ->
           nil
       end
-
-    socket = NextIncidentsLive.refresh_detail(socket, now)
 
     assign(socket,
       now: now,
@@ -460,7 +388,7 @@ defmodule MondekWeb.NextOverviewLive do
       class="preview-shell"
       phx-hook="OverviewPanel"
       data-selection={overlay_selection(assigns)}
-      data-panel-heading="full-result-heading"
+      data-panel-heading={InvestigationTrail.heading(@investigation_params, "full-result-heading")}
       data-panel-background="#preview-result-page"
     >
       <MondekWeb.PreviewLayouts.navigation
@@ -468,39 +396,7 @@ defmodule MondekWeb.NextOverviewLive do
         overview_path={if @list_action == :checks, do: "/next", else: @list_path}
       />
       <main id="main-content" class="preview-main" tabindex="-1">
-        <article
-          id="preview-result-page"
-          class="preview-incident-panel preview-incident-page pf-v6-c-card"
-          inert={@incident_selection != nil}
-        >
-          <div class="pf-v6-c-card__body">
-            <div class="preview-panel-tools">
-              <.link navigate={@incident_return || @list_path} class="pf-v6-c-button pf-m-link">
-                ← Back to {return_label(@incident_return, @list_action)}
-              </.link>
-            </div>
-            <.result_panel
-              :if={@panel.kind == :result}
-              panel={@panel}
-              now={@now}
-              current_path={@current_path}
-              filters={@filters}
-              incident_return={@incident_return}
-              full_page={true}
-              heading_id="full-result-heading"
-              id_prefix="full-"
-              list_action={@list_action}
-            />
-            <h1 :if={@panel.kind == :not_found}>Result unavailable</h1>
-          </div>
-        </article>
-        <NextIncidentsLive.detail
-          :if={@incident_selection}
-          {assigns}
-          full_page={false}
-          id_prefix="overlay-"
-          host_target={%{identity: {:result, @selected_id}, path: @current_path}}
-        />
+        <.investigation {assigns} />
       </main>
     </div>
     """
@@ -640,12 +536,16 @@ defmodule MondekWeb.NextOverviewLive do
       id="checks-preview"
       class="preview-shell"
       phx-hook="OverviewPanel"
-      data-panel-heading="checks-heading"
+      data-panel-heading={InvestigationTrail.heading(@investigation_params, "checks-heading")}
       data-selection={overlay_selection(assigns)}
     >
       <MondekWeb.PreviewLayouts.navigation active={:checks} />
       <main id="main-content" class="preview-main" tabindex="-1">
-        <section class="preview-list" aria-labelledby="checks-heading">
+        <section
+          :if={@investigation_params["surface"] != "page"}
+          class="preview-list"
+          aria-labelledby="checks-heading"
+        >
           <header class="preview-results-header">
             <h1 id="checks-heading" class="pf-v6-c-title pf-m-2xl" tabindex="-1">Checks</h1>
             <.result_filters {assigns} />
@@ -698,6 +598,7 @@ defmodule MondekWeb.NextOverviewLive do
     ~H"""
     <div
       id="overview-preview"
+      data-panel-heading={InvestigationTrail.heading(@investigation_params, "overview-heading")}
       class="preview-shell"
       phx-hook="OverviewPanel"
       data-updated-at={Monitoring.iso(@now)}
@@ -711,6 +612,7 @@ defmodule MondekWeb.NextOverviewLive do
         tabindex="-1"
       >
         <section
+          :if={@investigation_params["surface"] != "page"}
           id="preview-overview-card"
           class="preview-overview-card"
           aria-labelledby="overview-heading"
@@ -753,6 +655,7 @@ defmodule MondekWeb.NextOverviewLive do
           </section>
         </section>
         <section
+          :if={@investigation_params["surface"] != "page"}
           id="preview-open-incidents"
           class="preview-overview-card"
           aria-labelledby="overview-incidents-heading"
@@ -827,7 +730,11 @@ defmodule MondekWeb.NextOverviewLive do
           </div>
         </section>
         <div class="preview-workspace">
-          <section class="preview-list" aria-labelledby="preview-results-heading">
+          <section
+            :if={@investigation_params["surface"] != "page"}
+            class="preview-list"
+            aria-labelledby="preview-results-heading"
+          >
             <header class="preview-results-header">
               <h2 id="preview-results-heading" class="pf-v6-c-title pf-m-2xl">Results</h2>
               <.result_filters {assigns} />
@@ -1019,6 +926,8 @@ defmodule MondekWeb.NextOverviewLive do
     """
   end
 
+  defp filter_icon("runner_id"), do: "terminal"
+  defp filter_icon("source_id"), do: "code"
   defp filter_icon("environment"), do: "globe"
   defp filter_icon("target"), do: "map-pin"
   defp filter_icon("group"), do: "grid"
@@ -1030,6 +939,12 @@ defmodule MondekWeb.NextOverviewLive do
   defp result_action(:checks, false), do: :checks_result
   defp result_action(_, true), do: :result_page
   defp result_action(_, false), do: :result
+
+  defp overlay_selection(%{
+         investigation_params: %{"inspect" => _} = params,
+         initial_trail: initial
+       }),
+       do: InvestigationTrail.selection(params, initial)
 
   defp overlay_selection(%{incident_selection: {kind, id}, detail_filters: filters}),
     do: "#{kind}-#{id}-#{filters["result"]}"
@@ -1046,35 +961,39 @@ defmodule MondekWeb.NextOverviewLive do
   defp overlay_selection(_), do: nil
 
   defp evidence_overlay(assigns) do
-    ancestors =
-      if assigns.incident_selection && assigns.panel && assigns.panel.kind == :result do
-        [
-          %{
-            kind: "Check result",
-            identity: {:result, assigns.selected_id},
-            title: result_title(assigns.panel.selected),
-            path: assigns.current_path
-          }
-        ]
-      else
-        []
-      end
-
-    assigns = assign(assigns, :host_ancestors, ancestors)
-
     ~H"""
-    <NextIncidentsLive.detail
-      :if={@incident_selection}
+    <.coverage_overlay
+      :if={@panel && @panel.kind == :expected && !@investigation_params["inspect"]}
       {assigns}
-      full_page={false}
-      host_ancestors={@host_ancestors}
-    >
-      <:host_fallback>
-        <.result_drawer_body {assigns} />
-      </:host_fallback>
-    </NextIncidentsLive.detail>
-    <.coverage_overlay :if={@panel && @panel.kind == :expected} {assigns} />
-    <.result_drawer :if={!@incident_selection && (!@panel || @panel.kind != :expected)} {assigns} />
+    />
+    <.result_drawer
+      :if={@panel && @panel.kind == :coverage_diagnostic && !@investigation_params["inspect"]}
+      {assigns}
+    />
+    <.investigation
+      :if={
+        !@panel || @panel.kind not in [:expected, :coverage_diagnostic] ||
+          @investigation_params["inspect"]
+      }
+      {assigns}
+    />
+    """
+  end
+
+  defp investigation(assigns) do
+    ~H"""
+    <.live_component
+      module={InvestigationStack}
+      id="investigation-stack"
+      host={@investigation_host}
+      params={@investigation_params}
+      now={@now}
+      root={@investigation_root}
+      initial={@initial_trail}
+      context={if @investigation_root, do: {:result_page, @investigation_root}, else: @list_action}
+      unavailable={@selected_id && @panel && @panel.kind == :not_found}
+      back={@incident_return || @list_path}
+    />
     """
   end
 
@@ -1151,8 +1070,6 @@ defmodule MondekWeb.NextOverviewLive do
   defp return_label("/next/coverage/" <> _, _), do: "coverage"
   defp return_label("/next/expected/" <> _, _), do: "coverage"
   defp return_label(path, _) when is_binary(path), do: "incident"
-  defp return_label(nil, :checks), do: "checks"
-  defp return_label(nil, _), do: "overview"
 
   defp coverage_full_result_path(id, back),
     do: path(%{"incident_return" => back}, :checks_result_page, id)

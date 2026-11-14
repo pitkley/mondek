@@ -14,6 +14,9 @@ defmodule MondekWeb.PreviewIncidentSections do
 
     assigns =
       assigns
+      |> assign_new(:target, fn -> nil end)
+      |> assign_new(:entity, fn -> nil end)
+      |> assign_new(:result_path, fn -> nil end)
       |> assign_new(:delivery_filter, fn -> [] end)
       |> assign_new(:current, fn -> nil end)
       |> assign_new(:id_prefix, fn -> "" end)
@@ -76,11 +79,19 @@ defmodule MondekWeb.PreviewIncidentSections do
             type="button"
             class="pf-v6-c-button pf-m-secondary"
             phx-click="toggle_acknowledgement_replacement"
+            phx-target={@target}
+            phx-value-entity={@entity}
             aria-expanded={to_string(@replacing)}
           >
             {if @replacing, do: "Cancel replacement", else: "Replace acknowledgement"}
           </button>
-          <button type="button" class="pf-v6-c-button pf-m-secondary" phx-click="end_acknowledgement">
+          <button
+            type="button"
+            class="pf-v6-c-button pf-m-secondary"
+            phx-click="end_acknowledgement"
+            phx-target={@target}
+            phx-value-entity={@entity}
+          >
             End acknowledgement
           </button>
         </div>
@@ -95,10 +106,19 @@ defmodule MondekWeb.PreviewIncidentSections do
           :if={@incident["status"] == "open" && @review && (!@acknowledged || @replacing)}
           id={@id_prefix <> "preview-incident-ack-form"}
           class="preview-incident-form preview-ack-form"
+          phx-target={@target}
           phx-change="edit_acknowledgement"
           phx-submit="save_acknowledgement"
-          phx-auto-recover="ignore"
+          phx-auto-recover={if @entity, do: "edit_acknowledgement", else: "ignore"}
         >
+          <input :if={@entity} type="hidden" name="entity" value={@entity} />
+          <input :if={@entity} type="hidden" name="_revision" value={@review["revision"]} />
+          <input
+            :if={@entity}
+            type="hidden"
+            name="_attention_revision"
+            value={@review["attention_revision"]}
+          />
           <% mode = @draft["mode"] || "until_incident_ends" %>
           <fieldset class="preview-ack-timing" aria-describedby={@id_prefix <> "preview-ack-effect"}>
             <legend>
@@ -187,6 +207,8 @@ defmodule MondekWeb.PreviewIncidentSections do
               type="button"
               class="pf-v6-c-button pf-m-link"
               phx-click="review_control"
+              phx-target={@target}
+              phx-value-entity={@entity}
             >Review current incident</button>
           </div>
         </form>
@@ -295,12 +317,15 @@ defmodule MondekWeb.PreviewIncidentSections do
             </PreviewDetail.facts>
             <.link
               :if={evidence["stream_id"]}
+              patch={if @result_path, do: @result_path.(evidence["stream_id"])}
               href={
-                PreviewNavigation.path(
-                  %{"incident_return" => @current},
-                  :result,
-                  evidence["stream_id"]
-                )
+                if !@result_path,
+                  do:
+                    PreviewNavigation.path(
+                      %{"incident_return" => @current},
+                      :result,
+                      evidence["stream_id"]
+                    )
               }
             >
               Open current result evidence
@@ -474,9 +499,12 @@ defmodule MondekWeb.PreviewIncidentSections do
                       <form
                         id={@id_prefix <> "preview-retry-" <> notice["id"]}
                         class="preview-incident-form"
+                        phx-target={@target}
+                        phx-change={if @entity, do: "edit_retry_delivery"}
                         phx-submit="retry_delivery"
-                        phx-auto-recover="ignore"
+                        phx-auto-recover={if @entity, do: "edit_retry_delivery", else: "ignore"}
                       >
+                        <input :if={@entity} type="hidden" name="entity" value={@entity} />
                         <input type="hidden" name="_id" value={notice["id"]} />
                         <label>Reason for retry
                         <input
