@@ -1,6 +1,6 @@
 # Configuration through UI and Git
 
-UI saves automatically preserve shared rules and individual/bulk exceptions in controller-owned Git history. Open **Configuration → Configuration history and Git access** to inspect the accepted revision and before/after changes. A save is durable immediately; runner adoption and fresh measurements are shown separately. Check definitions, source defaults, secrets, maintenance and incidents are outside this repository.
+UI saves automatically preserve shared rules and individual/bulk exceptions in controller-owned Git history. Open **Configuration → History & Git** to inspect the accepted revision and before/after changes. A save is durable immediately; runner adoption and fresh measurements are shown separately. Check definitions, source defaults, secrets, maintenance and incidents are outside this repository.
 
 ## Enable optional Git access
 
@@ -85,3 +85,7 @@ devenv shell -- mondek configuration-acceptance --browser
 ```
 
 These use isolated Docker services, installed observers and ordinary Git HTTP clients. The optional browser checkpoint pauses before cleanup. Tests cover UI-equivalent saves, stale and invalid pushes, unsupported refs, measured adoption, controller restart and fresh-installation restoration with explicit exception mapping. Native tests additionally cover killed transactions, response loss and competing writers. They do not modify external installations or verify production gateway policy.
+
+## History inspection in the UI
+
+Configuration history uses the same compact tables as the other operator pages. The recent list is explicitly limited to the latest 25 revisions; its search matches revision IDs, editing channel and the first three changed document names, and numbered pages show ten revisions at a time. Clone the repository when you need the complete revision history. Selecting a revision opens immutable before/after evidence below the list and gives it a shareable URL; filtering the recent list or receiving newer saves does not replace that selected evidence. Changed documents have their own ten-document numbered pages, with complete JSON and scope available in a disclosure for each document. Git instructions use a credential-free repository address and never include the configured token.

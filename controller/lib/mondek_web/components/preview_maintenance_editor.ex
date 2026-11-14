@@ -14,13 +14,16 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
   attr :token, :any, required: true
   attr :stale, :boolean, required: true
   attr :draft_origin, :string, required: true
-  attr :preview_ui, :boolean, required: true
   attr :return_to, :any, required: true
+  attr :current_path, :string, required: true
+  attr :section_level, :integer, values: [2, 3], default: 2
 
   def editor(assigns) do
     assigns =
       assign(assigns,
         active: assigns.window && assigns.window["status"] == "active",
+        show_scope: is_nil(assigns.window) && assigns.proposal["scope"] != "selection",
+        new_window: is_nil(assigns.window),
         start_choices:
           MaintenanceTime.choices(assigns.proposal["starts_local"], assigns.proposal["timezone"]),
         end_choices:
@@ -29,15 +32,13 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
 
     ~H"""
     <section
-      class={["panel space-top", @preview_ui && "preview-maintenance-settings"]}
+      class="panel space-top preview-maintenance-settings"
       id="maintenance-settings"
-      style={
-        if !@preview_ui && @proposal["scope"] == "selection" && selections(@proposal) == [],
-          do: "display: none"
-      }
     >
       <div class="panel-heading">
-        <h2>{if @preview, do: "Review maintenance", else: "Window settings"}</h2>
+        <.dynamic_tag tag_name={"h#{@section_level}"}>
+          {if @preview, do: "Review maintenance", else: "Window settings"}
+        </.dynamic_tag>
       </div><div class="panel-body">
         <form
           id="maintenance-form"
@@ -49,15 +50,14 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
           <input :if={@preview} type="hidden" name="_review_token" value={@token} />
           <div :if={!@preview} class="maintenance-settings-fields">
             <section
-              :if={!@preview_ui || (is_nil(@window) && @proposal["scope"] != "selection")}
+              :if={@show_scope}
               class="maintenance-settings-group"
             >
-              <h3 :if={@preview_ui}>What to cover</h3>
+              <.dynamic_tag tag_name={"h#{@section_level + 1}"}>What to cover</.dynamic_tag>
               <div :if={@proposal["scope"] != "selection"} class="field full">
                 <label for="maintenance-scope">Notification scope</label><select
                   id="maintenance-scope"
                   name="scope_choice"
-                  disabled={not is_nil(@window)}
                 >
                   <option
                     :for={option <- @scope_options}
@@ -66,7 +66,7 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
                   >
                     {option["label"] || scope_label(option)}
                   </option>
-                </select><small :if={!@preview_ui}>{scope_label(@proposal, @scope_options)}</small>
+                </select>
               </div>
               <div :if={@proposal["scope"] == "selection"} class="field full">
                 <span class="field-label">Notification scope</span><p id="maintenance-selection-scope">
@@ -74,7 +74,6 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
                 </p>
               </div>
               <button
-                :if={is_nil(@window) && @proposal["scope"] != "selection"}
                 id="maintenance-include-more"
                 type="button"
                 class="button small space-top"
@@ -82,7 +81,7 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
               >Include more checks or targets</button>
               <p
                 :if={@proposal["scope"] == "target"}
-                class={if @preview_ui, do: "footnote space-top", else: "notice notice-copy space-top"}
+                class="footnote space-top"
                 id="maintenance-dynamic-scope"
               >
                 Only results for this exact monitored environment and target from the same source are covered, wherever they run. Future matching results join automatically; other results from a shared execution remain eligible.
@@ -97,10 +96,10 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
                 A saved window's scope is fixed. To cover something else, create another window.
               </p>
             </section>
-            <section class={["maintenance-settings-group", !@preview_ui && "space-top"]}>
-              <h3 :if={@preview_ui}>Window details</h3>
-              <div class={["form-grid", @preview_ui && is_nil(@window) && "maintenance-new-details"]}>
-                <div class={["field", (!@preview_ui || @window) && "full"]}>
+            <section class="maintenance-settings-group">
+              <.dynamic_tag tag_name={"h#{@section_level + 1}"}>Window details</.dynamic_tag>
+              <div class={["form-grid", @new_window && "maintenance-new-details"]}>
+                <div class={["field", @window && "full"]}>
                   <label for="maintenance-name">Window name</label><input
                     id="maintenance-name"
                     name="window[name]"
@@ -109,7 +108,7 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
                     required
                   />
                 </div>
-                <div class={["field", (!@preview_ui || @window) && "full"]}>
+                <div class={["field", @window && "full"]}>
                   <label for="maintenance-reason">Reason</label><textarea
                     id="maintenance-reason"
                     name="window[reason]"
@@ -119,22 +118,18 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
                 </div>
               </div>
             </section>
-            <section class={["maintenance-settings-group", !@preview_ui && "space-top"]}>
-              <h3 :if={@preview_ui}>Schedule</h3>
-              <p :if={@active && !@preview_ui} class="notice notice-copy space-top">
-                This window has started. Enter the new end time in {@proposal["timezone"]}.
-              </p>
+            <section class="maintenance-settings-group">
+              <.dynamic_tag tag_name={"h#{@section_level + 1}"}>Schedule</.dynamic_tag>
               <div class={[
                 "form-grid maintenance-schedule-grid",
-                @preview_ui && @active && "maintenance-active-schedule"
+                @active && "maintenance-active-schedule"
               ]}>
-                <div :if={!@preview_ui || !@active} class="field">
+                <div :if={!@active} class="field">
                   <label for="maintenance-start-mode">Start</label><select
                     id="maintenance-start-mode"
                     name="window[start_mode]"
-                    disabled={@active}
                   ><option value="scheduled" selected={@proposal["start_mode"] == "scheduled"}>
-                    {if @preview_ui, do: "Scheduled", else: "At a date and time"}
+                    Scheduled
                   </option><option
                     :if={!repeating?(@proposal)}
                     value="now"
@@ -143,7 +138,7 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
                     Now
                   </option></select>
                 </div>
-                <div :if={!@preview_ui || !@active} class="field">
+                <div :if={!@active} class="field">
                   <label for="maintenance-timezone">Timezone</label><input
                     id="maintenance-timezone"
                     name="window[timezone]"
@@ -151,7 +146,6 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
                     list="maintenance-timezones"
                     maxlength="100"
                     required
-                    readonly={@active}
                   /><small>Use UTC or an IANA name, such as Europe/Berlin.</small>
                   <datalist id="maintenance-timezones"><option
                     :for={
@@ -169,7 +163,7 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
                   /></datalist>
                 </div>
                 <div
-                  :if={@proposal["start_mode"] != "now" && (!@preview_ui || !@active)}
+                  :if={@proposal["start_mode"] != "now" && !@active}
                   class="field"
                 >
                   <label for="maintenance-start">{if repeating?(@proposal),
@@ -182,10 +176,9 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
                     step="1"
                     max="9999-12-31T23:59:59"
                     required
-                    readonly={@active}
                   />
                   <.fold_choice
-                    :if={!@active && !repeating?(@proposal) && @start_choices != []}
+                    :if={!repeating?(@proposal) && @start_choices != []}
                     field="start"
                     choices={@start_choices}
                     selected={@proposal["start_fold"]}
@@ -210,11 +203,11 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
                     selected={@proposal["end_fold"]}
                   />
                 </div>
-                <p :if={@preview_ui && @active} class="footnote">
+                <p :if={@active} class="footnote">
                   This window has started. Enter the new end time in {@proposal["timezone"]}.
                 </p>
               </div>
-              <div :if={is_nil(@window)} class="form-grid maintenance-repeat-fields">
+              <div :if={@new_window} class="form-grid maintenance-repeat-fields">
                 <div class="field full">
                   <label for="maintenance-repeat">Repeat</label>
                   <select id="maintenance-repeat" name="repeat">
@@ -241,14 +234,21 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
             </div>
           </div>
           <div :if={@preview} id="maintenance-preview">
-            <h3>{@proposal["name"]}</h3><p class="space-top">{@proposal["reason"]}</p><p class="space-top">
+            <.dynamic_tag tag_name={"h#{@section_level + 1}"}>{@proposal["name"]}</.dynamic_tag><p class="space-top">
+              {@proposal["reason"]}
+            </p><p class="space-top">
               {scope_label(@proposal, @scope_options)}
             </p>
             <PreviewMaintenanceDetails.times
               :if={!repeating?(@proposal)}
               window={Map.merge(@proposal, Map.take(@preview, ~w(starts_at ends_at)))}
             />
-            <.series_preview :if={repeating?(@proposal)} proposal={@proposal} preview={@preview} />
+            <.series_preview
+              :if={repeating?(@proposal)}
+              proposal={@proposal}
+              preview={@preview}
+              section_level={@section_level}
+            />
             <p id="maintenance-preview-summary" class="notice notice-copy space-top">
               Current matches: {count_label(
                 get_in(@preview, ["counts", "matched_results"]) || 0,
@@ -270,7 +270,7 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
             </p>
             <details
               id="maintenance-preview-matches"
-              open={@preview_ui}
+              open
               class="space-top maintenance-results-disclosure"
               phx-mounted={JS.ignore_attributes("open")}
             >
@@ -278,7 +278,11 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
                 Inspect currently matching results ({get_in(@preview, ["counts", "matched_results"]) ||
                   0})
               </summary>
-              <PreviewMaintenanceDetails.matches rows={@preview["rows"] || []} />
+              <PreviewMaintenanceDetails.matches
+                rows={@preview["rows"] || []}
+                current_path={@current_path}
+                section_level={@section_level}
+              />
               <nav :if={pages(@preview) > 1} class="pagination" aria-label="Affected result pages">
                 <button
                   :if={(@preview["page"] || 1) > 1}
@@ -298,14 +302,14 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
               </nav>
             </details>
             <section class="space-top" id="maintenance-overlaps">
-              <h3>Overlapping windows</h3>
+              <.dynamic_tag tag_name={"h#{@section_level + 1}"}>Overlapping windows</.dynamic_tag>
               <p :if={(@preview["overlaps"] || []) == []}>
                 No overlapping maintenance windows currently match this scope.
               </p>
               <ul :if={(@preview["overlaps"] || []) != []} class="maintenance-candidates">
                 <li :for={window <- @preview["overlaps"]}>
                   <.link
-                    navigate={window_path(window["id"], @preview_ui, @return_to)}
+                    navigate={window_path(window["id"], @return_to)}
                     class="text-link"
                   >{window["name"]}</.link><small>{utc_time(window["starts_at"])} – {utc_time(
                     window["ends_at"]
@@ -315,7 +319,7 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
               <p :if={(@preview["overlap_omitted"] || 0) > 0} class="footnote">
                 Showing {length(@preview["overlaps"] || [])} of {@preview["overlap_total"]} overlapping windows.
                 <.link
-                  navigate={if @preview_ui, do: "/next/maintenance", else: "/maintenance"}
+                  navigate="/maintenance"
                   class="text-link"
                 >Inspect maintenance</.link>
                 for other saved windows.
@@ -431,7 +435,7 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
   defp series_preview(assigns) do
     ~H"""
     <section id="maintenance-series-preview" class="space-top">
-      <h3>Review every scheduled date</h3>
+      <.dynamic_tag tag_name={"h#{@section_level + 1}"}>Review every scheduled date</.dynamic_tag>
       <p id="maintenance-series-preview-summary">
         {count_label(@preview["occurrence_total"] || 0, "window")}, {repeat_label(
           @proposal["recurrence"]

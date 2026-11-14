@@ -47,7 +47,7 @@ defmodule MondekWeb.GuideLiveTest do
     refute render(view) =~ "secret-value"
   end
 
-  test "setup and credits share the operator session across the legacy layout boundary" do
+  test "setup, credits and inventory share the one operator session" do
     session_name = fn path ->
       %{phoenix_live_view: {_, _, _, %{name: name}}} =
         Phoenix.Router.route_info(MondekWeb.Router, "GET", path, "www.example.com")
@@ -57,6 +57,6 @@ defmodule MondekWeb.GuideLiveTest do
 
     assert session_name.("/guide") == :operator_ui
     assert session_name.("/licenses") == :operator_ui
-    refute session_name.("/runners") == :operator_ui
+    assert session_name.("/runners") == :operator_ui
   end
 end

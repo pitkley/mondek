@@ -13,11 +13,16 @@ const locate = (items, observer, label) => items.find(row => row.runner_label ==
 async function edit(page, id, scope='local') {
   await page.goto(`/configuration/discovery/${id}`);
   await connected(page);
-  await page.locator(`#discovery-scope-${scope}`).check();
+  const choice = page.locator(`#discovery-scope-${scope}`);
+  await choice.check();
+  await expect(choice.locator('xpath=ancestor::label[1]')).toHaveClass(/discovery-scope-selected/);
 }
-async function reviewSave(page) {
+async function reviewSave(page, scope='local') {
   await page.locator('#discovery-config-form').getByRole('button',{name:'Review change',exact:true}).click();
   await expect(page.locator('#discovery-config-review')).toBeVisible();
+  await expect(page.getByRole('table', {name:'Reviewed discovery scope',exact:true}).getByRole('row')
+    .filter({has:page.getByRole('rowheader',{name:'Applies to',exact:true})}).getByRole('cell'))
+    .toHaveText(scope === 'host' ? 'Current and future compatible observers of this exact host' : 'This discovery check only');
   await page.locator('#save-discovery-change').click();
   await expect(page).toHaveURL(/\/configuration\/discovery\/changes\//);
   await connected(page);
@@ -40,9 +45,9 @@ test(`real discovery configuration ${phase}`, async ({page,request},testInfo) =>
   expect(primary).toBeTruthy();
   const manager=all.find(row=>row.runner_id===primary.runner_id && row.check_label==='Linux resource discovery');
   if(phase==='preview') {
-    await page.goto(`/checks/${primary.id}`); await connected(page);
-    await page.locator('.page-heading #configure-resource-discovery').click(); await connected(page);
-    await expect(page.locator('#discovery-all-values')).not.toHaveAttribute('open');
+    await page.goto(`/results/${primary.id}/full`); await connected(page);
+    await page.getByRole('link',{name:'Configure resource discovery',exact:true}).click(); await connected(page);
+    await expect(page.locator('#discovery-config-editor')).toBeVisible();
     await page.locator('#toggle-discovered-resource').click();
     for(const width of [1280,390,320]) {
       await page.setViewportSize({width,height:960});
@@ -70,8 +75,8 @@ test(`real discovery configuration ${phase}`, async ({page,request},testInfo) =>
   const secondary=locate(all,'a2','Interface eth0');
   const other=locate(all,'b','Interface eth0');
   expect(primary.current.health).toBe('CRIT');
-  await page.goto(`/checks/${primary.id}`); await connected(page);
-  await page.locator('#configure-resource-discovery').click();
+  await page.goto(`/results/${primary.id}/full`); await connected(page);
+  await page.getByRole('link',{name:'Configure resource discovery',exact:true}).click();
   await expect(page.locator('#discovery-config-subject')).toContainText('Host A');
   await expect(page.locator('#discovery-config-form')).toContainText('2 current observers, plus future compatible observers');
   await page.locator('#toggle-discovered-resource').click();
@@ -98,7 +103,7 @@ test(`real discovery configuration ${phase}`, async ({page,request},testInfo) =>
   expect((await get(request,primary.assignment_id)).retired).toBe(true);
   await edit(page,included.assignment_id,'host');
   await page.locator('#toggle-discovered-resource').click();
-  await reviewSave(page);
+  await reviewSave(page,'host');
   const hostReceipt=page.url();
   await expect(page.getByText('Local override blocks this host policy. Review removing the override separately.',{exact:true})).toBeVisible();
   await page.getByRole('link',{name:'Review local override removal'}).click(); await connected(page);

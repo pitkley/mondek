@@ -160,7 +160,9 @@ def main() -> None:
             assert read("/health")["status"] == "ok"
             with urllib.request.urlopen(origin, timeout=5) as response:
                 html = response.read().decode()
-                assert "Monitoring overview" in html and "History retention" in html
+                assert 'id="overview-heading"' in html
+                assert 'id="preview-onboarding"' in html
+                assert 'href="/guide"' in html
             assert read("/api/v1/snapshot")["runners"] == []
             if sdk_wheel is None:
                 run(

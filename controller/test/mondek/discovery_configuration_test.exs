@@ -159,8 +159,31 @@ defmodule Mondek.DiscoveryConfigurationTest do
     assert {:ok, _} = Monitoring.inventory(p, at())
     child = assignment(p, "eth0")
     stream = Repo.get_by!(Mondek.ResultStream, assignment_id: child.id)
-    {:ok, result, _} = live(build_conn(), "/checks/" <> stream.id)
-    assert has_element?(result, "#resource-discovery-settings", "Automatically discovered")
+
+    for suffix <- ["", "/full"] do
+      {:ok, result, _} = live(build_conn(), "/results/" <> stream.id <> suffix)
+      surface = if suffix == "", do: "#overview-panel", else: "#preview-result-page"
+
+      assert has_element?(
+               result,
+               surface <> " #resource-discovery-settings",
+               "Automatically discovered"
+             )
+
+      assert has_element?(
+               result,
+               surface <> " #resource-discovery-settings a",
+               "Configure resource discovery"
+             )
+
+      navigation =
+        result |> element(surface <> " #resource-discovery-settings a") |> render_click()
+
+      {:ok, settings, _} = follow_redirect(navigation, build_conn())
+      assert has_element?(settings, "#discovery-config-subject", "node-a.example")
+      assert has_element?(settings, "#discovery-config-form")
+    end
+
     {:ok, view, _} = live(build_conn(), "/configuration/discovery/" <> child.id)
     assert has_element?(view, "#discovery-config-subject", "node-a.example")
     assert has_element?(view, "#discovery-scope-local[checked]")
@@ -265,6 +288,410 @@ defmodule Mondek.DiscoveryConfigurationTest do
       assert assignment(p, "manager").params["filesystem_exclude"] == entry["pattern"]
       assert Repo.get!(Assignment, other.id).retired_at == nil
     end
+  end
+
+  test "settings preserve reviewed scope and values through result links and presentation switches" do
+    p = inventory()
+    assert {:ok, _} = Monitoring.inventory(p, at())
+    child = assignment(p, "eth0")
+    {:ok, view, _} = live(build_conn(), "/configuration/discovery/" <> child.id)
+    view |> element("#toggle-discovered-resource") |> render_click()
+    assert has_element?(view, "#discovery-param-interface_exclude[value='lo,eth0']")
+    view |> element("#discovery-config-current-result") |> render_click()
+
+    assert has_element?(
+             view,
+             "#overview-panel #resource-discovery-settings a[data-phx-link='patch']"
+           )
+
+    view |> element("#overview-panel #resource-discovery-settings a") |> render_click()
+    refute has_element?(view, "#overview-panel")
+    assert has_element?(view, "#discovery-param-interface_exclude[value='lo,eth0']")
+    view |> form("#discovery-config-form") |> render_submit()
+    assert has_element?(view, "#discovery-config-review", "lo,eth0")
+
+    assert has_element?(
+             view,
+             "#discovery-config-editor[hidden] #discovery-config-form[phx-auto-recover='recover']"
+           )
+
+    view |> element("#discovery-config-current-result") |> render_click()
+    assert has_element?(view, "#discovery-config-workflow[inert]")
+    view |> element("#overview-panel [data-overview-close]") |> render_click()
+    refute has_element?(view, "#overview-panel")
+    assert has_element?(view, "#discovery-config-review", "lo,eth0")
+    view |> element("#discovery-config-current-result") |> render_click()
+
+    render_hook(view, "save", %{})
+    render_hook(view, "reload", %{})
+    render_hook(view, "edit", %{"params" => %{"interface_exclude" => "lo,forged*"}})
+    assert has_element?(view, "#discovery-config-review", "lo,eth0")
+    assert has_element?(view, "#discovery-param-interface_exclude[value='lo,eth0']")
+    assert Repo.aggregate(DiscoveryChange, :count) == 0
+    view |> element("#overview-panel a", "Open as page") |> render_click()
+    assert has_element?(view, "#discovery-config-workflow[hidden][inert]")
+    assert has_element?(view, "#discovery-config-shell[data-panel-heading='full-result-heading']")
+    render_hook(view, "save", %{})
+    assert Repo.aggregate(DiscoveryChange, :count) == 0
+    view |> element("#preview-result-page a", "Open fly-over") |> render_click()
+    view |> element("#overview-panel #resource-discovery-settings a") |> render_click()
+    send(view.pid, :tick)
+    assert has_element?(view, "#save-discovery-change")
+    assert has_element?(view, "#discovery-config-review", "lo,eth0")
+
+    assert {:error, {:live_redirect, %{to: receipt_path}}} =
+             view |> element("#save-discovery-change") |> render_click()
+
+    assert Repo.aggregate(DiscoveryChange, :count) == 1
+    {:ok, receipt, _} = live(build_conn(), receipt_path)
+
+    assert has_element?(
+             receipt,
+             "table[aria-label='Saved discovery change']",
+             "One discovery check"
+           )
+
+    assert has_element?(
+             receipt,
+             "table[aria-label='Observer discovery outcome']",
+             "Reviewed generation"
+           )
+
+    assert has_element?(receipt, "#discovery-change-receipt", "Waiting for runner activation")
+
+    receipt
+    |> element("#discovery-receipt-result-" <> assignment(p, "manager").id)
+    |> render_click()
+
+    assert has_element?(receipt, "#overview-panel")
+  end
+
+  test "remote changes keep frozen review facts and reject stale save after investigation" do
+    p = inventory()
+    assert {:ok, _} = Monitoring.inventory(p, at())
+    child = assignment(p, "eth0")
+    manager = assignment(p, "manager")
+    {:ok, view, _} = live(build_conn(), "/configuration/discovery/" <> child.id)
+    view |> element("#toggle-discovered-resource") |> render_click()
+    view |> form("#discovery-config-form") |> render_submit()
+
+    assert {:ok, _} =
+             Monitoring.save_assignment(manager.id, manager.revision, %{
+               "interface_exclude" => "lo,remote*"
+             })
+
+    send(view.pid, :tick)
+
+    values =
+      view
+      |> render()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("table[aria-label='Reviewed discovery values'] tbody td")
+      |> LazyHTML.text()
+
+    assert values =~ "lo,eth0"
+    refute values =~ "remote"
+    view |> element("#discovery-config-current-result") |> render_click()
+    render_hook(view, "reload", %{})
+    view |> element("#overview-panel #resource-discovery-settings a") |> render_click()
+    view |> element("#save-discovery-change") |> render_click()
+    assert has_element?(view, "#discovery-config-error", "changed after review")
+    assert has_element?(view, "#discovery-param-interface_exclude[value='lo,eth0']")
+    assert assignment(p, "manager").params == %{"interface_exclude" => "lo,remote*"}
+    assert Repo.aggregate(DiscoveryChange, :count) == 0
+  end
+
+  test "recovery retains captured values and revision but requires a new review" do
+    p = inventory()
+    assert {:ok, _} = Monitoring.inventory(p, at())
+    child = assignment(p, "eth0")
+    manager = assignment(p, "manager")
+
+    assert {:ok, _} =
+             Monitoring.save_assignment(manager.id, manager.revision, %{
+               "interface_exclude" => "lo,current*"
+             })
+
+    {:ok, recovered, _} = live(build_conn(), "/configuration/discovery/" <> child.id)
+
+    render_hook(recovered, "recover", %{
+      "_manager_id" => manager.id,
+      "_revision" => to_string(manager.revision),
+      "scope" => "host",
+      "params" => %{"interface_exclude" => "lo,old-draft*"}
+    })
+
+    assert has_element?(recovered, "#discovery-param-interface_exclude[value='lo,old-draft*']")
+    assert has_element?(recovered, "#discovery-scope-host[checked]")
+    refute has_element?(recovered, "#save-discovery-change")
+    recovered |> form("#discovery-config-form") |> render_submit()
+    assert has_element?(recovered, "#discovery-config-error", "review again")
+    assert Repo.aggregate(DiscoveryChange, :count) == 0
+    refute assignment(p, "manager").params == %{"interface_exclude" => "lo,old-draft*"}
+
+    render_hook(recovered, "recover", %{
+      "_manager_id" => %{"bad" => "shape"},
+      "_revision" => %{},
+      "params" => %{"interface_exclude" => "lo,malformed*"}
+    })
+
+    recovered |> form("#discovery-config-form") |> render_submit()
+    assert has_element?(recovered, "#discovery-config-error", "review again")
+    assert Repo.aggregate(DiscoveryChange, :count) == 0
+  end
+
+  test "unknown settings and receipts are useful unavailable views and reject crafted actions" do
+    unknown = Ecto.UUID.generate()
+    {:ok, settings, _} = live(build_conn(), "/configuration/discovery/" <> unknown)
+
+    assert has_element?(
+             settings,
+             "#discovery-config-workflow",
+             "Discovery relationship unavailable"
+           )
+
+    render_hook(settings, "review", %{"params" => %{}})
+    assert has_element?(settings, "#discovery-config-error", "unavailable")
+    render_hook(settings, "reload", %{})
+    refute has_element?(settings, "#discovery-config-form")
+    {:ok, receipt, _} = live(build_conn(), "/configuration/discovery/changes/" <> unknown)
+    assert has_element?(receipt, "#discovery-config-workflow", "receipt is not available")
+    render_hook(receipt, "save", %{})
+    assert Repo.aggregate(DiscoveryChange, :count) == 0
+  end
+
+  test "saved host-policy receipts retain masked observers and independent inventory evidence" do
+    p = inventory()
+
+    other =
+      Map.merge(p, %{
+        "installation_id" => Ecto.UUID.generate(),
+        "session_id" => Ecto.UUID.generate(),
+        "runner_label" => "Second observer"
+      })
+
+    for payload <- [p, other], do: assert({:ok, _} = Monitoring.inventory(payload, at()))
+    manager = assignment(p, "manager")
+
+    assert {:ok, _} =
+             Monitoring.save_assignment(manager.id, manager.revision, %{
+               "interface_exclude" => "lo,local*"
+             })
+
+    child = assignment(p, "eth0")
+    {:ok, view, _} = live(build_conn(), "/configuration/discovery/" <> child.id)
+
+    view
+    |> form("#discovery-config-form", scope: "host", params: %{"interface_exclude" => "lo,eth0"})
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "table[aria-label='Checks reviewed for host policy']",
+             "Local override remains in force"
+           )
+
+    assert {:error, {:live_redirect, %{to: receipt_path}}} =
+             view |> element("#save-discovery-change") |> render_click()
+
+    {:ok, receipt, _} = live(build_conn(), receipt_path)
+
+    assert has_element?(
+             receipt,
+             "#discovery-change-receipt",
+             "Local override blocks this host policy"
+           )
+
+    assert has_element?(receipt, ".pf-v6-c-label.pf-m-orange", "Local override")
+    assert has_element?(receipt, "#discovery-change-receipt a", "Review local override removal")
+    refute has_element?(receipt, "#discovery-change-receipt", "Successful inventory accepted")
+  end
+
+  test "review keeps a rendered recovery form with exact scope values and captured revision" do
+    p = inventory()
+    assert {:ok, _} = Monitoring.inventory(p, at())
+    child = assignment(p, "eth0")
+    manager = assignment(p, "manager")
+    path = "/configuration/discovery/" <> child.id
+    {:ok, view, _} = live(build_conn(), path)
+
+    view
+    |> form("#discovery-config-form", scope: "host", params: %{"interface_exclude" => "lo,eth0"})
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "#discovery-config-editor[hidden][inert] #discovery-config-form[phx-auto-recover='recover']"
+           )
+
+    recovered_form = rendered_draft(view)
+    assert recovered_form["scope"] == "host"
+    assert recovered_form["params"]["interface_exclude"] == "lo,eth0"
+    assert recovered_form["_revision"] == to_string(manager.revision)
+    {:ok, reconnected, _} = live(build_conn(), path)
+    render_hook(reconnected, "recover", recovered_form)
+    assert has_element?(reconnected, "#discovery-scope-host[checked]")
+    assert has_element?(reconnected, "#discovery-param-interface_exclude[value='lo,eth0']")
+    refute has_element?(reconnected, "#save-discovery-change")
+    refute has_element?(reconnected, "#discovery-config-editor[hidden]")
+    assert assignment(p, "manager").params == %{"interface_exclude" => "lo"}
+    reconnected |> form("#discovery-config-form") |> render_submit()
+
+    assert {:error, {:live_redirect, _}} =
+             reconnected |> element("#save-discovery-change") |> render_click()
+  end
+
+  test "scope changes accept LiveView unused-input metadata and retain the reviewed host policy" do
+    p = inventory()
+    assert {:ok, _} = Monitoring.inventory(p, at())
+    child = assignment(p, "eth0")
+    manager = assignment(p, "manager")
+    {:ok, view, _} = live(build_conn(), "/configuration/discovery/" <> child.id)
+
+    render_change(view, "edit", %{
+      "_manager_id" => manager.id,
+      "_revision" => to_string(manager.revision),
+      "scope" => "host",
+      "params" => %{"interface_exclude" => "lo", "_unused_interface_exclude" => ""},
+      "_target" => ["scope"]
+    })
+
+    assert has_element?(view, "#discovery-scope-host[checked]")
+    refute has_element?(view, "#discovery-config-error")
+    view |> element("#toggle-discovered-resource") |> render_click()
+    assert has_element?(view, "#discovery-scope-host[checked]")
+    assert has_element?(view, "#discovery-param-interface_exclude[value='lo,eth0']")
+    view |> form("#discovery-config-form") |> render_submit()
+
+    assert has_element?(
+             view,
+             "#discovery-config-review",
+             "Current and future compatible observers"
+           )
+
+    assert has_element?(view, "#save-discovery-change")
+    assert Repo.aggregate(DiscoveryChange, :count) == 0
+  end
+
+  test "malformed review recovery and edits retain the last safe draft without terminating" do
+    p = inventory()
+    assert {:ok, _} = Monitoring.inventory(p, at())
+    child = assignment(p, "eth0")
+    {:ok, view, _} = live(build_conn(), "/configuration/discovery/" <> child.id)
+    view |> element("#toggle-discovered-resource") |> render_click()
+
+    for event <- ["edit", "recover", "review"],
+        bad <- [
+          %{"params" => "not-a-map"},
+          %{"params" => %{"interface_exclude" => true}},
+          %{"params" => %{"interface_exclude" => 42}},
+          %{"params" => %{"unknown" => "value"}},
+          %{"params" => %{"_unused_unknown" => ""}},
+          %{"params" => %{"_unused_interface_exclude" => "not-metadata"}},
+          %{"params" => %{"interface_exclude" => %{"nested" => "map"}}},
+          %{"_revision" => %{}, "params" => %{"interface_exclude" => "lo,bad"}},
+          %{"_manager_id" => %{}, "params" => %{"interface_exclude" => "lo,bad"}}
+        ] do
+      render_hook(view, event, bad)
+      assert Process.alive?(view.pid)
+      assert has_element?(view, "#discovery-param-interface_exclude[value='lo,eth0']")
+      assert has_element?(view, "#discovery-config-error", "could not be recovered")
+      refute has_element?(view, "#save-discovery-change")
+    end
+
+    view |> element("#toggle-discovered-resource") |> render_click()
+    assert has_element?(view, "#discovery-param-interface_exclude[value='lo']")
+    assert Repo.aggregate(DiscoveryChange, :count) == 0
+  end
+
+  test "source schema and relationship changes invalidate the captured discovery review" do
+    p = inventory()
+    assert {:ok, _} = Monitoring.inventory(p, at())
+    child = assignment(p, "eth0")
+    {:ok, view, _} = live(build_conn(), "/configuration/discovery/" <> child.id)
+    view |> element("#toggle-discovered-resource") |> render_click()
+    view |> form("#discovery-config-form") |> render_submit()
+
+    revised =
+      p
+      |> Map.put("inventory_revision", 2)
+      |> put_in(
+        ["checks", Access.at(0), "parameter_schema", "fields", "interface_exclude", "max_length"],
+        2047
+      )
+
+    assert {:ok, _} = Monitoring.inventory(revised, DateTime.add(at(), 1))
+    send(view.pid, :tick)
+
+    assert has_element?(
+             view,
+             "#discovery-param-interface_exclude[maxlength='2048'][value='lo,eth0']"
+           )
+
+    view |> element("#save-discovery-change") |> render_click()
+    assert has_element?(view, "#discovery-config-error", "changed after review")
+    assert Repo.aggregate(DiscoveryChange, :count) == 0
+    view |> element("button", "Reload current values") |> render_click()
+    view |> element("#toggle-discovered-resource") |> render_click()
+    view |> form("#discovery-config-form") |> render_submit()
+
+    removed =
+      revised
+      |> Map.put("inventory_revision", 3)
+      |> Map.update!("checks", fn checks ->
+        Enum.map(checks, fn check ->
+          if check["key"] == "eth0", do: Map.delete(check, "discovery"), else: check
+        end)
+      end)
+
+    assert {:ok, _} = Monitoring.inventory(removed, DateTime.add(at(), 2))
+    send(view.pid, :tick)
+    render_hook(view, "save", %{})
+    assert has_element?(view, "#discovery-config-error", "relationship changed")
+    assert Repo.aggregate(DiscoveryChange, :count) == 0
+  end
+
+  test "a new matching observer after host review requires a new review before save" do
+    p = inventory()
+    assert {:ok, _} = Monitoring.inventory(p, at())
+    child = assignment(p, "eth0")
+    {:ok, view, _} = live(build_conn(), "/configuration/discovery/" <> child.id)
+
+    view
+    |> form("#discovery-config-form", scope: "host", params: %{"interface_exclude" => "lo,eth0"})
+    |> render_submit()
+
+    second =
+      Map.merge(p, %{
+        "installation_id" => Ecto.UUID.generate(),
+        "session_id" => Ecto.UUID.generate(),
+        "runner_label" => "Late observer"
+      })
+
+    assert {:ok, _} = Monitoring.inventory(second, DateTime.add(at(), 1))
+    view |> element("#save-discovery-change") |> render_click()
+    assert has_element?(view, "#discovery-config-error", "changed after review")
+    assert has_element?(view, "#discovery-scope-host[checked]")
+    assert has_element?(view, "#discovery-param-interface_exclude[value='lo,eth0']")
+    assert Repo.aggregate(DiscoveryChange, :count) == 0
+    assert assignment(second, "manager").params == %{"interface_exclude" => "lo"}
+  end
+
+  defp rendered_draft(view) do
+    view
+    |> render()
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("#discovery-config-form input")
+    |> Enum.filter(fn input ->
+      type = LazyHTML.attribute(input, "type") |> List.first()
+      type not in ["radio", "checkbox"] || LazyHTML.attribute(input, "checked") != []
+    end)
+    |> Enum.map(fn input ->
+      {hd(LazyHTML.attribute(input, "name")),
+       List.first(LazyHTML.attribute(input, "value")) || ""}
+    end)
+    |> URI.encode_query()
+    |> Plug.Conn.Query.decode()
   end
 
   defp filesystem_inventory(names) do

@@ -40,26 +40,20 @@ export async function incidentNavigation(page, request, expected) {
       monitoring: overview.monitoring_loss?.unacknowledged_count || 0 };
     return expected ? counts : true;
   }).toEqual(expected || true);
-  const navigation = page.locator('#incident-navigation');
-  const monitoringLabel = counts.monitoring ? ` · ${counts.monitoring} monitoring loss incidents need attention` : '';
-  await expect(navigation).toHaveAttribute('aria-label', `Incidents · ${counts.health} unacknowledged open incidents${monitoringLabel}`);
-  await expect(navigation.locator('#incident-attention-count')).toHaveText(String(counts.health));
-  if (counts.monitoring) await expect(navigation.locator('.monitoring-loss-count')).toHaveText(`+${counts.monitoring}`);
-  else await expect(navigation.locator('.monitoring-loss-count')).toHaveCount(0);
+  const navigation = page.getByRole('navigation', {name: 'Main navigation'}).getByRole('link', {name: 'Incidents', exact: true});
+  await expect(navigation).toHaveAttribute('href', '/incidents');
+  // The old split +loss counter was intentionally removed. Counts are asserted
+  // against the independent domain projection; one navigation item opens both types.
   return counts;
 }
 
-export async function sectionTabs(page, section, navigationLabel, viewHeading) {
-  const heading = page.getByRole('heading', { level: 1 });
-  const tabs = page.getByRole('navigation', { name: navigationLabel, exact: true });
-  const view = page.getByRole('heading', { level: 2, name: viewHeading, exact: true });
-  await expect(heading).toHaveText(section);
-  await expect(tabs).toBeVisible();
-  await expect(tabs.locator('a[aria-current="page"]')).toHaveCount(1);
-  await expect(view).toBeVisible();
-  const positions = await Promise.all([heading, tabs, view].map((locator) => locator.boundingBox()));
-  expect(positions[0].y + positions[0].height).toBeLessThanOrEqual(positions[1].y + 1);
-  expect(positions[1].y + positions[1].height).toBeLessThanOrEqual(positions[2].y + 1);
+export async function sectionTabs(page, section, _navigationLabel, _viewHeading) {
+  // Secondary tabs were intentionally replaced with one section and chip filters.
+  const active = page.getByRole('navigation', {name: 'Main navigation'}).getByRole('link', {name: section, exact: true});
+  await expect(active).toHaveAttribute('aria-current', 'page');
+  const heading = page.getByRole('main').getByRole('heading', {level: 1});
+  await expect(heading).toHaveCount(1);
+  await expect(heading).toBeVisible();
 }
 
 export async function tabTo(page, target, { backward = false } = {}) {
@@ -165,4 +159,83 @@ export async function cancelReviewedMaintenance(request, window, reason) {
     data: { revision: window.revision, reason },
   });
   expect(response.ok(), await response.text()).toBe(true);
+}
+
+// Exercise the same two-step picker used by operators, including editing/removal.
+// Field names are protocol keys; values remain exact identities rather than labels.
+export async function setFilter(page, field, value, {id, kind} = {}) {
+  const bar = id ? page.locator(`#${id}`) : page.locator('[phx-hook="PreviewFilterPicker"]').first();
+  const input = bar.getByRole('combobox');
+  const fieldAttr = JSON.stringify(String(field));
+  const existing = bar.locator(`.preview-filter-chip > button[phx-click="filter_open"][phx-value-field=${fieldAttr}]`);
+  if (value === null || value === undefined) {
+    if (await existing.count()) {
+      const chip = existing.locator('..');
+      await chip.getByRole('link', {name: /^Remove .* filter$/}).or(chip.getByRole('button', {name: /^Remove .* filter$/})).click();
+      await expect(existing).toHaveCount(0);
+    }
+    await input.press('Escape');
+    return;
+  }
+  if (await existing.count()) await existing.click();
+  else {
+    await input.click();
+    await input.fill('');
+    await bar.locator(`[role="option"][phx-value-field=${fieldAttr}]`).click();
+  }
+  await expect(bar).toHaveAttribute('data-step', field);
+  const kindSelector = kind === undefined ? '' : `[phx-value-kind=${JSON.stringify(String(kind))}]`;
+  const option = bar.locator(`[role="option"][phx-value-key=${JSON.stringify(String(value))}]${kindSelector}`);
+  if (!await option.count()) await input.fill(String(value));
+  await expect(option).toBeVisible();
+  await option.click();
+  await expect(bar).not.toHaveAttribute('data-step', field);
+  await input.press('Escape');
+  if (value !== 'all') await expect(existing).toBeVisible();
+}
+
+export async function searchFilters(page, value, {id} = {}) {
+  const bar = id ? page.locator(`#${id}`) : page.locator('[phx-hook="PreviewFilterPicker"]').first();
+  const input = bar.getByRole('combobox');
+  if (value === '') {
+    const clear = bar.locator('[aria-label="Clear search text"]');
+    if (await clear.count()) await clear.click();
+    await input.click();
+    await input.fill('');
+    await input.press('Escape');
+    await connected(page);
+    await expect(bar).toHaveAttribute('data-search', '');
+    return;
+  }
+  await input.click();
+  await input.press('Escape');
+  await input.fill(value);
+  await input.press('Enter');
+  await connected(page);
+  await expect(bar).toHaveAttribute('data-search', value);
+  await input.press('Escape');
+}
+
+// Related evidence can make an implicit root explicit in inspect. Retain every
+// owner/filter parameter and require the exact returned typed stack.
+export async function expectInvestigationReturn(page, owner, trail) {
+  const expected = new URL(owner, page.url());
+  expected.searchParams.delete('inspect');
+  expected.searchParams.sort();
+  const selection = Array.isArray(trail) ? trail.join(',') : trail;
+  await expect(page).toHaveURL(actual => {
+    const filters = new URLSearchParams(actual.search);
+    filters.delete('inspect');
+    filters.sort();
+    return actual.origin === expected.origin && actual.pathname === expected.pathname
+      && filters.toString() === expected.searchParams.toString()
+      && actual.searchParams.get('inspect') === selection;
+  });
+}
+
+export async function reconnect(page, {alreadyDisconnected = false} = {}) {
+  if (!alreadyDisconnected) await page.evaluate(() => window.liveSocket.disconnect());
+  await expect(page.locator('[data-phx-main]')).not.toHaveClass(/phx-connected/);
+  await page.evaluate(() => window.liveSocket.connect());
+  await connected(page);
 }

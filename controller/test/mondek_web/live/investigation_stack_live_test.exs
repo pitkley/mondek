@@ -12,7 +12,7 @@ defmodule MondekWeb.InvestigationStackLiveTest do
   test "incident draft and captured authority survive related result, rewind, forward, tick and presentation" do
     {incident, result} = failure()
     token = "health:#{incident.id}"
-    base = "/next/incidents/health/#{incident.id}"
+    base = "/incidents/health/#{incident.id}"
     {:ok, view, _} = live(build_conn(), base)
 
     review =
@@ -73,7 +73,7 @@ defmodule MondekWeb.InvestigationStackLiveTest do
 
   test "a direct full page root shares identity and draft state with its overlays" do
     {incident, _result} = failure()
-    base = "/next/incidents/health/#{incident.id}/full"
+    base = "/incidents/health/#{incident.id}/full"
     {:ok, view, _} = live(build_conn(), base)
     view |> form("#preview-incident-ack-form", note: "Keep this root") |> render_change()
     view |> element("#incident-page a", "View latest check result") |> render_click()
@@ -96,7 +96,7 @@ defmodule MondekWeb.InvestigationStackLiveTest do
     occurrence = Repo.one!(Occurrence)
     Repo.update_all(Oban.Job, set: [state: "discarded"])
     Monitoring.change(occurrence, %{status: "exhausted"})
-    {:ok, view, _} = live(build_conn(), "/next/incidents/health/#{incident.id}")
+    {:ok, view, _} = live(build_conn(), "/incidents/health/#{incident.id}")
     selector = "#preview-retry-#{occurrence.id}"
     view |> form(selector, reason: "Receiver repaired") |> render_change()
     view |> element("#overview-panel a", "View latest check result") |> render_click()
@@ -107,7 +107,7 @@ defmodule MondekWeb.InvestigationStackLiveTest do
 
   test "signed recovery restores an inactive incident and its old review without writes" do
     {incident, _} = failure()
-    {:ok, view, _} = live(build_conn(), "/next/incidents/health/#{incident.id}")
+    {:ok, view, _} = live(build_conn(), "/incidents/health/#{incident.id}")
     view |> form("#preview-incident-ack-form", note: "Keep through reconnect") |> render_change()
     result_path = href(view, "#overview-panel a", "View latest check result")
     view |> element("#overview-panel a", "View latest check result") |> render_click()
@@ -123,7 +123,7 @@ defmodule MondekWeb.InvestigationStackLiveTest do
     refute Monitoring.acknowledgement_active?(Repo.get!(Incident, incident.id))
 
     # Invalid tokens and a token for a different host do not restore authority.
-    {:ok, other, _} = live(build_conn(), "/next?inspect=health%3A#{incident.id}")
+    {:ok, other, _} = live(build_conn(), "/?inspect=health%3A#{incident.id}")
 
     other
     |> with_target("#investigation-stack")
@@ -150,7 +150,7 @@ defmodule MondekWeb.InvestigationStackLiveTest do
                "Original"
              )
 
-    path = "/next/incidents/health/#{incident.id}"
+    path = "/incidents/health/#{incident.id}"
     {:ok, view, _} = live(build_conn(), path)
     view |> element("button", "Replace acknowledgement") |> render_click()
     view |> form("#preview-incident-ack-form", note: "Replacement draft") |> render_change()
@@ -181,7 +181,7 @@ defmodule MondekWeb.InvestigationStackLiveTest do
 
   test "retained entity bound preserves earlier drafts when a seventeenth identity is requested" do
     {incident, _} = failure()
-    base = "/next/incidents/health/#{incident.id}"
+    base = "/incidents/health/#{incident.id}"
     {:ok, view, _} = live(build_conn(), base)
     view |> form("#preview-incident-ack-form", note: "Retained at capacity") |> render_change()
 
@@ -204,7 +204,7 @@ defmodule MondekWeb.InvestigationStackLiveTest do
 
   test "promoted pages deduplicate their full prefix and cannot exceed the six-entity bound" do
     {incident, result} = failure()
-    base = "/next/incidents/health/#{incident.id}"
+    base = "/incidents/health/#{incident.id}"
     {:ok, view, _} = live(build_conn(), base)
     view |> form("#preview-incident-ack-form", note: "Prefix draft") |> render_change()
 
@@ -240,11 +240,11 @@ defmodule MondekWeb.InvestigationStackLiveTest do
     refute has_element?(direct, "#overview-panel")
 
     {:ok, malformed, _} =
-      live(build_conn(), "/next?inspect=bad&surface=page&page_entity=health%3A#{incident.id}")
+      live(build_conn(), "/?inspect=bad&surface=page&page_entity=health%3A#{incident.id}")
 
     refute has_element?(malformed, "#incident-page")
     refute has_element?(malformed, "#overview-panel")
-    {:ok, malformed_shape, _} = live(build_conn(), "/next?surface=page&page_entity[]=x")
+    {:ok, malformed_shape, _} = live(build_conn(), "/?surface=page&page_entity[]=x")
     refute has_element?(malformed_shape, "#overview-panel")
   end
 
@@ -270,7 +270,7 @@ defmodule MondekWeb.InvestigationStackLiveTest do
     assert {:ok, [hd(ids)]} == InvestigationTrail.open(Enum.take(ids, 3), hd(ids))
     assert {:ok, []} == InvestigationTrail.open(Enum.take(ids, 3), hd(ids), hd(ids))
     assert {:error, :limit} == InvestigationTrail.open(Enum.take(ids, 6), List.last(ids))
-    {:ok, view, _} = live(build_conn(), "/next?inspect=result%3Anot-an-id")
+    {:ok, view, _} = live(build_conn(), "/?inspect=result%3Anot-an-id")
     refute has_element?(view, "#overview-panel")
   end
 

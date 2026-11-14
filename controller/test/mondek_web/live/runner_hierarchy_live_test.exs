@@ -15,7 +15,7 @@ defmodule MondekWeb.RunnerHierarchyLiveTest do
     id = control()["installation_id"]
     {:ok, view, _} = live(build_conn(), "/runners/#{id}")
 
-    assert has_element?(view, "#runner-detail .badge", "Recent contact")
+    assert has_element?(view, "#runner-detail .pf-v6-c-label", "Recent contact")
     assert has_element?(view, "#runner-measurements", "1 of 3")
 
     assert has_element?(
@@ -38,7 +38,7 @@ defmodule MondekWeb.RunnerHierarchyLiveTest do
 
     assert disposition(ingest(failure, now)) == "current"
     send(view.pid, :tick)
-    assert has_element?(view, "#runner-detail .badge", "Recent contact")
+    assert has_element?(view, "#runner-detail .pf-v6-c-label", "Recent contact")
     assert has_element?(view, "#runner-measurements", "0 of 3")
 
     assert has_element?(
@@ -55,9 +55,9 @@ defmodule MondekWeb.RunnerHierarchyLiveTest do
       view |> element("#runner-measurements a[href*='freshness=unavailable']") |> render_click()
 
     {:ok, results, _} = follow_redirect(navigation, build_conn())
-    assert has_element?(results, "#check-inventory", "1 matching")
-    assert has_element?(results, "#inventory-freshness option[selected][value='unavailable']")
-    assert has_element?(results, "#inventory-runner option[selected][value='#{id}']")
+    assert has_element?(results, "#preview-check-results tbody tr")
+    assert has_element?(results, "#preview-chip-freshness", "Collection unavailable")
+    assert has_element?(results, "#overview-search", "Runner")
   end
 
   test "coverage uses result membership, age and authority rather than runner-reported counters" do
@@ -129,13 +129,19 @@ defmodule MondekWeb.RunnerHierarchyLiveTest do
           "Reports dropped since journal creation",
           "Running checks"
         ] do
-      assert has_element?(view, "#runner-last-report .fleet-facts > div", field)
+      assert has_element?(view, "#runner-last-report tr", field)
     end
 
-    assert has_element?(view, "#runner-last-report dd", "Not reported")
+    assert has_element?(view, "#runner-last-report td", "Not reported")
     assert has_element?(view, "#runner-diagnostic", "Earlier connection refused")
     assert has_element?(view, "#runner-diagnostic", "may describe an earlier problem")
-    refute has_element?(view, "#runner-last-report .notice.warn")
+
+    refute has_element?(
+             view,
+             "#runner-last-report .runner-section-note",
+             "Executions were waiting for capacity"
+           )
+
     refute has_element?(view, "#notifications")
     assert has_element?(view, "a[href='/notifications']", "Notifications")
   end
@@ -146,33 +152,33 @@ defmodule MondekWeb.RunnerHierarchyLiveTest do
     assert {:ok, _} = Monitoring.control(control(%{"status" => status}), now)
     id = control()["installation_id"]
     {:ok, view, _} = live(build_conn(), "/runners/#{id}")
-    assert has_element?(view, "#runner-last-report .fleet-facts > div", "Buffered reports11")
+    assert has_element?(view, "#runner-last-report tr", ~r/Buffered reports\s*11/)
 
     assert has_element?(
              view,
-             "#runner-last-report .fleet-facts > div",
+             "#runner-last-report tr",
              "Reports dropped since journal creation"
            )
 
-    assert has_element?(view, "#runner-last-report .fleet-facts > div dd", "2")
+    assert has_element?(view, "#runner-last-report td", "2")
 
     assert has_element?(
              view,
-             "#runner-last-report .fleet-facts > div",
+             "#runner-last-report tr",
              "Due, waiting for a slot"
            )
 
-    assert has_element?(view, "#runner-last-report .fleet-facts > div dd", "7")
+    assert has_element?(view, "#runner-last-report td", "7")
 
     assert has_element?(
              view,
-             "#runner-last-report .notice",
+             "#runner-last-report .runner-section-note",
              "Executions were waiting for capacity"
            )
 
     assert has_element?(
              view,
-             "#runner-last-report .notice",
+             "#runner-last-report .runner-section-note",
              "cumulative count records past evidence loss"
            )
 
@@ -200,37 +206,33 @@ defmodule MondekWeb.RunnerHierarchyLiveTest do
     end
 
     {:ok, view, _} = live(build_conn(), "/runners?sort=name")
-    assert has_element?(view, ".fleet-list-heading", "25 shown · 101 matching · 101 registered")
-    assert has_element?(view, "#runner-pagination", "Page 1 of 5")
-    assert has_element?(view, ".badge", "No active results")
+    assert has_element?(view, ".runner-list-order", "101 matching · 101 registered")
+    assert has_element?(view, "#runner-pagination", "1–25 of 101")
+    assert has_element?(view, ".pf-v6-c-label", "No active results")
     refute has_element?(view, "#runner-row-#{owner_id}")
     for _ <- 1..4, do: view |> element("#runner-pagination a", "Next") |> render_click()
-    assert has_element?(view, "#runner-pagination", "Page 5 of 5")
+    assert has_element?(view, "#runner-pagination", "101–101 of 101")
     assert has_element?(view, "#runner-row-#{owner_id}")
 
     {:ok, configuration, _} =
       live(build_conn(), "/configuration/10000000-0000-4000-8000-000000000003")
 
-    navigation =
-      configuration
-      |> element("#configuration-adoption-status a", "check runner status")
-      |> render_click()
+    configuration
+    |> element("#configuration-adoption-status a", "check runner status")
+    |> render_click()
 
-    {:ok, selected, _} = follow_redirect(navigation, build_conn())
-
-    assert has_element?(selected, "#runner-detail", owner_id)
-    assert has_element?(selected, "#runner-measurements", "1 of 3")
-    assert has_element?(selected, ".back[href='/runners']")
-    refute has_element?(selected, "#notifications")
+    assert has_element?(configuration, "#overview-panel #runner-detail", owner_id)
+    assert has_element?(configuration, "#overview-panel #runner-measurements", "1 of 3")
+    assert has_element?(configuration, "#overview-panel a[data-overview-close]")
+    refute has_element?(configuration, "#notifications")
     {:ok, notifications, _} = live(build_conn(), "/notifications?notification_status=exhausted")
     assert has_element?(notifications, "#notification-row-#{occurrence.id}")
     {:ok, invalid, _} = live(build_conn(), "/runners/not-a-uuid")
     assert has_element?(invalid, "h1", "Runner not found")
     refute has_element?(invalid, "#runner-detail")
-    {:ok, overview, _} = live(build_conn(), "/")
-    assert has_element?(overview, ".panel", "101 of 101")
-    assert has_element?(overview, ".panel", "runners have recent controller contact")
-    refute has_element?(overview, ".panel", "first 100")
+    {:ok, fleet, _} = live(build_conn(), "/runners")
+    assert has_element?(fleet, "#runner-fleet-summary", "101")
+    refute has_element?(fleet, "#runner-fleet-summary", "first 100")
   end
 
   defp current_report(now, sequence \\ 1) do

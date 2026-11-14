@@ -72,17 +72,20 @@ defmodule Mondek.DeliveryInspectionTest do
     path = "/notifications?notification_page=6&notification_status=exhausted"
     detail_path = MondekWeb.NotificationNavigation.detail_path(retry.id, path)
     {:ok, view, _} = live(build_conn(), path)
-    assert has_element?(view, "#notification-pagination", "Page 6 of 6")
-    assert has_element?(view, "#notifications .badge", "126 outstanding")
-    assert has_element?(view, "#notification-row-#{retry.id} a[href='#{detail_path}']")
+    assert has_element?(view, ".preview-page-controls [aria-current=page]", "6")
+    assert has_element?(view, ".preview-heading .pf-v6-c-badge", "126 outstanding")
+
+    assert has_element?(
+             view,
+             "#notification-row-#{retry.id} a[href*='notification%3A#{retry.id}']"
+           )
+
     refute has_element?(view, "#retry-notification-#{retry.id}")
-
-    # Recovered unchanged form state must keep the selected page.
-    view |> form("#notification-filters", notification_status: "exhausted") |> render_change()
-    assert has_element?(view, "#notification-pagination", "Page 6 of 6")
-
+    # Unchanged search submission must retain the complete selected page.
+    view |> form("#overview-search", search: "") |> render_submit()
+    assert has_element?(view, ".preview-page-controls [aria-current=page]", "6")
     {:ok, detail, _} = live(build_conn(), detail_path)
-    assert has_element?(detail, "a[href='#{path}']", "Back to notifications")
+    assert has_element?(detail, "a[href='#{path}'][data-overview-close]")
 
     detail
     |> form("#retry-notification-#{retry.id}", reason: "Receiver repaired")
@@ -90,17 +93,10 @@ defmodule Mondek.DeliveryInspectionTest do
 
     send(detail.pid, :tick)
     assert has_element?(detail, "#retry-reason-#{retry.id}[value='Receiver repaired']")
-
-    detail |> element("#notification-#{retry.id} a", "incident") |> render_click()
-
-    incident_path =
-      "/incidents/#{retry.incident_id}?" <> URI.encode_query(%{"return_to" => detail_path})
-
-    assert_redirect(detail, incident_path)
-    {:ok, incident_view, _} = live(build_conn(), incident_path)
-    assert has_element?(incident_view, "a[href='#{detail_path}']", "Back to notification")
-
-    {:ok, detail, _} = live(build_conn(), detail_path)
+    detail |> element("#overview-panel a", "View health incident") |> render_click()
+    assert has_element?(detail, "#preview-health-evidence")
+    detail |> element("#overview-panel a[data-overview-close]") |> render_click()
+    assert has_element?(detail, "#retry-reason-#{retry.id}[value='Receiver repaired']")
 
     detail
     |> form("#retry-notification-#{retry.id}", reason: "Receiver repaired")
@@ -108,18 +104,27 @@ defmodule Mondek.DeliveryInspectionTest do
 
     assert Repo.get!(Occurrence, retry.id).status == "pending"
     assert Repo.get!(Occurrence, retry.id).payload == retry.payload
-    assert has_element?(detail, "#notification-#{retry.id}")
+    assert has_element?(detail, "[data-notification-body]")
     refute has_element?(detail, "#retry-notification-#{retry.id}")
-
     {:ok, view, _} = live(build_conn(), path)
-    assert has_element?(view, "#notification-pagination", "Page 5 of 5")
+    assert has_element?(view, ".preview-page-controls [aria-current=page]", "5")
     refute has_element?(view, "#notification-row-#{retry.id}")
-    view |> form("#notification-filters", notification_status: "delivered") |> render_change()
+
+    view
+    |> element("button[phx-click=filter_open][phx-value-field=notification_status]")
+    |> render_click()
+
+    view |> element("button[phx-click=filter_select][phx-value-key=delivered]") |> render_click()
     assert_patch(view, "/notifications?notification_status=delivered")
-    assert has_element?(view, "#notification-pagination", "2 matching notifications")
-    assert has_element?(view, "#notifications .badge", "126 outstanding")
-    view |> form("#notification-filters", notification_status: "superseded") |> render_change()
-    assert has_element?(view, "#notification-empty", "No notifications match this status")
+    assert has_element?(view, ".notification-matching-count", "2 matching notifications")
+    assert has_element?(view, ".preview-heading .pf-v6-c-badge", "126 outstanding")
+
+    view
+    |> element("button[phx-click=filter_open][phx-value-field=notification_status]")
+    |> render_click()
+
+    view |> element("button[phx-click=filter_select][phx-value-key=superseded]") |> render_click()
+    assert has_element?(view, "#notification-empty", "No notifications match these filters")
   end
 
   test "notification navigation rejects nested inputs and details expose only the exact occurrence" do
@@ -140,7 +145,7 @@ defmodule Mondek.DeliveryInspectionTest do
 
     assert api_page["notification_page"]["total"] == 2
     {:ok, view, _} = live(build_conn(), "/notifications?notification_page[x]=1")
-    assert has_element?(view, "#notification-pagination", "Page 1 of 6")
+    assert has_element?(view, ".preview-page-controls [aria-current=page]", "1")
     {:ok, missing, _} = live(build_conn(), "/notifications/invalid")
     assert has_element?(missing, "h1", "Notification not found")
 

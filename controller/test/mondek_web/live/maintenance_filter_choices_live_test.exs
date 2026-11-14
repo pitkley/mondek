@@ -12,39 +12,45 @@ defmodule MondekWeb.MaintenanceFilterChoicesLiveTest do
     {_second, _} = monitored("B", "production", "Production")
     {:ok, view, _} = live(build_conn(), "/maintenance/new")
 
+    render_hook(view, "filter_open", %{"field" => "environment"})
+
     assert has_element?(
              view,
-             "#maintenance-environment-options option[value='production']",
+             "#maintenance-choice-search-options button[phx-value-key='production']",
              "Production"
            )
 
+    render_hook(view, "filter_open", %{"field" => "runner_id"})
+
     assert has_element?(
              view,
-             "#maintenance-runner-options option[value='#{first.id}']",
+             "#maintenance-choice-search-options button[phx-value-key='#{first.id}']",
              "Runner A"
            )
 
-    assert has_element?(view, "#maintenance-source-options option[value='maintenance.choice']")
-    assert has_element?(view, "label[for='maintenance-runner']", "Observing runner")
-
+    render_hook(view, "filter_open", %{"field" => "source_id"})
+    assert render(view) =~ "maintenance.choice"
     filters = %{"kind" => "target", "environment" => "production", "runner_id" => first.id}
-    view |> form("#maintenance-selection-form", filters: filters) |> render_change()
-    assert has_element?(view, "#maintenance-runner[value='#{first.id}']")
-    assert has_element?(view, ".maintenance-picker-rows", "all matching observers")
+    choose_filters(view, filters)
+    assert has_element?(view, "#maintenance-choice-search-chip-runner_id", "Runner A")
+    assert has_element?(view, ".preview-maintenance-choice-toolbar", "across runners")
     [target] = MaintenanceSelection.list(filters)["items"]
     assert target["matched_results"] == 2
     view |> form("#maintenance-selection-form", selected_keys: [target["key"]]) |> render_change()
-    assert has_element?(view, "#maintenance-selected-count", "1 selection")
-
+    assert has_element?(view, "#maintenance-selected-count", "1 selected")
     unknown = Ecto.UUID.generate()
-    view |> form("#maintenance-selection-form", filters: %{runner_id: unknown}) |> render_change()
-    assert has_element?(view, "#maintenance-runner[value='#{unknown}']")
-    assert has_element?(view, "#maintenance-selected-count", "1 selection")
-    view |> element("#maintenance-review-selected") |> render_click()
-    assert has_element?(view, ".maintenance-picker-rows", "Shared host")
+    choose_filters(view, %{"runner_id" => unknown})
+    render_hook(view, "filter_close", %{})
+    assert has_element?(view, "#maintenance-choice-search-chip-runner_id", "Runner A")
+    refute has_element?(view, "#maintenance-choice-search-chip-runner_id", unknown)
+    assert has_element?(view, "#maintenance-selected-count", "1 selected")
+
+    render_submit(element(view, "#maintenance-choice-search"), %{"search" => "no matching target"})
+
+    assert has_element?(view, ".preview-maintenance-pinned", "Shared host")
   end
 
-  test "suggestions are bounded and IDs outside the suggestions remain usable" do
+  test "bounded suggestions still allow exact identifiers outside the first hundred" do
     entries =
       for number <- 0..100 do
         id = String.pad_leading(to_string(number), 3, "0")
@@ -61,18 +67,26 @@ defmodule MondekWeb.MaintenanceFilterChoicesLiveTest do
 
     refute Enum.any?(choices["runners"], &(&1["id"] == last.id))
     {:ok, view, _} = live(build_conn(), "/maintenance/new")
-    assert has_element?(view, "#maintenance-filter-help", "up to 100")
-    refute has_element?(view, "#maintenance-runner-options option[value='#{last.id}']")
+
+    choose_filters(view, %{
+      "runner_id" => last.id,
+      "environment" => "env-100",
+      "source_id" => "source-100"
+    })
+
+    assert has_element?(view, "#maintenance-choice-search-chip-runner_id")
+    assert has_element?(view, "#maintenance-choice-search-chip-environment")
+    assert has_element?(view, "table[aria-label='Checks and targets']", assignment.label)
+  end
+
+  defp choose_filters(view, values) do
+    for {field, value} <- values do
+      render_hook(view, "filter_open", %{"field" => to_string(field)})
+      render_hook(view, "filter_query", %{"search" => value})
+      render_hook(view, "filter_select", %{"key" => value})
+    end
 
     view
-    |> form("#maintenance-selection-form",
-      filters: %{runner_id: last.id, environment: "env-100", source_id: "source-100"}
-    )
-    |> render_change()
-
-    assert has_element?(view, "#maintenance-runner[value='#{last.id}']")
-    assert has_element?(view, "#maintenance-environment[value='env-100']")
-    assert has_element?(view, ".maintenance-picker-rows", assignment.label)
   end
 
   defp monitored(name, environment, environment_label, source \\ "maintenance.choice") do

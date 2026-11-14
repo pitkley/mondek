@@ -22,18 +22,18 @@ defmodule MondekWeb.PreviewLayouts do
   end
 
   attr :active, :atom, required: true
-  attr :overview_path, :string, default: "/next"
+  attr :overview_path, :string, default: "/"
 
   def navigation(assigns) do
     ~H"""
     <a class="preview-skip pf-v6-c-button pf-m-link" href="#main-content">Skip to content</a>
     <header class="preview-masthead">
-      <.link href="/next" class="preview-brand">mondek</.link>
+      <.link href="/" class="preview-brand">mondek</.link>
       <span class="preview-caption">Monitoring</span>
       <.link href="/guide" class="pf-v6-c-button pf-m-link">Help &amp; setup</.link>
     </header>
     <aside class="preview-sidebar">
-      <.link href="/next" class="preview-sidebar-brand"><span
+      <.link href="/" class="preview-sidebar-brand"><span
         class="preview-brand-mark"
         aria-hidden="true"
       >m</span><span>mondek<span class="preview-caption">Monitoring</span></span></.link>
@@ -43,9 +43,9 @@ defmodule MondekWeb.PreviewLayouts do
             :for={
               {page, label, href, icon} <- [
                 {:overview, "Overview", @overview_path, "grid"},
-                {:incidents, "Incidents", "/next/incidents", "pulse"},
-                {:checks, "Checks", "/next/checks", "check"},
-                {:maintenance, "Maintenance", "/next/maintenance", "clock"}
+                {:incidents, "Incidents", "/incidents", "pulse"},
+                {:checks, "Checks", "/checks", "check"},
+                {:maintenance, "Maintenance", "/maintenance", "clock"}
               ]
             }
             class="pf-v6-c-nav__item"
@@ -65,7 +65,7 @@ defmodule MondekWeb.PreviewLayouts do
                 {:configuration, "Configuration", "/configuration", "sliders"},
                 {:runners, "Runners", "/runners", "server"},
                 {:notifications, "Notifications", "/notifications", "send"},
-                {:coverage, "Coverage", "/next/coverage", "shield"}
+                {:coverage, "Coverage", "/coverage", "shield"}
               ]
             }
             class="pf-v6-c-nav__item"

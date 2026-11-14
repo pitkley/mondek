@@ -11,6 +11,10 @@ Saving opens a persistent change receipt. Activation, accepted inventory and ord
 
 Shared-rule conflicts and masking are shown during review. The editor does not raise priority automatically or clear local overrides. A new runner can briefly discover using source defaults before adopting a host policy.
 
+The editor presents scope first, then the complete selection values, then a review of exact values and current affected checks. Current result and runner links open investigation panels without discarding the draft or review. Promoting evidence to a page preserves the hidden editor; returning to settings restores it. The named edit form stays in the DOM, hidden and inert while its review is shown, so reconnect can recover the actual form values, scope and captured revision; it requires a new review before saving. Opening any investigation card makes the preserved editor inert and blocks its edit/save events until returning. Malformed or schema-incompatible form shapes are rejected before replacing the last safe draft. A concurrent setting or relationship change leaves the draft visible and rejects the stale save.
+
+Saved receipts use factual tables per observer. The reviewed generation and any accepted inventory timestamp belong to that saved change; the current desired generation's measurement status is shown separately. A masked host policy links to a separately reviewed local-override removal rather than silently removing it.
+
 ## Inventory metadata
 
 The optional version-1 `discovery` object is declared per check. A Linux manager publishes `kind: manager` and `capability: linux.resources.v1`. Resource checks publish `kind: resource`, `manager_key`, `resource_kind`, `resource_name` and `origin` (`discovered` or `required`). Relationships must reference a manager in the same admitted source/observer inventory and monitored environment. They do not establish group membership, incident equivalence or maintenance propagation. Existing check and target keys remain unchanged.

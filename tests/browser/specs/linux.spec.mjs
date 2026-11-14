@@ -8,12 +8,12 @@ test('Linux pack groups, measurements and shared code policy on two runners', as
   expect(items).toHaveLength(9);
   const memory = items.find(row => row.target.key === 'host:linux-fixture' && row.check_label.includes('memory'));
   expect(memory).toBeTruthy();
-  await page.goto('/checks?view=targets');
+  await page.goto('/checks');
   await connected(page);
   await expect(page.locator('body')).toContainText('Linux native');
   await expect(page.locator('body')).toContainText('Linux fixture');
   await checkpoint(page, testInfo, 'linux-host-groups');
-  await page.goto(`/checks/${memory.id}`);
+  await page.goto(`/results/${memory.id}/full`);
   await connected(page);
   await expect(page.getByRole('heading', {level: 1})).toHaveText('Linux memory');
   await expect(page.locator('body')).toContainText('Memory 50.0% used');
@@ -67,10 +67,11 @@ test('Linux pack groups, measurements and shared code policy on two runners', as
   await page.locator('#rule-param-filesystem_exclude').fill('/data*');
   await page.locator('#rule-param-interface_exclude').fill('lo,veth*,br-*');
   await page.getByRole('button', {name: 'Preview rule', exact: true}).click();
-  await expect(page.locator('#rule-preview-summary')).toContainText('1 checks reviewed');
+  await expect(page.locator('#rule-preview-summary')).toContainText('1 check reviewed');
   await checkpoint(page, testInfo, 'linux-discovery-selection-preview');
   await page.getByRole('button', {name: 'Save rule', exact: true}).click();
-  await expect(page).toHaveURL(/\/configuration\/rules\/[0-9a-f-]{36}$/);
+  await expect(page).toHaveURL(url => /^\/configuration\/rules\/[0-9a-f-]{36}$/.test(url.pathname)
+    && url.searchParams.get('return_to') === `/configuration/${discovery.assignment_id}`);
   await expect.poll(async () => {
     const assignment = await (await request.get(`/api/v1/assignments/${discovery.assignment_id}`)).json();
     return assignment.params.filesystem_exclude;

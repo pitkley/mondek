@@ -8,6 +8,52 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
 
   @endpoint MondekWeb.Endpoint
 
+  test "rules return through configuration and the same result to its filtered Checks list" do
+    [check] = publish([check("volume")])
+    stream = Repo.get_by!(Mondek.ResultStream, assignment_id: check["id"])
+    checks_path = "/checks?search=volume"
+    result_path = "/results/#{stream.id}/full?" <> URI.encode_query(%{"return_to" => checks_path})
+    {:ok, result, _} = live(build_conn(), result_path)
+
+    {:ok, editor_conn} =
+      result
+      |> element("a", "View check configuration")
+      |> render_click()
+      |> follow_redirect(build_conn())
+
+    {:ok, editor, _} = live(editor_conn)
+
+    {:ok, rules, _} =
+      editor |> element("#create-durable-rule") |> render_click() |> follow_redirect(build_conn())
+
+    rules
+    |> form("#configuration-rule-form", rule: %{name: "Return journey"}, params: %{limit: "70"})
+    |> render_submit()
+
+    rules |> form("#configuration-rule-form") |> render_submit()
+    saved = assert_patch(rules)
+    {:ok, reopened, _} = live(build_conn(), saved)
+
+    {:ok, returned_editor, _} =
+      reopened
+      |> element(".configuration-actions a", "Back to investigation")
+      |> render_click()
+      |> follow_redirect(build_conn())
+
+    {:ok, returned_result, _} =
+      returned_editor
+      |> element("a.back", "Back to result")
+      |> render_click()
+      |> follow_redirect(build_conn())
+
+    assert has_element?(returned_result, "#full-result-heading")
+    assert has_element?(returned_result, "a[href='#{checks_path}']", "Back to checks")
+
+    returned_result |> element("a", "Back to checks") |> render_click()
+    assert_patch(returned_result, checks_path)
+    assert has_element?(returned_result, ".preview-search-token", "volume")
+  end
+
   test "shared settings preserve the originating result through review, save and reload" do
     [check] = publish([check("volume")])
 
@@ -15,33 +61,46 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
       Repo.get_by!(Mondek.ResultStream, assignment_id: check["id"]) |> Monitoring.public()
 
     result_path =
-      "/checks/" <>
-        stream["id"] <>
-        "?" <> URI.encode_query(%{"return_to" => "/checks?search=volume&tab=all&view=list"})
+      "/checks?" <>
+        URI.encode_query(%{"search" => "volume", "inspect" => "result:" <> stream["id"]})
 
     path =
       "/configuration/rules/new?" <>
         URI.encode_query(%{"check_id" => check["id"], "return_to" => result_path})
 
     {:ok, view, _} = live(build_conn(), path)
-    assert has_element?(view, ".back", "Back to result")
+
+    assert has_element?(
+             view,
+             ".configuration-actions a[href='#{result_path}']",
+             "Back to investigation"
+           )
 
     view
     |> form("#configuration-rule-form", rule: %{name: "Journey limits"}, params: %{limit: "70"})
     |> render_submit()
 
-    assert has_element?(view, "#rule-preview-summary", "1 configurations will change")
+    assert has_element?(view, "#rule-preview-summary", "1 configuration will change")
     view |> form("#configuration-rule-form") |> render_submit()
     saved_path = assert_patch(view)
     assert URI.decode_query(URI.parse(saved_path).query)["return_to"] == result_path
     {:ok, reopened, _} = live(build_conn(), saved_path)
-    assert has_element?(reopened, ".back[href='#{result_path}']", "Back to result")
+
+    assert has_element?(
+             reopened,
+             ".configuration-actions a[href='#{result_path}']",
+             "Back to investigation"
+           )
 
     {:ok, result, _} =
-      reopened |> element(".back") |> render_click() |> follow_redirect(build_conn())
+      reopened
+      |> element(".configuration-actions a[href='#{result_path}']")
+      |> render_click()
+      |> follow_redirect(build_conn())
 
     assert has_element?(result, "h1")
-    assert has_element?(result, ".back", "Back to results")
+    assert has_element?(result, "#overview-panel-title")
+    assert has_element?(result, "[data-overview-close][href='/checks?search=volume']")
   end
 
   test "opening rule creation without a check offers a useful starting point" do
@@ -67,8 +126,8 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
     )
     |> render_submit()
 
-    assert has_element?(view, "#rule-preview-summary", "1 checks reviewed")
-    assert has_element?(view, "#rule-preview-summary", "1 configurations will change")
+    assert has_element?(view, "#rule-preview-summary", "1 check reviewed")
+    assert has_element?(view, "#rule-preview-summary", "1 configuration will change")
     assert Repo.get!(Assignment, check["id"]).params["limit"] == 80
     view |> form("#configuration-rule-form") |> render_submit()
     assert_patch(view)
@@ -76,7 +135,7 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
     assert Repo.get!(Assignment, check["id"]).params["limit"] == 70
 
     {:ok, effective, _} = live(build_conn(), "/configuration/" <> check["id"])
-    assert has_element?(effective, "#configuration-origin", "From rule")
+    assert has_element?(effective, "#configuration-origin", "rule")
     assert has_element?(effective, "#configuration-origin a", "Production volume")
     assert has_element?(effective, "button", "Review settings for this check")
   end
@@ -91,7 +150,7 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
     assert has_element?(
              listing,
              "#rule-row-#{rule["id"]}",
-             "Applies when compatible checks appear"
+             "Waiting for compatible checks"
            )
 
     {:ok, view, _} = live(build_conn(), "/configuration/rules/" <> rule["id"])
@@ -189,7 +248,11 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
     publish([updated], 2)
     {:ok, view, _} = live(build_conn(), "/configuration/rules/" <> rule["id"])
     assert has_element?(view, "#rule-param-limit[max='100']")
-    view |> form("#rule-refresh-schema", check_id: check["id"]) |> render_submit()
+
+    view
+    |> element("button[phx-click=refresh_schema][phx-value-check_id='#{check["id"]}']")
+    |> render_click()
+
     assert has_element?(view, "#rule-param-limit[max='99'][value='70']")
     assert has_element?(view, "#rule-notice", "schema for review")
     assert {:ok, before_save} = ConfigurationRules.get(rule["id"])
@@ -208,7 +271,7 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
     save_rule(check)
     {:ok, view, _} = live(build_conn(), "/configuration/rules/new?check_id=" <> check["id"])
     view |> form("#configuration-rule-form", params: %{limit: "66"}) |> render_submit()
-    assert has_element?(view, "#rule-preview-summary", "1 conflicts")
+    assert has_element?(view, "#rule-preview-summary", "1 conflict")
     assert has_element?(view, "#rule-save[disabled]", "Save rule")
     assert has_element?(view, "#rule-preview-#{check["id"]} .form-error")
     assert Repo.get!(Assignment, check["id"]).params["limit"] == 70
@@ -236,7 +299,7 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
     |> form("#configuration-rule-form", rule: %{target_key: "different-volume"})
     |> render_submit()
 
-    assert has_element?(view, "#rule-preview-summary", "1 checks reviewed")
+    assert has_element?(view, "#rule-preview-summary", "1 check reviewed")
     assert has_element?(view, "#rule-preview-#{check["id"]}", "Leaving this rule's scope")
     assert has_element?(view, "#rule-preview-#{check["id"]}", "Defaults from code")
     assert has_element?(view, "#rule-preview th", "Currently saved values")
@@ -260,7 +323,7 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
     {:ok, fresh, _} = live(build_conn(), "/configuration/" <> row["id"])
     fresh |> element("#remove-instance-exception") |> render_click()
     fresh |> form("#exception-reset-form") |> render_submit()
-    assert has_element?(fresh, "#configuration-origin", "From rule")
+    assert has_element?(fresh, "#configuration-origin", "rule")
     assert Repo.get!(Assignment, check["id"]).params["limit"] == 70
     assert Repo.get!(Assignment, check["id"]).instance_exception == nil
   end
@@ -288,7 +351,7 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
     [check] = publish([check("volume")])
     {:ok, defaults, _} = live(build_conn(), "/configuration/" <> check["id"])
     refute has_element?(defaults, "#configuration-value-comparison")
-    assert has_element?(defaults, "#configuration-as-code", "Rules are optional")
+    assert has_element?(defaults, "#configuration-origin", "defaults from code")
 
     save_rule(check)
     [updated] = publish([put_in(check("volume"), ["params", "limit"], 85)], 2)
@@ -296,17 +359,17 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
     {:ok, view, _} = live(build_conn(), "/configuration/" <> check["id"])
     assert has_element?(view, "#configuration-value-comparison", "Changing defaults in Python")
     assert has_element?(view, ".configuration-difference", "85")
-    assert has_element?(view, ".configuration-difference h4", "items")
+    assert has_element?(view, ".configuration-difference th", "items")
     assert has_element?(view, ".configuration-difference", "70")
     assert has_element?(view, "#configuration-value-comparison", "last measurement")
 
     {:ok, _} = Monitoring.save_assignment(updated["id"], updated["revision"], %{"limit" => 90})
     send(view.pid, :tick)
     assert has_element?(view, "#configuration-under-exception", "rule")
-    assert has_element?(view, ".configuration-difference", "Without exception")
+    assert has_element?(view, ".configuration-values-table thead", "Without exception")
     assert has_element?(view, ".configuration-difference", "90")
     assert has_element?(view, ".configuration-difference", "70")
-    assert has_element?(view, "#configuration-editor-updated", "Your draft has been kept")
+    assert has_element?(view, "#configuration-editor-updated", "Your draft keeps version")
     assert has_element?(view, "input[name='params[limit]'][value='70']")
     view |> element("#configuration-editor-updated button") |> render_click()
     refute has_element?(view, "#configuration-editor-updated")
@@ -341,7 +404,7 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
     assert has_element?(view, "#managed-rule", "personal-monitoring")
     assert has_element?(view, "#managed-rule", "volume-limits")
     assert has_element?(view, "#configuration-rule-form")
-    assert has_element?(view, "#rule-schema-search")
+    assert has_element?(view, "#rule-schema-filter")
     {:ok, reconnected, _} = live(build_conn(), path)
     assert has_element?(reconnected, "#managed-rule", "Edit here or through Git")
     assert has_element?(reconnected, "#configuration-rule-form")
@@ -350,7 +413,7 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
     |> form("#configuration-rule-form", params: %{limit: "65"})
     |> render_submit()
 
-    assert has_element?(reconnected, "#rule-preview-summary", "1 configurations will change")
+    assert has_element?(reconnected, "#rule-preview-summary", "1 configuration will change")
     reconnected |> form("#configuration-rule-form") |> render_submit()
     assert_patch(reconnected)
     assert Repo.get!(Assignment, check["id"]).params["limit"] == 65
@@ -362,7 +425,7 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
     assert has_element?(detail, "#configuration-value-comparison", "personal-monitoring")
     assert has_element?(detail, "button", "Review settings for this check")
     {:ok, listing, _} = live(build_conn(), "/configuration/rules")
-    assert has_element?(listing, "#rule-row-#{rule["id"]}", "Project: personal-monitoring")
+    assert has_element?(listing, "#rule-row-#{rule["id"]}", "Project personal-monitoring")
 
     manifest = %{manifest | "rules" => []}
     {:ok, state} = Mondek.ConfigurationRepository.state()
@@ -373,6 +436,166 @@ defmodule MondekWeb.ConfigurationRulesLiveTest do
     assert has_element?(view, "a", "Browse saved rules")
     refute has_element?(view, "a", "Choose a scheduled check")
     refute has_element?(view, "#managed-rule")
+  end
+
+  test "rule filters search the complete retained set before pagination and preserve literal source all" do
+    [check] = publish([check("volume")])
+    rule = save_rule(check)
+    stored = Repo.get!(Mondek.ConfigurationRule, rule["id"])
+
+    for n <- 1..27 do
+      Repo.insert!(%Mondek.ConfigurationRule{
+        repository_key: "test-rule-#{n}",
+        revision: 1,
+        name: if(n == 27, do: "Needle report", else: "Rule #{n}"),
+        source_id: if(n == 27, do: "all", else: stored.source_id),
+        parameter_contract: stored.parameter_contract,
+        environment: stored.environment,
+        target_kind: stored.target_kind,
+        target_key: stored.target_key,
+        priority: stored.priority,
+        enabled: n == 27,
+        parameter_schema: stored.parameter_schema,
+        params: stored.params,
+        saved_at: at()
+      })
+    end
+
+    {:ok, view, _} = live(build_conn(), "/configuration/rules?page=2")
+    assert has_element?(view, ".preview-page-controls [aria-current=page]", "2")
+    view |> element("button[phx-click=filter_open][phx-value-field=source_id]") |> render_click()
+    view |> element("button[phx-click=filter_select][phx-value-key=all]") |> render_click()
+    assert_patch(view, "/configuration/rules?source_id=all")
+    assert has_element?(view, "#preview-chip-source_id", "all")
+    assert has_element?(view, "tbody tr", "Needle report")
+    refute has_element?(view, ".preview-page-controls")
+    view |> form("#overview-search", search: "Needle") |> render_submit()
+    assert_patch(view, "/configuration/rules?search=Needle&source_id=all")
+    assert has_element?(view, "tbody tr", "Needle report")
+    view |> element("button[phx-click=filter_open][phx-value-field=enabled]") |> render_click()
+    view |> element("button[phx-click=filter_select][phx-value-key=disabled]") |> render_click()
+    assert has_element?(view, ".preview-empty", "No configuration rules match")
+
+    assert ConfigurationRules.list(%{
+             "search" => "Needle",
+             "enabled" => "enabled",
+             "source_id" => "all"
+           })["total"] == 1
+
+    assert ConfigurationRules.list(%{"search" => "Needle", "ownership" => "project"})["total"] ==
+             0
+  end
+
+  test "reviewed rule survives runner evidence and page promotion without granting inactive writes or new authority" do
+    [check] = publish([check("volume")])
+    rule = save_rule(check)
+    {:ok, view, _} = live(build_conn(), "/configuration/rules/" <> rule["id"])
+    view |> form("#configuration-rule-form", params: %{limit: "65"}) |> render_submit()
+    token = hidden(view, "_review_token")
+    view |> element("#rule-runner-#{check["id"]}") |> render_click()
+    assert has_element?(view, "#rules-workflow[inert]")
+    render_hook(view, "save", %{"_review_token" => token})
+    assert Repo.get!(Assignment, check["id"]).params["limit"] == 70
+    view |> element("#overview-panel a", "Open as page") |> render_click()
+    assert has_element?(view, "#rules-workflow[hidden][inert]")
+    assert has_element?(view, "#runner-page #runner-heading")
+    view |> element("#runner-page a", "Open fly-over") |> render_click()
+    view |> element("#overview-panel a[data-overview-close]") |> render_click()
+    assert hidden(view, "_review_token") == token
+    {:ok, current} = ConfigurationRules.get(rule["id"])
+    {:ok, remote} = ConfigurationRules.preview(Map.put(current, "name", "Saved elsewhere"))
+    {:ok, _} = ConfigurationRules.apply(remote["review_token"], remote["proposal"])
+    send(view.pid, :tick)
+    view |> form("#configuration-rule-form") |> render_submit()
+    assert has_element?(view, "#rule-error", "draft is preserved")
+    assert {:ok, %{"name" => "Saved elsewhere"}} = ConfigurationRules.get(rule["id"])
+    assert Repo.get!(Assignment, check["id"]).params["limit"] == 70
+    view |> render_patch("/configuration/rules/#{rule["id"]}?surface=page&page_entity[]=invalid")
+    refute has_element?(view, "#rules-workflow[hidden]")
+  end
+
+  test "inactive rule recovery keeps the captured draft revision and requires another preview" do
+    [check] = publish([check("volume")])
+    rule = save_rule(check)
+    path = "/configuration/rules/" <> rule["id"]
+    {:ok, view, _} = live(build_conn(), path)
+    view |> form("#configuration-rule-form", params: %{limit: "66"}) |> render_submit()
+    captured = hidden(view, "_proposal")
+    view |> element("#rule-runner-#{check["id"]}") |> render_click()
+    panel_path = assert_patch(view)
+    {:ok, current} = ConfigurationRules.get(rule["id"])
+    {:ok, remote} = ConfigurationRules.preview(Map.put(current, "name", "Remote revision"))
+    {:ok, _} = ConfigurationRules.apply(remote["review_token"], remote["proposal"])
+    {:ok, recovered, _} = live(build_conn(), panel_path)
+    render_hook(recovered, "recover", %{"_proposal" => captured})
+    assert has_element?(recovered, "#rules-workflow[inert]")
+    refute has_element?(recovered, "#rule-save")
+    recovered |> element("#overview-panel a[data-overview-close]") |> render_click()
+    assert has_element?(recovered, "#rule-param-limit[value='66']")
+    assert Jason.decode!(hidden(recovered, "_proposal"))["revision"] == rule["revision"]
+    recovered |> form("#configuration-rule-form") |> render_submit()
+    assert has_element?(recovered, "#rule-error", "draft is preserved")
+    assert Repo.get!(Assignment, check["id"]).params["limit"] == 70
+  end
+
+  test "two successive saves rebase the editor and discard the consumed review" do
+    [check] = publish([check("volume")])
+    rule = save_rule(check)
+    {:ok, view, _} = live(build_conn(), "/configuration/rules/" <> rule["id"])
+
+    for {limit, revision} <- [{"65", 2}, {"60", 3}] do
+      view |> form("#configuration-rule-form", params: %{limit: limit}) |> render_submit()
+      assert has_element?(view, "#rule-save")
+      view |> form("#configuration-rule-form") |> render_submit()
+      assert_patch(view)
+      refute has_element?(view, "#rule-save")
+      assert has_element?(view, "#rule-param-limit[value='#{limit}']")
+      assert Jason.decode!(hidden(view, "_proposal"))["revision"] == revision
+      assert {:ok, %{"revision" => ^revision}} = ConfigurationRules.get(rule["id"])
+      assert Repo.get!(Assignment, check["id"]).params["limit"] == String.to_integer(limit)
+      assert has_element?(view, "#rule-saved-change")
+      refute has_element?(view, "#rule-zero-matches")
+    end
+  end
+
+  test "initial schema refresh deep link is consumed before related evidence navigation" do
+    [check] = publish([check("volume")])
+    rule = save_rule(check)
+
+    {:ok, view, _} =
+      live(build_conn(), "/configuration/rules/#{rule["id"]}?schema_from=#{check["id"]}")
+
+    view |> form("#configuration-rule-form", params: %{limit: "65"}) |> render_submit()
+    token = hidden(view, "_review_token")
+    view |> element("#rule-runner-#{check["id"]}") |> render_click()
+    view |> element("#overview-panel a[data-overview-close]") |> render_click()
+    assert hidden(view, "_review_token") == token
+    assert has_element?(view, "#rule-save")
+    assert Jason.decode!(hidden(view, "_proposal"))["params"]["limit"] == 65
+  end
+
+  test "malformed recovered proposal is rejected without replacing the editable draft" do
+    [check] = publish([check("volume")])
+    rule = save_rule(check)
+    {:ok, view, _} = live(build_conn(), "/configuration/rules/" <> rule["id"])
+    captured = Jason.decode!(hidden(view, "_proposal"))
+
+    for malformed <- [
+          Map.put(captured, "environment", %{"nested" => "not an identity"}),
+          Map.put(captured, "source_id", nil),
+          Map.put(captured, "parameter_contract", nil),
+          Map.put(captured, "source_id", ""),
+          Map.put(captured, "parameter_contract", "  "),
+          put_in(captured, ["params", "limit"], %{"nested" => "not a scalar"}),
+          put_in(captured, ["params", "limit"], ["not", "a scalar"])
+        ] do
+      render_hook(view, "recover", %{"_proposal" => Jason.encode!(malformed)})
+      assert has_element?(view, "#rule-error", "could not be restored")
+      assert has_element?(view, "#rule-param-limit[value='70']")
+      assert Jason.decode!(hidden(view, "_proposal")) == captured
+    end
+
+    assert Repo.get!(Assignment, check["id"]).params["limit"] == 70
   end
 
   defp hidden(view, name),

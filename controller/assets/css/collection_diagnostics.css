@@ -1,0 +1,11 @@
+/*! Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com> */
+/*! SPDX-License-Identifier: Apache-2.0 */
+.collection-note { padding: 8px var(--preview-content-inset); color: var(--preview-subtle); font-size: 12px; border-top: 1px solid var(--preview-line); }
+.collection-reported-signals { border-top: 1px solid var(--preview-line); }
+.collection-reported-signals > summary { padding: 8px var(--preview-content-inset); cursor: pointer; font-size: 13px; }
+.execution-summary-actions { padding: 8px var(--preview-content-inset); display: flex; flex-wrap: wrap; gap: 12px; }
+.execution-result-table { --preview-label-column: 45%; }
+
+.result-diagnostic-disclosure > summary { cursor: pointer; background: var(--preview-hover); }
+.result-diagnostic-disclosure[open] > summary { border-bottom: 1px solid var(--preview-line); }
+.result-diagnostic-disclosure > .agent-prompt { margin: 8px 12px; }

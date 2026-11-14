@@ -1,6 +1,6 @@
 # Investigating missing measurements
 
-Open an unavailable, overdue or pending result and choose **Investigate measurement**. This keeps the selected result, owning runner and original inventory filters together. The page updates as new evidence arrives; **Back to result** returns to the same result and its filtered inventory.
+Open an unavailable, overdue or pending result and expand **Collection diagnostics**. This keeps the selected result, owning runner and original inventory filters together. **Shared execution and history** opens the scheduled check in the same investigation stack; the earlier result remains available behind it.
 
 ## Follow the evidence
 
@@ -16,13 +16,13 @@ The finding at the top identifies the next useful inspection, not a proven root 
 | No runner assigned | Attach the intended runner and review its declarations and placement in Coverage. |
 | Result retired | Review source removal/replacement and history. No further measurement is expected; retirement is not recovery. |
 
-Latest execution details are distinct from retained confirmed health. An unavailable execution can follow a Critical measurement; both pieces of evidence remain useful, but the earlier Critical verdict does not become a new measurement. The investigation page shows the most recently received execution, including after reconnect, without changing its original timestamps.
+Latest execution details are distinct from retained confirmed health. An unavailable execution can follow a Critical measurement; both pieces of evidence remain useful, but the earlier Critical verdict does not become a new measurement. Collection diagnostics show the most recently received execution, including after reconnect, without changing its original timestamps.
 
 ## Runner signals have limits
 
 Configuration versions belong to this scheduled check. Running, due-waiting, buffered and dropped report counts cover the whole runner. They cannot identify which specific check is blocked. Status is the runner's last report and may predate its latest controller contact; the controller cannot advance those counts while disconnected. A brief upload queue can be normal. Dropped reports are cumulative for the journal, and the last recorded diagnostic may survive recovery.
 
-Use **Full status for this runner** for additional spool/scheduling details. For a datasource problem, inspect the datasource from the runner's network, using its execution context and mounts. A successful connection from a laptop or controller does not prove that the runner has access. Keep credential values, environment files, authenticated URLs and upstream response bodies out of shared diagnostics.
+Open the linked runner for additional spool/scheduling details. For a datasource problem, inspect the datasource from the runner's network, using its execution context and mounts. A successful connection from a laptop or controller does not prove that the runner has access. Keep credential values, environment files, authenticated URLs and upstream response bodies out of shared diagnostics.
 
 ## Notifications and coding agents
 

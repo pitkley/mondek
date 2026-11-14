@@ -6,6 +6,16 @@ defmodule MondekWeb.PublisherLive do
   alias Mondek.PublisherLifecycle
   alias Phoenix.LiveView.JS
 
+  alias MondekWeb.{
+    BrowserNavigation,
+    InvestigationStack,
+    InvestigationTrail,
+    PreviewDetail,
+    PreviewFilters,
+    PreviewLayouts,
+    PreviewPagination
+  }
+
   @proposal_fields ~w(publisher_id action reason successor_id)
 
   @impl true
@@ -41,12 +51,19 @@ defmodule MondekWeb.PublisherLive do
   end
 
   @impl true
-  def handle_params(params, _uri, socket) do
+  def handle_params(params, uri, socket) do
+    local = URI.parse(uri)
     same? = socket.assigns.publication_id == params["id"]
 
     socket =
       assign(socket,
         publication_id: params["id"],
+        raw_params: params,
+        current: local.path <> if(local.query, do: "?" <> local.query, else: ""),
+        return_to: BrowserNavigation.return_path(params["return_to"]),
+        investigation_selection: InvestigationTrail.selection(params),
+        investigation_open: InvestigationTrail.resolve(params) != [],
+        promoted: !is_nil(InvestigationTrail.promoted(params)),
         history_page: positive(params["history_page"]),
         event_id: params["event_id"],
         event_page: positive(params["event_page"]),
@@ -79,6 +96,27 @@ defmodule MondekWeb.PublisherLive do
   end
 
   @impl true
+  def handle_event(event, _params, %{assigns: %{investigation_open: true}} = socket)
+      when event in ~w(edit choose_successor clear_successor successor_page preview apply preview_page back search filter_remove),
+      do: {:noreply, socket}
+
+  def handle_event(
+        "search",
+        %{"search" => query},
+        %{assigns: %{investigation_open: false}} = socket
+      ),
+      do:
+        {:noreply,
+         socket
+         |> assign(successor_search: bounded_search(query), successor_page: 1)
+         |> load_successors()}
+
+  def handle_event("filter_remove", %{"field" => "search"}, socket),
+    do: handle_event("search", %{"search" => ""}, socket)
+
+  def handle_event("filter_close", _, socket), do: {:noreply, socket}
+  def handle_event("filter_open", _, socket), do: {:noreply, socket}
+
   def handle_event("edit", form, socket) do
     proposal = draft(form, socket.assigns.proposal)
     changed? = proposal != socket.assigns.proposal
@@ -117,6 +155,22 @@ defmodule MondekWeb.PublisherLive do
        )}
     end
   end
+
+  def handle_event(
+        "clear_successor",
+        _,
+        %{assigns: %{proposal: %{"action" => "replace"}}} = socket
+      ) do
+    {:noreply,
+     socket
+     |> clear_review()
+     |> assign(
+       proposal: Map.delete(socket.assigns.proposal, "successor_id"),
+       selected_successor: nil
+     )}
+  end
+
+  def handle_event("clear_successor", _, socket), do: {:noreply, socket}
 
   def handle_event("successor_page", %{"page" => page}, socket) do
     {:noreply, socket |> assign(successor_page: positive(page)) |> load_successors()}
@@ -355,7 +409,8 @@ defmodule MondekWeb.PublisherLive do
 
     values =
       Map.filter(values, fn {key, value} ->
-        key in ~w(action reason successor_id) and is_binary(value) and byte_size(value) <= 2048
+        key in ~w(action reason successor_id) and is_binary(value) and byte_size(value) <= 2048 and
+          String.valid?(value) and not String.contains?(value, <<0>>)
       end)
 
     proposal = Map.merge(original || %{}, Map.take(values, ~w(action reason successor_id)))
@@ -391,60 +446,67 @@ defmodule MondekWeb.PublisherLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <MondekWeb.Layouts.app
-      active={:coverage}
-      page_title="Coverage"
-      snapshot={@navigation_counts}
-      now={@now}
-      flash={@flash}
-      main_class="publisher-page"
+    <div
+      class="preview-shell"
+      id="publication-shell"
+      phx-hook="OverviewPanel"
+      data-selection={@investigation_selection}
+      data-panel-heading={InvestigationTrail.heading(@raw_params, "publisher-heading")}
     >
-      <MondekWeb.Layouts.section_header
-        section="Coverage"
-        description="Which results should exist, which runners are selected, and whether measurements are arriving."
-        nav_label="Coverage views"
-      >
-        <:tabs>
-          <.link navigate="/coverage">Intended results</.link><.link
-            navigate="/coverage/publishers"
-            aria-current="page"
-          >Runner declarations</.link><.link navigate="/coverage/diagnostics">Unresolved declarations</.link>
-        </:tabs>
-      </MondekWeb.Layouts.section_header>
-      <.link navigate="/coverage/publishers" class="back">All publishing runners</.link>
-      <p :if={@error} id="publisher-error" class="notice error" role="alert">{@error}</p>
-      <p :if={@notice} id="publisher-notice" class="notice" role="status">{@notice}</p>
-      <div :if={is_nil(@detail)} class="panel panel-body" id="publisher-missing">
-        <h2>Publication not found</h2><p>
-          Choose a publication from Publishing runners to inspect its lifecycle.
-        </p>
-      </div>
-      <.publication :if={@detail} detail={@detail} />
-      <.lifecycle_form
-        :if={@detail && @proposal}
-        proposal={@proposal}
-        publisher={@detail["publisher"]}
-        preview={@preview}
-        token={@review_token}
-        stale={@review_stale}
-        successors={@successors}
-        search={@successor_search}
-        successor_page={@successor_page}
-        selected={@selected_successor}
-      />
-      <.history :if={@detail} history={@detail["history"]} publisher_id={@publication_id} />
-      <.saved_event
-        :if={@detail && @event}
-        event={@event}
-        publisher_id={@publication_id}
-        history_page={@history_page}
-      />
-      <.saved_measurement
-        :if={@detail && @event && @evidence_id}
-        evidence={@evidence}
-        missing={@evidence_missing}
-      />
-    </MondekWeb.Layouts.app>
+      <PreviewLayouts.navigation active={:coverage} />
+      <main id="main-content" class="preview-main" tabindex="-1">
+        <div
+          id="publication-workflow"
+          class="publication-workflow"
+          hidden={@promoted}
+          inert={@investigation_open || @promoted}
+        >
+          <section class="preview-list publication-intro">
+            <header class="preview-heading">
+              <PreviewDetail.heading level={1} id="publisher-heading">
+                {if @detail, do: publisher_name(@detail["publisher"]), else: "Publication not found"}
+              </PreviewDetail.heading><.link
+                navigate={@return_to || "/coverage/publishers"}
+                class="pf-v6-c-button pf-m-link"
+              >{publication_back_label(@return_to)}</.link>
+            </header>
+            <p
+              :if={@error}
+              id="publisher-error"
+              class="publication-message publication-error"
+              role="alert"
+            >
+              {@error}
+            </p>
+            <p :if={@notice} id="publisher-notice" class="publication-message" role="status">
+              {@notice}
+            </p>
+            <p :if={!@detail} id="publisher-missing" class="preview-empty">
+              Publication not found. Choose a source publication from Publishing runners.
+            </p>
+            <.publication :if={@detail} {assigns} />
+          </section>
+          <.lifecycle_form :if={@detail && @proposal} {assigns} />
+          <.history :if={@detail} {assigns} />
+          <.saved_event :if={@detail && @event} {assigns} />
+          <.saved_measurement :if={@detail && @event && @evidence_id} {assigns} />
+        </div>
+        <.live_component
+          module={InvestigationStack}
+          id="investigation-stack"
+          host={@current}
+          params={@raw_params}
+          now={@now}
+          root={nil}
+          initial={[]}
+          context={"publication:" <> to_string(@publication_id)}
+          back={owner_url(@current, %{})}
+        />
+        <div class="preview-connection" role="status">
+          Connection interrupted. Displayed evidence may be out of date. Reconnecting…
+        </div>
+      </main>
+    </div>
     """
   end
 
@@ -453,507 +515,603 @@ defmodule MondekWeb.PublisherLive do
       assign(assigns, publisher: assigns.detail["publisher"], summary: assigns.detail["summary"])
 
     ~H"""
-    <div class="page-heading view-heading">
-      <div>
-        <div class="eyebrow">Source publication</div><h2 id="publisher-heading">
-          {publisher_name(@publisher)}
-        </h2><p>{@publisher["source_id"]}</p>
-      </div><span id="publisher-status" class="badge">{status(@publisher["lifecycle_status"])}</span>
-    </div>
-    <section
-      class="panel panel-body publisher-summary"
-      id="publisher-summary"
-      aria-label="Publication and monitoring scope"
-    >
-      <p :if={@publisher["lifecycle_status"] == "active"}>
-        This runner publishes its own source declarations and measurements. Other observers keep independent evidence.
-      </p>
-      <p :if={@publisher["lifecycle_status"] == "retired"}>
-        Retired from this controller. An offline runner may continue executing; stop or remove its deployment separately. Its retained measurements and incident history remain inspectable.
-      </p>
-      <p :if={@publisher["lifecycle_status"] == "awaiting_inventory"}>
-        Waiting for a new publication. Restoration permits a newer complete inventory; it does not revive previous health, result episodes or acknowledgements.
-      </p>
-      <dl class="publisher-counts">
-        <div>
-          <dt>Active checks</dt><dd>{count(@summary, "assignments")}</dd>
-        </div>
-        <div>
-          <dt>Active results</dt><dd>{count(@summary, "results")}</dd>
-        </div>
-        <div>
-          <dt>
-            {if @publisher["lifecycle_status"] == "active",
-              do: "Declared scopes",
-              else: "Retained declared scopes"}
-          </dt><dd>{count(@summary, "declared_scopes")}</dd>
-        </div>
-        <div>
-          <dt>Open result incidents</dt><dd>{count(@summary, "open_incidents")}</dd>
-        </div>
-      </dl>
-      <div class="actions">
-        <.link navigate={coverage_path(@publisher)} class="button secondary">{if @publisher[
-                                                                                   "lifecycle_status"
-                                                                                 ] == "active",
-                                                                                 do:
-                                                                                   "Inspect declared scopes",
-                                                                                 else:
-                                                                                   "Current scopes from remaining publishers"}</.link>
-        <.link navigate={checks_path(@publisher)} class="button secondary">All checks and history from this runner</.link>
-        <.link
-          navigate={MondekWeb.RunnersLive.detail_path(@publisher["runner_id"])}
-          class="text-link"
-        >Inspect runner</.link>
-        <.link
-          :if={@publisher["replacement_id"]}
-          navigate={publication_path(@publisher["replacement_id"])}
-          class="text-link"
-        >Inspect recorded replacement</.link>
-      </div>
+    <PreviewDetail.card id="publisher-summary" title="Source publication" level={2}>
+      <PreviewDetail.facts label="Publication and monitoring scope">
+        <tr>
+          <th scope="row">State</th><td>
+            <span
+              id="publisher-status"
+              class={["pf-v6-c-label", status_tone(@publisher["lifecycle_status"])]}
+            ><span class="pf-v6-c-label__content">{status(@publisher["lifecycle_status"])}</span></span>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">Source</th><td>{@publisher["source_id"]}</td>
+        </tr>
+        <tr>
+          <th scope="row">Monitoring</th><td>
+            {count(@summary, "assignments")} active checks · {count(@summary, "results")} active results · {count(
+              @summary,
+              "declared_scopes"
+            )} {if @publisher["lifecycle_status"] == "active",
+              do: "declared scopes",
+              else: "retained declared scopes"}
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">Open result incidents</th><td>{count(@summary, "open_incidents")}</td>
+        </tr>
+        <tr>
+          <th scope="row">Meaning</th><td>{publication_meaning(@publisher["lifecycle_status"])}</td>
+        </tr>
+        <tr>
+          <th scope="row">Related evidence</th><td class="publication-links">
+            <.link
+              patch={entity_path(@current, {"runner", @publisher["runner_id"]})}
+              id="publication-runner"
+              data-overview-open
+            >Inspect runner</.link><.link navigate={coverage_path(@publisher)}>{if @publisher[
+                                                                                     "lifecycle_status"
+                                                                                   ] == "active",
+                                                                                   do:
+                                                                                     "Inspect declared scopes",
+                                                                                   else:
+                                                                                     "Current scopes from remaining publishers"}</.link><.link navigate={
+              checks_path(@publisher)
+            }>All checks and history from this runner</.link><.link
+              :if={@publisher["replacement_id"]}
+              navigate={publication_path(@publisher["replacement_id"])}
+            >Inspect recorded replacement</.link>
+          </td>
+        </tr>
+      </PreviewDetail.facts>
       <details
         id="publisher-provenance"
-        class="diagnostic-details"
         phx-mounted={JS.ignore_attributes("open")}
+        class="publication-disclosure"
       >
         <summary>Publication and restoration details</summary>
-        <dl class="coverage-identity">
-          <div>
-            <dt>Last controller contact</dt><dd>{utc(@publisher["last_seen_at"])}</dd>
-          </div>
-          <div>
-            <dt>Accepted inventory</dt><dd>Version {@publisher["inventory_revision"]}</dd>
-          </div>
-          <div>
-            <dt>Lifecycle revision</dt><dd>{@publisher["lifecycle_revision"]}</dd>
-          </div>
-          <div :if={@publisher["retired_at"]}>
-            <dt>Retired</dt><dd>{utc(@publisher["retired_at"])}</dd>
-          </div>
-          <div :if={@publisher["retirement_reason"]}>
-            <dt>Retirement reason</dt><dd>{@publisher["retirement_reason"]}</dd>
-          </div>
-          <div>
-            <dt>Runner identity</dt><dd><code>{@publisher["runner_id"]}</code></dd>
-          </div>
-        </dl>
-        <p :if={@publisher["lifecycle_status"] == "awaiting_inventory"} class="footnote">
-          The current SDK rediscovers the installed consumer after receiving this restoration request and publishes a newer inventory. Failed discovery leaves this publication waiting. Upgrade older SDKs and restart the runner to support restoration. Cached inventories and old buffered reports cannot establish restored coverage.
+        <PreviewDetail.facts label="Publication identity">
+          <tr>
+            <th scope="row">Last controller contact</th><td>{utc(@publisher["last_seen_at"])}</td>
+          </tr>
+          <tr>
+            <th scope="row">Accepted inventory</th><td>Version {@publisher["inventory_revision"]}</td>
+          </tr>
+          <tr>
+            <th scope="row">Lifecycle revision</th><td>{@publisher["lifecycle_revision"]}</td>
+          </tr>
+          <tr :if={@publisher["retired_at"]}>
+            <th scope="row">Retired</th><td>{utc(@publisher["retired_at"])}</td>
+          </tr>
+          <tr :if={@publisher["retirement_reason"]}>
+            <th scope="row">Retirement reason</th><td>{@publisher["retirement_reason"]}</td>
+          </tr>
+          <tr :if={@publisher["runner_context"] not in [nil, %{}]}>
+            <th scope="row">Execution context</th><td>
+              {get_in(@publisher, ["runner_context", "label"])} · {get_in(@publisher, [
+                "runner_context",
+                "id"
+              ])}
+            </td>
+          </tr>
+          <tr :if={get_in(@publisher, ["runner_context", "local_environment"])}>
+            <th scope="row">Execution environment</th><td>
+              {get_in(@publisher, ["runner_context", "local_environment"])}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Package code</th><td>{@publisher["code_revision"] || "Not reported"}</td>
+          </tr>
+          <tr>
+            <th scope="row">Runtime</th><td>{@publisher["runtime_revision"] || "Not reported"}</td>
+          </tr>
+          <tr>
+            <th scope="row">Source revision</th><td>
+              {@publisher["source_revision"] || "Not reported"}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Declaration catalogue</th><td>
+              {cond do
+                @publisher["coverage_revision"] == nil -> "Not reported"
+                @publisher["coverage_confirmed"] -> "Confirmed by current inventory"
+                true -> "Previous declarations are not confirmed by current inventory"
+              end}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Runner identity</th><td>{@publisher["runner_id"]}</td>
+          </tr>
+        </PreviewDetail.facts>
+        <p :if={@publisher["lifecycle_status"] == "awaiting_inventory"} class="publication-message">
+          The SDK must rediscover installed source and publish a newer inventory for this restoration request. Failed discovery leaves it waiting; cached inventory and buffered reports cannot establish restored coverage.
         </p>
       </details>
-    </section>
+    </PreviewDetail.card>
     """
   end
 
   defp lifecycle_form(assigns) do
+    assigns = assign(assigns, publisher: assigns.detail["publisher"])
+
     ~H"""
-    <section class="panel publisher-lifecycle" aria-labelledby="publisher-lifecycle-heading">
-      <div class="panel-heading">
-        <h2 id="publisher-lifecycle-heading">Manage this publication</h2>
-      </div>
-      <div class="panel-body">
-        <p>
-          Review the exact impact before applying a decision. No action transfers measurements or individual acknowledgements to another observer.
-        </p>
-        <form
-          id="publisher-lifecycle-form"
-          phx-change="edit"
-          phx-submit={if @preview && !@stale, do: "apply", else: "preview"}
-          phx-auto-recover="recover"
-        >
-          <input type="hidden" name="_proposal" value={Jason.encode!(@proposal)} />
-          <input :if={@token} type="hidden" name="_review_token" value={@token} />
-          <input type="hidden" name="_preview_page" value={(@preview || %{})["page"] || 1} />
-          <input type="hidden" name="_successor_page" value={@successor_page} />
-          <input type="hidden" name="lifecycle[successor_id]" value={@proposal["successor_id"] || ""} />
-          <label for="publisher-action">Decision</label>
-          <select id="publisher-action" name="lifecycle[action]">
-            <option value="retire" selected={@proposal["action"] == "retire"}>
+    <PreviewDetail.card id="publisher-lifecycle" title="Manage this publication" level={2}>
+      <form
+        id="publisher-lifecycle-form"
+        phx-change="edit"
+        phx-submit={if @preview && !@review_stale, do: "apply", else: "preview"}
+        phx-auto-recover="recover"
+      >
+        <input type="hidden" name="_proposal" value={Jason.encode!(@proposal)} />
+        <input :if={@review_token} type="hidden" name="_review_token" value={@review_token} />
+        <input type="hidden" name="_preview_page" value={(@preview || %{})["page"] || 1} />
+        <input type="hidden" name="_successor_page" value={@successor_page} />
+        <input type="hidden" name="successor_search" value={@successor_search} />
+        <input type="hidden" name="lifecycle[successor_id]" value={@proposal["successor_id"] || ""} />
+        <div class="publication-editor-fields">
+          <div class="publication-field">
+            <label for="publisher-action">Decision</label><select
+              id="publisher-action"
+              name="lifecycle[action]"
+            ><option value="retire" selected={@proposal["action"] == "retire"}>
               Retire this publication
-            </option>
-            <option value="replace" selected={@proposal["action"] == "replace"}>
+            </option><option value="replace" selected={@proposal["action"] == "replace"}>
               Retire with a recorded replacement
-            </option>
-            <option value="restore" selected={@proposal["action"] == "restore"}>
+            </option><option value="restore" selected={@proposal["action"] == "restore"}>
               Restore this publication
-            </option>
-          </select>
-          <p class="footnote">{action_help(@proposal["action"])}</p>
-          <fieldset :if={@proposal["action"] == "replace"} class="publisher-successor-picker">
-            <legend>Replacement observer</legend>
-            <p>
-              Choose an active publication of the same source. The preview checks every selected result's exact scope and fresh desired measurement.
-            </p>
-            <p id="publisher-selected-successor" class="notice">
-              {if @selected,
-                do: "Selected: " <> publisher_name(@selected),
-                else: "No replacement selected."}
-            </p>
-            <details id="publisher-successor-choices" open={is_nil(@preview)}>
-              <summary>Choose or change replacement observer</summary>
-              <label for="publisher-successor-search">Search replacement observers</label>
-              <input
-                id="publisher-successor-search"
-                name="successor_search"
-                value={@search}
-                phx-debounce="300"
-                placeholder="Runner name or context"
-                maxlength="200"
-              />
-              <div id="publisher-successors">
-                <p :if={@successors["items"] == []} class="space-top">
-                  No active publications match. Deploy a runner for this source, or choose retirement without a replacement.
-                </p>
-                <article
-                  :for={candidate <- @successors["items"] || []}
-                  data-successor-id={candidate["id"]}
-                >
-                  <div>
-                    <strong>{publisher_name(candidate)}</strong><p class="footnote">
-                      Last contact: {utc(candidate["last_seen_at"])}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    class="button small secondary"
-                    phx-click="choose_successor"
-                    phx-value-id={candidate["id"]}
-                    disabled={same_id?(candidate["id"], @proposal["successor_id"])}
-                    aria-label={"Choose observer " <> publisher_name(candidate)}
-                  >{if same_id?(candidate["id"], @proposal["successor_id"]),
-                    do: "Selected",
-                    else: "Choose observer"}</button>
-                </article>
-              </div>
-              <.event_pager
-                listing={@successors}
-                event="successor_page"
-                id="publisher-successor-pages"
-                label="Replacement observer pages"
-              />
-            </details>
-          </fieldset>
-          <label for="publisher-reason" class="space-top">Reason</label>
-          <textarea
-            id="publisher-reason"
-            name="lifecycle[reason]"
-            rows="3"
-            maxlength="500"
-            required
-            aria-describedby="publisher-reason-help"
-          >{@proposal["reason"]}</textarea>
-          <p id="publisher-reason-help" class="footnote">
-            Record why this publication is changing. The reason is retained in lifecycle history.
-          </p>
-          <div :if={is_nil(@preview) || @stale} class="actions space-top">
-            <button id="publisher-preview-button" type="submit" class="button">{if @stale,
-              do: "Preview again",
-              else: "Preview impact"}</button>
+            </option></select><p class="preview-caption">{action_help(@proposal["action"])}</p>
           </div>
-          <.preview :if={@preview} preview={@preview} stale={@stale} />
-        </form>
+          <div class="publication-field">
+            <label for="publisher-reason">Reason</label><textarea
+              id="publisher-reason"
+              name="lifecycle[reason]"
+              rows="2"
+              maxlength="500"
+              required
+              aria-describedby="publisher-reason-help"
+            >{@proposal["reason"]}</textarea><p id="publisher-reason-help" class="preview-caption">
+              Retained with this decision. No action transfers measurements or individual acknowledgements.
+            </p>
+          </div>
+        </div>
+      </form>
+      <section
+        :if={@proposal["action"] == "replace"}
+        class="publication-replacement"
+        aria-labelledby="publisher-replacement-heading"
+      >
+        <h3 id="publisher-replacement-heading" class="preview-section-heading">
+          Replacement observer
+        </h3>
+        <div
+          id="publisher-selected-successor"
+          class="publication-message publication-selected-successor"
+        >
+          <span>{if @selected_successor,
+            do: "Selected: " <> publisher_name(@selected_successor),
+            else: "No replacement selected."}</span>
+          <button
+            :if={@selected_successor}
+            id="publisher-clear-successor"
+            type="button"
+            class="pf-v6-c-button pf-m-link"
+            phx-click="clear_successor"
+          >Remove selection</button>
+        </div>
+        <details
+          id="publisher-successor-choices"
+          open={is_nil(@preview)}
+          class="publication-disclosure"
+        >
+          <summary>Choose or change replacement observer</summary>
+          <div class="publication-filter-toolbar">
+            <PreviewFilters.filter_picker
+              id="publisher-successor-filter"
+              picker={assigns[:successor_filter_picker]}
+              chips={[]}
+              fields={[]}
+              search={@successor_search}
+              form_label="Search replacement observers"
+              label="Search replacement observers"
+              placeholder="Search replacement observers"
+            />
+          </div>
+          <div id="publisher-successors">
+            <p :if={@successors["items"] in [nil, []]} class="publication-message">
+              No active publications match. Deploy this source on another runner, or retire without a replacement.
+            </p>
+            <table
+              :if={@successors["items"] not in [nil, []]}
+              class="pf-v6-c-table pf-m-compact preview-table publication-successor-table"
+              aria-label="Replacement observers"
+            >
+              <thead class="pf-v6-c-table__thead">
+                <tr>
+                  <th scope="col" class="pf-v6-c-table__th">Observer</th><th
+                    scope="col"
+                    class="pf-v6-c-table__th"
+                  >
+                    Last contact
+                  </th><th scope="col" class="pf-v6-c-table__th">Selection</th>
+                </tr>
+              </thead><tbody>
+                <tr :for={candidate <- @successors["items"]} data-successor-id={candidate["id"]}>
+                  <td class="pf-v6-c-table__td" data-label="Observer">
+                    {publisher_name(candidate)}<span class="preview-caption publication-secondary">{String.slice(
+                      candidate["runner_id"],
+                      0,
+                      8
+                    )} · {@publisher[
+                      "source_id"
+                    ]}</span>
+                  </td><td class="pf-v6-c-table__td" data-label="Last contact">
+                    {utc(candidate["last_seen_at"])}
+                  </td><td class="pf-v6-c-table__td" data-label="Selection">
+                    <button
+                      type="button"
+                      class="pf-v6-c-button pf-m-secondary"
+                      phx-click="choose_successor"
+                      phx-value-id={candidate["id"]}
+                      disabled={same_id?(candidate["id"], @proposal["successor_id"])}
+                      aria-label={"Choose observer " <> publisher_name(candidate)}
+                    >{if same_id?(candidate["id"], @proposal["successor_id"]),
+                      do: "Selected",
+                      else: "Choose observer"}</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <.event_pager
+            listing={@successors}
+            event="successor_page"
+            id="publisher-successor-pages"
+            label="Replacement observer pages"
+          />
+        </details>
+      </section>
+      <div :if={is_nil(@preview) || @review_stale} class="publication-actions">
+        <button
+          id="publisher-preview-button"
+          form="publisher-lifecycle-form"
+          type="submit"
+          class="pf-v6-c-button pf-m-primary"
+        >{if @review_stale,
+          do: "Preview again",
+          else: "Preview impact"}</button>
       </div>
-    </section>
+      <.preview :if={@preview} {assigns} />
+    </PreviewDetail.card>
     """
   end
 
   defp preview(assigns) do
-    assigns =
-      assign(assigns, summary: assigns.preview["summary"], proposal: assigns.preview["proposal"])
+    assigns = assign(assigns, summary: assigns.preview["summary"])
 
     ~H"""
     <section
       id="publisher-preview"
-      class="publisher-preview"
+      class="publication-review"
       aria-labelledby="publisher-preview-heading"
     >
-      <h3 id="publisher-preview-heading">Review {action_name(@proposal["action"])}</h3>
-      <p><strong>Reason:</strong> {@proposal["reason"]}</p>
-      <p :if={@stale} class="notice error">
+      <h3 id="publisher-preview-heading" class="preview-section-heading">
+        Review {action_name(@proposal["action"])}
+      </h3>
+      <PreviewDetail.facts label="Reviewed publication decision" class="publication-review-facts">
+        <tr>
+          <th scope="row">Reason</th><td>{@proposal["reason"]}</td>
+        </tr>
+        <tr :if={@preview["successor"]}>
+          <th scope="row">Recorded replacement</th><td>{publisher_name(@preview["successor"])}</td>
+        </tr>
+        <tr>
+          <th scope="row">Checks affected</th><td>{count(@summary, "assignments")}</td>
+        </tr>
+        <tr>
+          <th scope="row">Results affected</th><td>{count(@summary, "results")}</td>
+        </tr>
+        <tr>
+          <th scope="row">Open result incidents</th><td>{count(@summary, "open_incidents")}</td>
+        </tr>
+        <tr>
+          <th scope="row">Shared incidents involved</th><td>{count(@summary, "shared_incidents")}</td>
+        </tr>
+        <tr :if={@proposal["action"] != "restore"}>
+          <th scope="row">Scopes losing their last publisher</th><td>
+            {count(@summary, "scopes_losing_last_publisher")}
+          </td>
+        </tr>
+        <tr :if={@proposal["action"] != "restore"}>
+          <th scope="row">Scopes losing their last selected observer</th><td>
+            {count(@summary, "scopes_losing_last_selected")}
+          </td>
+        </tr>
+        <tr :if={@proposal["action"] == "replace"}>
+          <th scope="row">Replacement results ready</th><td>{count(@summary, "matched_results")}</td>
+        </tr>
+        <tr :if={@proposal["action"] == "replace"}>
+          <th scope="row">Replacement gaps</th><td>{count(@summary, "replacement_gaps")}</td>
+        </tr>
+        <tr>
+          <th scope="row">Effect</th><td>{preview_effect(@proposal["action"])}</td>
+        </tr>
+        <tr>
+          <th scope="row">Configuration and controls</th><td>
+            {if @proposal["action"] == "replace",
+              do:
+                "The replacement keeps its own effective settings. Individual check exceptions and acknowledgements are not transferred from this publication.",
+              else:
+                "Restored checks use defaults from code and matching configuration rules. Individual check exceptions and acknowledgements remain with retired instances."}
+          </td>
+        </tr>
+      </PreviewDetail.facts>
+      <p :if={@review_stale} class="publication-message publication-error">
         This review is no longer current. Your draft is retained; preview again before applying it.
       </p>
-      <p :if={@preview["successor"]}>
-        Recorded replacement: <strong>{publisher_name(@preview["successor"])}</strong>
-      </p>
-      <dl id="publisher-preview-summary" class="publisher-counts">
-        <div>
-          <dt>Checks affected</dt><dd>{count(@summary, "assignments")}</dd>
-        </div>
-        <div>
-          <dt>Results affected</dt><dd>{count(@summary, "results")}</dd>
-        </div>
-        <div>
-          <dt>Open result incidents</dt><dd>{count(@summary, "open_incidents")}</dd>
-        </div>
-        <div>
-          <dt>Shared incidents involved</dt><dd>{count(@summary, "shared_incidents")}</dd>
-        </div>
-        <div :if={@proposal["action"] != "restore"}>
-          <dt>Scopes losing their last publisher</dt><dd>
-            {count(@summary, "scopes_losing_last_publisher")}
-          </dd>
-        </div>
-        <div :if={@proposal["action"] != "restore"}>
-          <dt>Scopes losing their last selected observer</dt><dd>
-            {count(@summary, "scopes_losing_last_selected")}
-          </dd>
-        </div>
-        <div :if={@proposal["action"] == "replace"}>
-          <dt>Replacement results ready</dt><dd>{count(@summary, "matched_results")}</dd>
-        </div>
-        <div :if={@proposal["action"] == "replace"}>
-          <dt>Replacement gaps</dt><dd>{count(@summary, "replacement_gaps")}</dd>
-        </div>
-      </dl>
-      <p>{preview_effect(@proposal["action"])}</p>
-      <p :if={@proposal["action"] == "restore"}>
-        Restored checks use defaults from code and matching configuration rules. Individual check exceptions and acknowledgements remain with retired instances.
-      </p>
-      <p :if={@proposal["action"] == "replace"}>
-        The replacement keeps its own effective settings. Individual check exceptions and acknowledgements are not transferred from this publication.
-      </p>
-      <p :if={@proposal["action"] == "retire"}>
-        A later restoration creates new check instances using defaults from code and matching configuration rules. Individual check exceptions and acknowledgements remain with the retired instances.
-      </p>
-      <div :if={@preview["blockers"] != []} id="publisher-preview-blockers" class="notice error">
+      <div
+        :if={@preview["blockers"] != []}
+        id="publisher-preview-blockers"
+        class="publication-message publication-error"
+      >
         <strong>This decision cannot be applied yet.</strong><ul>
           <li :for={blocker <- @preview["blockers"] || []}>{blocker}</li>
         </ul>
       </div>
-      <p :if={version_difference?(@preview)} class="notice">
+      <p :if={version_difference?(@preview)} class="publication-message">
         The publications report different package or runtime versions. No shared latest release is inferred; inspect their declared contracts and reviewed impact.
       </p>
-      <div class="actions space-top">
+      <div class="publication-actions">
         <button
           id="publisher-apply"
+          form="publisher-lifecycle-form"
           type="submit"
-          class="button"
-          disabled={@stale || !@preview["can_apply"]}
-        >Apply {action_name(@proposal["action"])}</button>
-        <button type="button" class="button secondary" phx-click="back">Discard review</button>
+          class="pf-v6-c-button pf-m-primary"
+          disabled={@review_stale || !@preview["can_apply"]}
+        >Apply {action_name(@proposal["action"])}</button><button
+          type="button"
+          class="pf-v6-c-button pf-m-secondary"
+          phx-click="back"
+        >Discard review</button>
       </div>
       <details
         id="publisher-impact"
-        class="diagnostic-details"
+        class="publication-disclosure"
         phx-mounted={JS.ignore_attributes("open")}
       >
         <summary>Inspect affected scopes ({@preview["total"]})</summary>
-        <p class="footnote">
-          Counts above cover the whole publication. Each page shows at most {@preview["page_size"] ||
-            25} result declarations.
+        <p :if={@preview["items"] == []} class="publication-message">
+          There are no result declarations in this publication.
         </p>
-        <p :if={@preview["items"] == []}>There are no result declarations in this publication.</p>
-        <article
-          :for={item <- @preview["items"] || []}
-          class="publisher-impact-row"
-          data-impact-scope={item["scope_id"]}
-        >
-          <h4>{item["check_label"]} · {item["result_label"]}</h4>
-          <p>
-            {get_in(item, ["target", "label"]) || "Unresolved target"} · {item["environment"] ||
-              "Unscoped"}
-          </p>
-          <p>
-            {if item["selected"], do: "Selected by this publication", else: "Declared but excluded"}
-          </p>
-          <p class="footnote">
-            Remaining publishers: {item["remaining_publishers"] || 0}; selected observers: {item[
-              "remaining_selected"
-            ] || 0}.
-          </p>
-          <p :if={@proposal["action"] == "replace"}>
-            {replacement_status(item["replacement_status"])}<span :if={item["replacement_reason"]}>: {item[
-              "replacement_reason"
-            ]}</span>
-          </p>
-          <div class="actions">
-            <.link
-              :if={item["scope_id"]}
-              navigate={"/coverage/" <> item["scope_id"]}
-              class="text-link"
-            >Inspect declared scope</.link>
-            <.link
-              :if={item["stream_id"]}
-              navigate={"/checks/" <> item["stream_id"]}
-              class="text-link"
-            >Inspect current result</.link>
-            <.link
-              :if={item["successor_stream_id"]}
-              navigate={"/checks/" <> item["successor_stream_id"]}
-              class="text-link"
-            >Inspect replacement result</.link>
-          </div>
-        </article>
+        <.impact_rows items={@preview["items"] || []} current={@current} action={@proposal["action"]} />
         <.event_pager
           listing={@preview}
           event="preview_page"
           id="publisher-impact-pages"
           label="Reviewed impact pages"
-          disabled={@stale}
+          disabled={@review_stale}
         />
       </details>
     </section>
     """
   end
 
-  defp history(assigns) do
+  defp impact_rows(assigns) do
     ~H"""
-    <section class="panel" id="publisher-history" aria-labelledby="publisher-history-heading">
-      <div class="panel-heading">
-        <h2 id="publisher-history-heading">Lifecycle history</h2>
-      </div>
-      <div class="panel-body">
-        <p :if={(@history || %{})["items"] in [nil, []]}>
-          No lifecycle decisions have been recorded.
-        </p>
-        <article :for={event <- (@history || %{})["items"] || []} class="publisher-history-event">
-          <h3>{history_action(event["action"])}</h3><p>{event["reason"]}</p>
-          <p class="footnote">
-            {utc(event["inserted_at"])} · {event["actor"] || "Local operator"} · Lifecycle revision {event[
-              "lifecycle_revision"
-            ]}
-          </p>
-          <div class="actions">
-            <.link
-              patch={event_path(@publisher_id, event["id"], 1, @history["page"])}
-              phx-click={JS.focus(to: "#publisher-saved-decision-heading")}
-              class="text-link"
-            >Inspect saved decision and evidence</.link>
-            <.link
-              :if={event["successor_id"]}
-              navigate={publication_path(event["successor_id"])}
-              class="text-link"
-            >Inspect recorded replacement</.link>
-          </div>
-          <details
-            id={"publisher-event-" <> to_string(event["id"])}
-            class="diagnostic-details"
-            phx-mounted={JS.ignore_attributes("open")}
+    <table
+      :if={@items != []}
+      class="pf-v6-c-table pf-m-compact preview-table publication-impact-table"
+      aria-label="Affected result declarations"
+    >
+      <thead class="pf-v6-c-table__thead">
+        <tr>
+          <th scope="col" class="pf-v6-c-table__th">Result / target</th><th
+            scope="col"
+            class="pf-v6-c-table__th"
           >
-            <summary>Reviewed impact</summary><p>
-              {count(event["summary"], "assignments")} checks; {count(event["summary"], "results")} results; {count(
-                event["summary"],
-                "open_incidents"
-              )} open result incidents.
-            </p>
-          </details>
-        </article>
-        <nav
-          :if={pages(@history) > 1}
-          id="publisher-history-pages"
-          class="pagination"
-          aria-label="Publication history pages"
-        >
-          <.link
-            :if={@history["page"] > 1}
-            patch={publication_path(@publisher_id, @history["page"] - 1)}
-            class="button small secondary"
-          >Previous</.link>
-          <span>Page {@history["page"]} of {pages(@history)}</span>
-          <.link
-            :if={@history["page"] < pages(@history)}
-            patch={publication_path(@publisher_id, @history["page"] + 1)}
-            class="button small secondary"
-          >Next</.link>
-        </nav>
+            Coverage effect
+          </th><th scope="col" class="pf-v6-c-table__th">Evidence</th>
+        </tr>
+      </thead><tbody>
+        <tr :for={item <- @items} data-impact-scope={item["scope_id"]} class="publisher-impact-row">
+          <td class="pf-v6-c-table__td" data-label="Result / target">
+            <strong>{item["check_label"]} · {item["result_label"]}</strong><span class="preview-caption publication-secondary">{get_in(
+              item,
+              ["target", "label"]
+            ) || "Unresolved target"} · {item["environment"] || "Unscoped"}</span>
+          </td><td class="pf-v6-c-table__td" data-label="Coverage effect">
+            {if item["selected"], do: "Selected by this publication", else: "Declared but excluded"}<span class="preview-caption publication-secondary">Remaining publishers: {item[
+              "remaining_publishers"
+            ] || 0}; selected observers: {item["remaining_selected"] || 0}.</span><span
+              :if={@action == "replace"}
+              class="publication-secondary"
+            >{replacement_status(item["replacement_status"])}<span :if={item["replacement_reason"]}>: {item[
+              "replacement_reason"
+            ]}</span></span>
+          </td><td class="pf-v6-c-table__td publication-links" data-label="Evidence">
+            <.link :if={item["scope_id"]} navigate={"/coverage/" <> item["scope_id"]}>Inspect declared scope</.link><.link
+              :if={item["stream_id"]}
+              patch={entity_path(@current, {"result", item["stream_id"]})}
+            >Inspect current result</.link><.link
+              :if={item["successor_stream_id"]}
+              patch={entity_path(@current, {"result", item["successor_stream_id"]})}
+            >Inspect replacement result</.link>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    """
+  end
+
+  defp history(assigns) do
+    assigns = assign(assigns, history: assigns.detail["history"])
+
+    ~H"""
+    <PreviewDetail.card id="publisher-history" title="Lifecycle history" level={2}>
+      <p :if={@history["items"] in [nil, []]} class="publication-message">
+        No lifecycle decisions have been recorded.
+      </p>
+      <table
+        :if={@history["items"] not in [nil, []]}
+        class="pf-v6-c-table pf-m-compact preview-table publication-history-table"
+        aria-label="Publication lifecycle history"
+      >
+        <thead class="pf-v6-c-table__thead">
+          <tr>
+            <th scope="col" class="pf-v6-c-table__th">Decision</th><th
+              scope="col"
+              class="pf-v6-c-table__th"
+            >
+              Reason
+            </th><th scope="col" class="pf-v6-c-table__th">Recorded</th><th
+              scope="col"
+              class="pf-v6-c-table__th"
+            >
+              Evidence
+            </th>
+          </tr>
+        </thead><tbody>
+          <tr :for={event <- @history["items"]} class="publisher-history-event">
+            <td class="pf-v6-c-table__td" data-label="Decision">
+              {history_action(event["action"])}<span class="preview-caption publication-secondary">Lifecycle revision {event[
+                "lifecycle_revision"
+              ]}</span>
+            </td><td class="pf-v6-c-table__td" data-label="Reason">
+              {event["reason"]}
+              <details
+                id={"publisher-event-" <> to_string(event["id"])}
+                phx-mounted={JS.ignore_attributes("open")}
+              >
+                <summary>Reviewed impact</summary><p>
+                  {count(event["summary"], "assignments")} checks; {count(event["summary"], "results")} results; {count(
+                    event["summary"],
+                    "open_incidents"
+                  )} open result incidents.
+                </p>
+              </details>
+            </td><td class="pf-v6-c-table__td" data-label="Recorded">
+              {utc(event["inserted_at"])}<span class="preview-caption publication-secondary">{event[
+                "actor"
+              ] || "Local operator"}</span>
+            </td><td class="pf-v6-c-table__td publication-links" data-label="Evidence">
+              <.link patch={
+                owner_url(@current, %{
+                  "event_id" => event["id"],
+                  "event_page" => 1,
+                  "evidence_id" => nil
+                })
+              }>Inspect saved decision and evidence</.link><.link
+                :if={event["successor_id"]}
+                navigate={publication_path(event["successor_id"])}
+              >Inspect recorded replacement</.link>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div id="publisher-history-pages">
+        <PreviewPagination.pagination
+          page={@history["page"]}
+          size={@history["page_size"] || 25}
+          total={@history["total"]}
+          label="Publication history pages"
+          url={fn page -> owner_url(@current, %{"history_page" => page}) end}
+        />
       </div>
-    </section>
+    </PreviewDetail.card>
     """
   end
 
   defp saved_event(assigns) do
     ~H"""
-    <section
+    <PreviewDetail.card
       id="publisher-saved-decision"
-      class="panel panel-body"
-      aria-labelledby="publisher-saved-decision-heading"
       phx-mounted={JS.focus(to: "#publisher-saved-decision-heading")}
+      title={"Saved " <> action_name(@event["action"]) <> " decision"}
+      level={2}
     >
-      <h2 id="publisher-saved-decision-heading" tabindex="-1">
-        Saved {action_name(@event["action"])} decision
-      </h2>
-      <p>{@event["reason"]}</p>
-      <p class="footnote">
-        Recorded {utc(@event["inserted_at"])}. These identities and measurements describe the saved decision; current coverage may have changed.
-      </p>
-      <p>
-        {@event["total"]} affected result declarations. Showing page {@event["page"]} of {pages(
-          @event
-        )}.
-      </p>
-      <article :for={item <- @event["items"] || []} class="publisher-impact-row">
-        <h3>{item["check_label"]} · {item["result_label"]}</h3>
-        <p>
-          {get_in(item, ["target", "label"]) || "Unresolved target"} · {item["environment"] ||
-            "Unscoped"}
-        </p>
-        <p :if={item["catalogue_unknown"]}>
-          This runner did not publish a supported declaration catalogue; retained scheduled results describe the known impact.
-        </p>
-        <p :if={item["successor_health"]}>
-          Replacement's last measured health at the decision: {health(item["successor_health"])}
-        </p>
-        <div class="actions">
-          <.link
-            :if={retained_witness?(item)}
-            patch={
-              evidence_path(
-                @publisher_id,
-                @event["id"],
-                @event["page"],
-                @history_page,
-                item["successor_observation_id"]
-              )
-            }
-            phx-click={JS.focus(to: "#publisher-saved-measurement-heading")}
-            class="text-link"
-          >Inspect saved measurement</.link>
-          <.link :if={item["stream_id"]} navigate={"/checks/" <> item["stream_id"]} class="text-link">Inspect predecessor result history</.link>
-          <.link
-            :if={item["successor_stream_id"]}
-            navigate={"/checks/" <> item["successor_stream_id"]}
-            class="text-link"
-          >Inspect replacement result</.link>
-        </div>
-        <details :if={retained_witness?(item)} class="diagnostic-details">
-          <summary>Saved replacement evidence reference</summary><p>
-            Measurement <code>{item["successor_observation_id"]}</code>, configuration version {item[
-              "successor_generation"
-            ]}.
-          </p>
-        </details>
-      </article>
-      <nav
-        :if={pages(@event) > 1}
-        id="publisher-saved-decision-pages"
-        class="pagination"
-        aria-label="Saved decision impact pages"
+      <PreviewDetail.facts label="Saved lifecycle decision">
+        <tr>
+          <th scope="row">Reason</th><td>{@event["reason"]}</td>
+        </tr><tr>
+          <th scope="row">Recorded</th><td>{utc(@event["inserted_at"])}</td>
+        </tr><tr>
+          <th scope="row">Evidence scope</th><td>
+            {@event["total"]} affected result declarations. Showing page {@event["page"]} of {pages(
+              @event
+            )}. These identities and measurements describe the saved decision; current coverage may have changed.
+          </td>
+        </tr>
+      </PreviewDetail.facts>
+      <table
+        class="pf-v6-c-table pf-m-compact preview-table publication-saved-table"
+        aria-label="Saved decision result declarations"
       >
-        <.link
-          :if={@event["page"] > 1}
-          patch={event_path(@publisher_id, @event["id"], @event["page"] - 1, @history_page)}
-          phx-click={JS.focus(to: "#publisher-saved-decision-heading")}
-          class="button small secondary"
-        >Previous</.link>
-        <span>Page {@event["page"]} of {pages(@event)}</span>
-        <.link
-          :if={@event["page"] < pages(@event)}
-          patch={event_path(@publisher_id, @event["id"], @event["page"] + 1, @history_page)}
-          phx-click={JS.focus(to: "#publisher-saved-decision-heading")}
-          class="button small secondary"
-        >Next</.link>
-      </nav>
-    </section>
+        <thead class="pf-v6-c-table__thead">
+          <tr>
+            <th scope="col" class="pf-v6-c-table__th">Recorded result / target</th><th
+              scope="col"
+              class="pf-v6-c-table__th"
+            >
+              Saved evidence
+            </th><th scope="col" class="pf-v6-c-table__th">Current evidence</th>
+          </tr>
+        </thead><tbody>
+          <tr :for={item <- @event["items"] || []} class="publisher-impact-row">
+            <td class="pf-v6-c-table__td" data-label="Recorded result / target">
+              <strong>{item["check_label"]} · {item["result_label"]}</strong><span class="preview-caption publication-secondary">{get_in(
+                item,
+                ["target", "label"]
+              ) || "Unresolved target"} · {item["environment"] || "Unscoped"}</span><span
+                :if={item["catalogue_unknown"]}
+                class="preview-caption publication-secondary"
+              >No supported declaration catalogue; retained scheduled results describe known impact.</span>
+            </td><td class="pf-v6-c-table__td" data-label="Saved evidence">
+              <span :if={item["successor_health"]}>Replacement's last measured health: {health(
+                item["successor_health"]
+              )}</span><.link
+                :if={retained_witness?(item)}
+                patch={owner_url(@current, %{"evidence_id" => item["successor_observation_id"]})}
+              >Inspect saved measurement</.link><details :if={retained_witness?(item)}>
+                <summary>Saved replacement evidence reference</summary><p>
+                  Measurement {item["successor_observation_id"]}, configuration version {item[
+                    "successor_generation"
+                  ]}.
+                </p>
+              </details>
+            </td><td class="pf-v6-c-table__td publication-links" data-label="Current evidence">
+              <.link
+                :if={item["stream_id"]}
+                patch={entity_path(@current, {"result", item["stream_id"]})}
+              >Inspect predecessor result history</.link><.link
+                :if={item["successor_stream_id"]}
+                patch={entity_path(@current, {"result", item["successor_stream_id"]})}
+              >Inspect replacement result</.link>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div id="publisher-saved-decision-pages">
+        <PreviewPagination.pagination
+          page={@event["page"]}
+          size={@event["page_size"] || 25}
+          total={@event["total"]}
+          label="Saved decision impact pages"
+          url={fn page -> owner_url(@current, %{"event_page" => page, "evidence_id" => nil}) end}
+        />
+      </div>
+    </PreviewDetail.card>
     """
   end
 
   defp saved_measurement(assigns) do
     evidence = assigns.evidence || %{}
     observation = evidence["observation"] || %{}
-    keys = evidence["referenced_result_keys"] || []
 
     results =
-      (get_in(observation, ["payload", "results"]) || []) |> Enum.filter(&(&1["key"] in keys))
+      Enum.filter(
+        get_in(observation, ["payload", "results"]) || [],
+        &(&1["key"] in (evidence["referenced_result_keys"] || []))
+      )
 
     assigns =
       assign(assigns,
@@ -964,92 +1122,98 @@ defmodule MondekWeb.PublisherLive do
       )
 
     ~H"""
-    <section
+    <PreviewDetail.card
       id="publisher-saved-measurement"
-      data-observation-id={@observation["id"]}
-      class="panel panel-body"
-      aria-labelledby="publisher-saved-measurement-heading"
       phx-mounted={JS.focus(to: "#publisher-saved-measurement-heading")}
+      title="Saved replacement measurement"
+      level={2}
+      data-observation-id={@observation["id"]}
     >
-      <h2 id="publisher-saved-measurement-heading" tabindex="-1">Saved replacement measurement</h2>
-      <p :if={@evidence}>
+      <p :if={@evidence} class="publication-message">
         This is the original measurement retained for this saved decision. It describes health at that time, not current health.
       </p>
-      <p :if={@missing} id="publisher-saved-measurement-missing" class="notice">
+      <p :if={@evidence_missing} id="publisher-saved-measurement-missing" class="publication-message">
         No retained measurement is available for this reference in this decision. Older records may have expired before evidence retention was introduced. The saved decision's identity and recorded health remain available above.
       </p>
-      <div :if={@evidence}>
-        <article
-          :for={result <- @results}
-          class="publisher-saved-result"
-          data-saved-result-key={result["key"]}
-        >
-          <h3>{saved_result_label(@witnesses, result["key"])}</h3>
-          <p class="publisher-saved-health">
-            <strong>{health(result["health"])}</strong><span :if={!is_nil(result["value"])}> · Measured value: {result[
-              "value"
-            ]}</span>
-          </p>
-          <p class="publisher-saved-summary">{result["summary"]}</p>
-          <p :if={result["details"] not in [nil, ""]} class="publisher-saved-details">
-            {result["details"]}
-          </p>
-          <p :if={result["impacts"] not in [nil, []]}>
-            Declared impacts: {Enum.map_join(result["impacts"], ", ", & &1["label"])}
-          </p>
-          <p class="footnote">
-            Source time:
-            <time datetime={result["source_at"]}>{result["source_at"] || "Not reported"}</time>
-          </p>
-        </article>
-        <dl class="coverage-identity publisher-evidence-identity">
-          <div>
-            <dt>Evaluation completed</dt><dd>
+      <%= if @evidence do %>
+        <div :for={result <- @results} data-saved-result-key={result["key"]}>
+          <PreviewDetail.facts
+            label={"Saved measurement: " <> result["key"]}
+            class="publisher-saved-result"
+          >
+            <tr>
+              <th scope="row">Result</th><td>{saved_result_label(@witnesses, result["key"])}</td>
+            </tr>
+            <tr>
+              <th scope="row">Last measured health</th><td>
+                <span class={["pf-v6-c-label", health_tone(result["health"])]}><span class="pf-v6-c-label__content">{health(
+                  result["health"]
+                )}</span></span>
+              </td>
+            </tr>
+            <tr :if={!is_nil(result["value"])}>
+              <th scope="row">Measured value</th><td>Measured value: {result["value"]}</td>
+            </tr>
+            <tr>
+              <th scope="row">Finding</th><td>{result["summary"]}</td>
+            </tr>
+            <tr :if={result["details"] not in [nil, ""]}>
+              <th scope="row">Check details</th><td>
+                <MondekWeb.CheckDetails.check_details text={result["details"]} />
+              </td>
+            </tr>
+            <tr :if={result["impacts"] not in [nil, []]}>
+              <th scope="row">Declared impacts</th><td>
+                {Enum.map_join(result["impacts"], ", ", & &1["label"])}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Source time</th><td>
+                <time datetime={result["source_at"]}>{result["source_at"] || "Not reported"}</time>
+              </td>
+            </tr>
+          </PreviewDetail.facts>
+        </div>
+        <PreviewDetail.facts label="Saved execution">
+          <tr>
+            <th scope="row">Evaluation completed</th><td>
               <time datetime={@observation["evaluated_at"]}>{@observation["evaluated_at"]}</time>
-            </dd>
-          </div>
-          <div>
-            <dt>Execution started</dt><dd>
+            </td>
+          </tr><tr>
+            <th scope="row">Execution started</th><td>
               <time datetime={@observation["started_at"]}>{@observation["started_at"]}</time>
-            </dd>
-          </div>
-          <div>
-            <dt>Controller received</dt><dd>
+            </td>
+          </tr><tr>
+            <th scope="row">Controller received</th><td>
               <time datetime={@observation["received_at"]}>{@observation["received_at"]}</time>
-            </dd>
-          </div>
-          <div>
-            <dt>Configuration version</dt><dd>{@observation["generation"]}</dd>
-          </div>
-        </dl>
+            </td>
+          </tr><tr>
+            <th scope="row">Configuration version</th><td>{@observation["generation"]}</td>
+          </tr>
+        </PreviewDetail.facts>
         <details
           id="publisher-saved-measurement-provenance"
-          class="diagnostic-details"
+          class="publication-disclosure"
           phx-mounted={JS.ignore_attributes("open")}
         >
-          <summary>Original measurement and configuration details</summary>
-          <p>
-            Showing the result keys referenced by this decision. Other results in the same execution are not replacement evidence for this decision.
-          </p>
-          <dl class="coverage-identity">
-            <div>
-              <dt>Measurement identity</dt><dd><code>{@observation["id"]}</code></dd>
-            </div>
-            <div>
-              <dt>Runner session</dt><dd><code>{@observation["session_id"]}</code></dd>
-            </div>
-            <div>
-              <dt>Execution sequence</dt><dd>{@observation["sequence"]}</dd>
-            </div>
-          </dl>
-          <p :if={is_nil(@configuration)}>The original configuration record is no longer retained.</p>
-          <div :if={@configuration}>
-            <h3>Parameters used for this measurement</h3>
-            <pre>{Jason.encode!(@configuration["params"] || %{}, pretty: true)}</pre>
+          <summary>Original measurement and configuration details</summary><p class="publication-message">
+            Only result keys referenced by this decision establish its replacement evidence.
+          </p><PreviewDetail.facts label="Saved measurement identity">
+            <tr>
+              <th scope="row">Measurement identity</th><td>{@observation["id"]}</td>
+            </tr><tr>
+              <th scope="row">Runner session</th><td>{@observation["session_id"]}</td>
+            </tr><tr>
+              <th scope="row">Execution sequence</th><td>{@observation["sequence"]}</td>
+            </tr>
+          </PreviewDetail.facts><p :if={!@configuration} class="publication-message">
+            The original configuration record is no longer retained.
+          </p><div :if={@configuration} class="publication-message">
+            <h3>Parameters used for this measurement</h3><pre class="preview-findings">{Jason.encode!(@configuration["params"] || %{}, pretty: true)}</pre>
           </div>
         </details>
-      </div>
-    </section>
+      <% end %>
+    </PreviewDetail.card>
     """
   end
 
@@ -1061,43 +1225,70 @@ defmodule MondekWeb.PublisherLive do
 
   defp event_pager(assigns) do
     ~H"""
-    <nav :if={pages(@listing) > 1} id={@id} class="pagination" aria-label={@label}>
-      <button
-        :if={@listing["page"] > 1}
-        type="button"
-        class="button small secondary"
-        phx-click={@event}
-        phx-value-page={@listing["page"] - 1}
-        disabled={@disabled}
-      >Previous</button>
-      <span>Page {@listing["page"]} of {pages(@listing)}</span>
-      <button
-        :if={@listing["page"] < pages(@listing)}
-        type="button"
-        class="button small secondary"
-        phx-click={@event}
-        phx-value-page={@listing["page"] + 1}
-        disabled={@disabled}
-      >Next</button>
-    </nav>
+    <div id={@id}>
+      <PreviewPagination.pagination
+        :if={!@disabled}
+        page={@listing["page"] || 1}
+        size={@listing["page_size"] || 25}
+        total={@listing["total"] || 0}
+        label={@label}
+        event={@event}
+      /><p :if={@disabled && pages(@listing) > 1} class="publication-message">
+        Review again before paging this changed decision.
+      </p>
+    </div>
     """
   end
 
+  defp entity_path(current, identity) do
+    trail = InvestigationTrail.resolve(URI.decode_query(URI.parse(current).query || ""))
+
+    case InvestigationTrail.open(trail, identity) do
+      {:ok, next} -> InvestigationTrail.path(current, next)
+      _ -> current
+    end
+  end
+
+  defp owner_url(current, changes) do
+    uri = URI.parse(current)
+
+    params =
+      URI.decode_query(uri.query || "")
+      |> Map.drop(~w(inspect surface page_entity))
+      |> Map.merge(changes)
+      |> Map.reject(fn {_, value} -> value in [nil, ""] end)
+
+    uri.path <>
+      if(map_size(params) == 0, do: "", else: "?" <> URI.encode_query(Enum.sort(params)))
+  end
+
+  defp publication_back_label("/runners" <> _), do: "Back to runner"
+  defp publication_back_label("/coverage/publishers" <> _), do: "Back to source publications"
+  defp publication_back_label("/coverage" <> _), do: "Back to Coverage"
+  defp publication_back_label(nil), do: "Back to source publications"
+  defp publication_back_label(_), do: "Back"
+
+  defp publication_meaning("retired"),
+    do:
+      "Retired from this controller. An offline runner may continue executing; stop or remove its deployment separately. Retained measurements and incident history remain inspectable. A later restoration creates new check instances using defaults from code and matching rules; individual exceptions and acknowledgements remain with the retired instances."
+
+  defp publication_meaning("awaiting_inventory"),
+    do:
+      "Waiting for a new publication. Restoration permits a newer complete inventory; it does not revive previous health, result episodes or acknowledgements."
+
+  defp publication_meaning(_),
+    do:
+      "This runner publishes its own source declarations and measurements. Other observers keep independent evidence."
+
+  defp status_tone("active"), do: "pf-m-green"
+  defp status_tone("awaiting_inventory"), do: "pf-m-orange"
+  defp status_tone(_), do: ""
+  defp health_tone("OK"), do: "pf-m-green"
+  defp health_tone("CRIT"), do: "pf-m-red"
+  defp health_tone("WARN"), do: "pf-m-orange"
+  defp health_tone(_), do: ""
+
   defp count(map, key), do: (map || %{})[key] || 0
-
-  defp event_path(id, event, page, history_page),
-    do:
-      "/coverage/publishers/#{id}?" <>
-        URI.encode_query(%{
-          "event_id" => event,
-          "event_page" => page,
-          "history_page" => history_page || 1
-        })
-
-  defp evidence_path(id, event, page, history_page, evidence),
-    do:
-      event_path(id, event, page, history_page) <>
-        "&" <> URI.encode_query(%{"evidence_id" => evidence})
 
   defp retained_witness?(item),
     do:
@@ -1132,7 +1323,10 @@ defmodule MondekWeb.PublisherLive do
   end
 
   defp positive(_), do: 1
-  defp bounded_search(value) when is_binary(value) and byte_size(value) <= 200, do: value
+
+  defp bounded_search(value) when is_binary(value) and byte_size(value) <= 200,
+    do: if(String.valid?(value) and not String.contains?(value, <<0>>), do: value, else: "")
+
   defp bounded_search(_), do: ""
 
   defp same_id?(a, b) when (is_binary(a) or is_integer(a)) and (is_binary(b) or is_integer(b)),

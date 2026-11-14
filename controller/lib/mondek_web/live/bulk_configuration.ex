@@ -16,6 +16,8 @@ defmodule MondekWeb.BulkConfiguration do
     {:ok,
      assign(socket,
        rows: [],
+       enabled: true,
+       selected_rows: %{},
        filters: %{},
        return_to: "/configuration",
        now: nil,
@@ -44,17 +46,20 @@ defmodule MondekWeb.BulkConfiguration do
   @impl true
   def update(assigns, socket) do
     previous_now = socket.assigns.now
-    socket = assign(socket, Map.take(assigns, [:id, :rows, :filters, :return_to, :now]))
+    socket = assign(socket, Map.take(assigns, [:id, :rows, :filters, :return_to, :now, :enabled]))
 
     socket =
       if socket.assigns.phase == :saved && socket.assigns.now != previous_now,
         do: refresh_progress(socket),
         else: socket
 
-    {:ok, socket}
+    {:ok, with_selection_rows(socket)}
   end
 
   @impl true
+  def handle_event(event, _, %{assigns: %{enabled: false}} = socket) when event != "recover",
+    do: {:noreply, socket}
+
   def handle_event("edit", %{"_target" => ["selected", id]} = form, socket) do
     socket = keep_form_draft(socket, form)
     value = get_in(form, ["selected", id])
@@ -121,7 +126,9 @@ defmodule MondekWeb.BulkConfiguration do
 
   def handle_event("clear", _params, socket) do
     {:ok, fresh} = mount(socket)
-    {:noreply, assign(fresh, Map.take(socket.assigns, [:id, :rows, :filters, :return_to, :now]))}
+
+    {:noreply,
+     assign(fresh, Map.take(socket.assigns, [:id, :rows, :filters, :return_to, :now, :enabled]))}
   end
 
   def handle_event("remove_affected", _params, socket) do
@@ -244,6 +251,7 @@ defmodule MondekWeb.BulkConfiguration do
       socket =
         socket
         |> assign(selection: selection, draft: draft, resolved_fields: resolved)
+        |> with_selection_rows()
         |> keep_form_draft(form)
 
       # A browser-only membership change must never reuse a token for the old set.
@@ -320,13 +328,16 @@ defmodule MondekWeb.BulkConfiguration do
         recovery_selection: Jason.encode!(selection_records(assigns)),
         recovery_draft: Jason.encode!(assigns.draft),
         recovery_resolved: Jason.encode!(assigns.resolved_fields),
-        recovery_receipts: Jason.encode!(assigns.receipts)
+        recovery_receipts: Jason.encode!(assigns.receipts),
+        outside_rows: outside_rows(assigns),
+        outside_total: length(outside_ids(assigns))
       )
 
     ~H"""
     <div id={@id}>
       <form
         id="bulk-configuration-form"
+        phx-hook="SelectableRows"
         phx-change="edit"
         phx-submit="submit"
         phx-auto-recover="recover"
@@ -387,7 +398,7 @@ defmodule MondekWeb.BulkConfiguration do
               phx-click="prepare"
               phx-target={@myself}
               disabled={@selected_count == 0}
-            >Review selected checks</button>
+            >Edit selected checks</button>
           </div>
           <details
             :if={@compatibility}
@@ -467,7 +478,11 @@ defmodule MondekWeb.BulkConfiguration do
         </div>
 
         <div :if={@phase == :edit && @parameter_schema} class="panel-body" id="bulk-editor">
-          <h3>One complete parameter set for {@selected_count} checks</h3>
+          <h3>
+            One complete parameter set for {@selected_count} {if @selected_count == 1,
+              do: "check",
+              else: "checks"}
+          </h3>
           <p>
             This selection covers {expected_results(@prepared["selected_result_count"])}. Shared current values are filled in; every differing value needs your explicit choice.
           </p>
@@ -547,7 +562,7 @@ defmodule MondekWeb.BulkConfiguration do
             <span :if={@selected_count > 0}>Your existing selection is preserved.</span>
           </p>
         </div>
-        <div :if={@rows != []} class="table-wrap" id="bulk-instance-inventory">
+        <div :if={@rows != [] || @outside_total > 0} class="table-wrap" id="bulk-instance-inventory">
           <table class="inventory-table">
             <thead>
               <tr>
@@ -557,11 +572,12 @@ defmodule MondekWeb.BulkConfiguration do
               </tr>
             </thead>
             <tbody>
-              <tr :for={check <- @rows} id={"configuration-row-" <> check["id"]}>
-                <td>
+              <tr :for={check <- @rows} id={"configuration-row-" <> check["id"]} data-select-row>
+                <td data-label="Select">
                   <input type="hidden" name={"selected[" <> check["id"] <> "]"} value="" />
                   <input
                     type="checkbox"
+                    data-row-checkbox
                     id={"bulk-select-" <> check["id"]}
                     name={"selected[" <> check["id"] <> "]"}
                     value={check["revision"]}
@@ -575,31 +591,76 @@ defmodule MondekWeb.BulkConfiguration do
                     aria-describedby={"bulk-eligibility-" <> check["id"]}
                   />
                 </td>
-                <td>
-                  <.link navigate={configuration_path(check["id"], @return_to)}><strong>{check_label(
-                    check
-                  )}</strong></.link><div class="sub">
+                <td data-label="Scheduled check">
+                  <.link navigate={configuration_path(check["id"], @return_to)}>{check_label(check)}</.link><div class="sub">
                     {expected_results(length(check["expected_keys"] || []))} · every {MondekWeb.Duration.format_seconds(
                       check["interval_seconds"]
                     )}
                   </div>
                 </td>
-                <td>
+                <td data-label="Runner / source">
                   {runner_label(check)}
-                  <div class="sub">{check["source_id"] || "Legacy controller configuration"}</div><div
+                  <div class="sub">{check["source_id"] || "Controller configuration"}</div><div
                     :if={check["environment"]}
                     class="sub"
                   >
                     {environment_name(check)}
                   </div>
                 </td>
-                <td id={"bulk-eligibility-" <> check["id"]}>
+                <td id={"bulk-eligibility-" <> check["id"]} data-label="Parameters">
                   {selection_explanation(check, @compatibility)}
                 </td>
-                <td>{configuration_stage(check)}</td>
+                <td data-label="Configuration">{configuration_stage(check)}</td>
+              </tr>
+              <tr :if={@outside_total > 0} class="bulk-retained-heading">
+                <th colspan="5" scope="colgroup">
+                  Selected outside this page or filters <span class="badge">{@outside_total}</span>
+                </th>
+              </tr>
+              <tr
+                :for={check <- @outside_rows}
+                id={"configuration-retained-" <> check["id"]}
+                class="bulk-retained-row"
+                data-select-row
+              >
+                <td data-label="Select">
+                  <input type="hidden" name={"selected[" <> check["id"] <> "]"} value="" /><input
+                    type="checkbox"
+                    data-row-checkbox
+                    id={"bulk-select-" <> check["id"]}
+                    name={"selected[" <> check["id"] <> "]"}
+                    value={@selection[check["id"]]}
+                    checked
+                    disabled={@locked}
+                    aria-label={"Deselect " <> check_label(check) <> " on " <> runner_label(check)}
+                  />
+                </td>
+                <td data-label="Scheduled check">
+                  <.link navigate={configuration_path(check["id"], @return_to)}>{check_label(check)}</.link><div class="sub">
+                    Selection retained from an earlier view
+                  </div>
+                </td>
+                <td data-label="Runner / source">
+                  {runner_label(check)}
+                  <div class="sub">{check["source_id"]} · {environment_name(check)}</div>
+                </td>
+                <td data-label="Parameters">
+                  Selected · captured revision {@selection[check["id"]]}
+                </td><td data-label="Configuration">
+                  Review before saving
+                </td>
               </tr>
             </tbody>
           </table>
+        </div>
+        <div :if={@outside_total > 25} class="bulk-retained-pager">
+          <MondekWeb.PreviewPagination.pagination
+            page={outside_page(@filters, @outside_total)}
+            size={25}
+            total={@outside_total}
+            label="Retained selection pages"
+            url={fn page -> retained_page_path(@return_to, page) end}
+          />
         </div>
       </form>
     </div>
@@ -659,28 +720,16 @@ defmodule MondekWeb.BulkConfiguration do
   attr :target, :any, required: true
 
   defp pages(assigns) do
-    assigns =
-      assign(assigns,
-        pages: max(1, ceil(assigns.context["total"] / assigns.context["page_size"]))
-      )
-
     ~H"""
-    <div class="pagination space-top">
-      <button
-        type="button"
-        class="button small"
-        phx-click="page"
-        phx-value-page={@context["page"] - 1}
-        phx-target={@target}
-        disabled={@context["page"] <= 1}
-      >Previous review page</button><span>Page {@context["page"]} of {@pages} · {@context["total"]} checks</span><button
-        type="button"
-        class="button small"
-        phx-click="page"
-        phx-value-page={@context["page"] + 1}
-        phx-target={@target}
-        disabled={@context["page"] >= @pages}
-      >Next review page</button>
+    <div class="pagination">
+      <MondekWeb.PreviewPagination.pagination
+        page={@context["page"]}
+        size={@context["page_size"]}
+        total={@context["total"]}
+        label="Configuration review pages"
+        event="page"
+        target={@target}
+      />
     </div>
     """
   end
@@ -716,7 +765,50 @@ defmodule MondekWeb.BulkConfiguration do
         page: 1
       )
 
-    socket
+    with_selection_rows(socket)
+  end
+
+  defp with_selection_rows(socket),
+    do:
+      assign(socket,
+        selected_rows:
+          Mondek.ConfigurationSelection.cache(
+            socket.assigns.selection,
+            socket.assigns.rows,
+            socket.assigns.selected_rows
+          )
+      )
+
+  defp outside_ids(assigns), do: Map.keys(assigns.selection) -- Enum.map(assigns.rows, & &1["id"])
+
+  defp outside_rows(assigns) do
+    ids = outside_ids(assigns)
+
+    ids
+    |> Enum.map(fn id ->
+      Map.get(assigns.selected_rows, id, %{"id" => id, "label" => "Check no longer retained"})
+    end)
+    |> Enum.sort_by(&{String.downcase(check_label(&1)), &1["id"]})
+    |> Enum.drop((outside_page(assigns.filters, length(ids)) - 1) * 25)
+    |> Enum.take(25)
+  end
+
+  defp outside_page(filters, total) do
+    case Integer.parse(to_string(filters["selected_page"] || "1")) do
+      {page, ""} when page > 0 -> min(page, max(1, ceil(total / 25)))
+      _ -> 1
+    end
+  end
+
+  defp retained_page_path(path, page) do
+    uri = URI.parse(path)
+
+    query =
+      URI.decode_query(uri.query || "")
+      |> Map.put("selected_page", to_string(page))
+      |> URI.encode_query()
+
+    uri.path <> "?" <> query
   end
 
   defp keep_form_draft(socket, form) do

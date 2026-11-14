@@ -22,41 +22,24 @@ defmodule MondekWeb.DiscoveryLiveTest do
     %{publication: publication, stream: stream, discovery: evidence, now: now, report: report}
   end
 
-  test "incident investigation separates updated findings from opening history and returns from discovery",
+  test "review uses current discovery and returns to an incident without rewriting opening evidence",
        ctx do
     incident = Repo.get_by!(Incident, stream_id: ctx.stream.id)
-    {:ok, view, _} = live(build_conn(), "/incidents/#{incident.id}")
-    assert has_element?(view, "#incident-check-now h2", "Latest measurement")
-    refute has_element?(view, "#incident-measurements[open]")
 
     later =
       measure(ctx.publication, ctx.discovery, 2, DateTime.add(ctx.now, 1), %{
         "summary" => "7 containers need classification",
-        "details" => "Unclassified running containers:\n- service-new\n- <unsafe-name>"
+        "details" => "service-new <unsafe-name>"
       })
 
-    send(view.pid, :tick)
-    assert has_element?(view, "#incident-check-now", "7 containers need classification")
-    assert has_element?(view, "#incident-current-details pre", "service-new")
-    assert has_element?(view, "#incident-current-details pre", "<unsafe-name>")
-    refute has_element?(view, "#incident-current-details unsafe-name")
+    return_to = "/incidents/health/#{incident.id}/full"
+    {:ok, view, _} = live(build_conn(), MondekWeb.DiscoveryLive.path(ctx.stream.id, return_to))
+    assert has_element?(view, "#discovery-back[href='#{return_to}']", "Back to investigation")
+    assert has_element?(view, "#discovery-candidate-0", "Export archive")
 
     assert has_element?(
              view,
-             "#incident-measurements #evidence-#{ctx.report["id"]} h3",
-             "When this incident opened"
-           )
-
-    assert has_element?(
-             view,
-             "#incident-measurements #evidence-#{ctx.report["id"]}",
-             "5 containers need classification"
-           )
-
-    refute has_element?(
-             view,
-             "#incident-measurements #evidence-#{ctx.report["id"]}",
-             "service-new"
+             "#discovery-evidence time[datetime='#{Monitoring.iso(DateTime.add(ctx.now, 1))}']"
            )
 
     assert Repo.get!(Observation, ctx.report["id"]).payload["results"]
@@ -65,39 +48,13 @@ defmodule MondekWeb.DiscoveryLiveTest do
 
     assert Repo.get!(ResultStream, ctx.stream.id).current["confirmed_observation_id"] ==
              later["id"]
-
-    navigation = view |> element("#incident-discovery-review") |> render_click()
-    {:ok, discovery, _} = follow_redirect(navigation, build_conn())
-
-    assert has_element?(
-             discovery,
-             "#discovery-back[href='/incidents/#{incident.id}']",
-             "Back to incident"
-           )
-
-    assert has_element?(discovery, "#discovery-candidate-0")
   end
 
   test "source-declared choices require explicit selection and produce a reviewed typed prompt without writes",
        ctx do
-    return_to =
-      MondekWeb.CheckInventory.normalize(%{"tab" => "critical", "view" => "list"})
-      |> MondekWeb.CheckInventory.path()
-
-    {:ok, result, _} =
-      live(
-        build_conn(),
-        "/checks/#{ctx.stream.id}?" <> URI.encode_query(%{"return_to" => return_to})
-      )
-
-    assert has_element?(result, "#result-discovery-review", "Review discovered resources")
-    navigation = result |> element("#result-discovery-review") |> render_click()
-    {:ok, view, _} = follow_redirect(navigation, build_conn())
-
-    assert has_element?(
-             view,
-             "#discovery-back[href='/checks/#{ctx.stream.id}?return_to=#{URI.encode_www_form(return_to)}']"
-           )
+    return_to = "/results/#{ctx.stream.id}/full"
+    {:ok, view, _} = live(build_conn(), MondekWeb.DiscoveryLive.path(ctx.stream.id, return_to))
+    assert has_element?(view, "#discovery-back[href='#{return_to}']")
 
     assert has_element?(view, "h1", "Review discovered resources")
     assert has_element?(view, "#discovery-omitted", "1 additional")
@@ -263,11 +220,207 @@ defmodule MondekWeb.DiscoveryLiveTest do
 
   test "missing discovery and unsafe returns stay within the application", ctx do
     {:ok, view, _} = live(build_conn(), path(ctx) <> "?return_to=https%3A%2F%2Fexample.com")
-    assert has_element?(view, "#discovery-back[href='/checks/#{ctx.stream.id}']")
+    assert has_element?(view, "#discovery-back[href='/results/#{ctx.stream.id}/full']")
     unknown = Ecto.UUID.generate()
     {:ok, missing, _} = live(build_conn(), "/checks/#{unknown}/discovery")
     assert has_element?(missing, "#discovery-missing", "No retained discovery")
     refute has_element?(missing, "#discovery-review-form")
+  end
+
+  test "result drawer and page expose the same discovery review capability", ctx do
+    for suffix <- ["", "/full"] do
+      origin = "/results/#{ctx.stream.id}" <> suffix
+      {:ok, result, _} = live(build_conn(), origin)
+      surface = if suffix == "", do: "#overview-panel", else: "#preview-result-page"
+      assert has_element?(result, surface <> " #preview-result-discovery", "Unconfigured exports")
+      link = surface <> " #result-discovery-review"
+      assert has_element?(result, link, "Review discovered resources")
+
+      href =
+        result
+        |> render()
+        |> LazyHTML.from_document()
+        |> LazyHTML.query(link)
+        |> LazyHTML.attribute("href")
+        |> hd()
+
+      params = URI.decode_query(URI.parse(href).query || "")
+      assert URI.parse(params["return_to"]).path == origin
+      navigation = result |> element(link) |> render_click()
+      {:ok, proposal, _} = follow_redirect(navigation, build_conn())
+      assert has_element?(proposal, "#discovery-candidate-0", "Export archive")
+
+      back =
+        proposal
+        |> render()
+        |> LazyHTML.from_document()
+        |> LazyHTML.query("#discovery-back")
+        |> LazyHTML.attribute("href")
+        |> hd()
+
+      assert URI.parse(back).path == origin
+    end
+  end
+
+  test "filter and result investigation patches retain selected proposals and reviewed values",
+       ctx do
+    {:ok, view, _} = live(build_conn(), path(ctx))
+    choose(view, "monitor")
+    edit_age(view, "37")
+    view |> form("#discovery-review-form") |> render_submit()
+    assert has_element?(view, "#discovery-proposal-review", "37")
+    render_patch(view, path(ctx) <> "?search=Other")
+    assert has_element?(view, "#discovery-retained-selection #discovery-select-0[checked]")
+
+    assert has_element?(
+             view,
+             "#discovery-retained-selection #discovery-params-0-maximum_age_hours[value='37']"
+           )
+
+    assert has_element?(view, "#discovery-proposal-review", "37")
+    assert has_element?(view, "#discovery-candidate-1")
+    assert has_element?(view, "#discovery-retained-selection input[data-row-checkbox]")
+    view |> element(".discovery-evidence-action a") |> render_click()
+    assert has_element?(view, "#overview-panel [id='overview-panel-title']")
+    assert has_element?(view, "#discovery-params-0-maximum_age_hours[value='37']")
+    assert has_element?(view, "#overview-panel #result-discovery-review[data-phx-link='patch']")
+    assert has_element?(view, "#discovery-workflow[inert]")
+    render_hook(view, "reload", %{})
+    render_hook(view, "review", %{})
+    render_hook(view, "generate", %{})
+    render_hook(view, "edit", %{"selections" => %{}})
+    assert has_element?(view, "#discovery-proposal-review", "37")
+    refute has_element?(view, "#discovery-prompt-text")
+    view |> element("#overview-panel [data-overview-close]") |> render_click()
+    refute has_element?(view, "#overview-panel")
+    assert has_element?(view, "#discovery-proposal-review", "37")
+    view |> element(".discovery-evidence-action a") |> render_click()
+
+    view |> element("#overview-panel #result-discovery-review") |> render_click()
+    refute has_element?(view, "#overview-panel")
+    assert has_element?(view, "#discovery-retained-selection #discovery-select-0[checked]")
+    send(view.pid, :tick)
+    assert has_element?(view, "#discovery-proposal-review", "37")
+    view |> element("#discovery-generate") |> render_click()
+    assert text(view, "#discovery-prompt-text") =~ ~s("maximum_age_hours": 37)
+  end
+
+  test "promoted result pages hide the preserved editor and restore its reviewed draft", ctx do
+    {:ok, view, _} = live(build_conn(), path(ctx))
+    choose(view, "monitor")
+    edit_age(view, "43")
+    view |> form("#discovery-review-form") |> render_submit()
+    view |> element(".discovery-evidence-action a") |> render_click()
+    view |> element("#overview-panel a", "Open as page") |> render_click()
+    assert has_element?(view, "#discovery-workflow[hidden][inert]")
+    assert has_element?(view, "#discovery-shell[data-panel-heading='full-result-heading']")
+    assert has_element?(view, "#preview-result-page #full-result-heading")
+    assert has_element?(view, "#discovery-params-0-maximum_age_hours[value='43']")
+    view |> element("#preview-result-page a", "Open fly-over") |> render_click()
+    refute has_element?(view, "#discovery-workflow[hidden]")
+    assert has_element?(view, "#overview-panel")
+    view |> element("#overview-panel #result-discovery-review") |> render_click()
+    assert has_element?(view, "#discovery-proposal-review", "43")
+    assert has_element?(view, "#discovery-select-0[checked]")
+    render_patch(view, path(ctx) <> "?surface=page&page_entity=invalid")
+    refute has_element?(view, "#discovery-workflow[hidden]")
+    assert has_element?(view, "#discovery-shell[data-panel-heading='discovery-heading']")
+  end
+
+  test "source proposal keys none and all stay distinct from the unchosen filter", ctx do
+    extra =
+      for key <- ["none", "all"],
+          do: %{
+            Enum.at(ctx.discovery["choices"], 1)
+            | "key" => key,
+              "label" => "Source proposal #{key}"
+          }
+
+    discovery = Map.update!(ctx.discovery, "choices", &(&1 ++ extra))
+    measure(ctx.publication, discovery, 2, ctx.now)
+
+    for key <- ["none", "all"] do
+      {:ok, view, _} = live(build_conn(), path(ctx))
+      choose(view, key)
+      render_hook(view, "filter_open", %{"field" => "proposal"})
+      assert has_element?(view, "button[phx-value-key='$unchosen']", "No proposal chosen")
+      assert has_element?(view, "button[phx-value-key='none']", "Source proposal none")
+      assert has_element?(view, "button[phx-value-key='all']", "Source proposal all")
+      view |> element("button[phx-value-key='#{key}']") |> render_click()
+      assert has_element?(view, "#preview-chip-proposal", "Source proposal #{key}")
+
+      assert has_element?(
+               view,
+               "section[aria-labelledby='discovery-matches-heading'] #discovery-candidate-0"
+             )
+
+      refute has_element?(
+               view,
+               "section[aria-labelledby='discovery-matches-heading'] #discovery-candidate-1"
+             )
+
+      render_patch(view, path(ctx) <> "?proposal=%24unchosen")
+
+      assert has_element?(
+               view,
+               "section[aria-labelledby='discovery-matches-heading'] #discovery-candidate-1"
+             )
+
+      refute has_element?(
+               view,
+               "section[aria-labelledby='discovery-matches-heading'] #discovery-candidate-0"
+             )
+
+      assert has_element?(view, "#discovery-retained-selection #discovery-select-0[checked]")
+    end
+  end
+
+  test "pagination retains selected rows from another page and submits their complete values",
+       ctx do
+    discovery =
+      Map.put(
+        ctx.discovery,
+        "candidates",
+        for(
+          n <- 0..34,
+          do: %{
+            "key" => "resource-#{n}",
+            "label" => "Resource #{n}",
+            "details" => "Resource candidate"
+          }
+        )
+      )
+
+    measure(ctx.publication, discovery, 2, ctx.now)
+    {:ok, view, _} = live(build_conn(), path(ctx))
+    choose(view, "monitor")
+    edit_age(view, "42")
+    render_patch(view, path(ctx) <> "?page=2")
+    assert has_element?(view, "#discovery-candidate-25")
+    assert has_element?(view, "#discovery-retained-selection #discovery-select-0[checked]")
+
+    assert has_element?(
+             view,
+             "nav[aria-label='Discovered resource pages'] [aria-current='page']",
+             "2"
+           )
+
+    view |> form("#discovery-review-form") |> render_submit()
+    view |> element("#discovery-generate") |> render_click()
+    prompt = text(view, "#discovery-prompt-text")
+    assert prompt =~ ~s("candidate_key": "resource-0")
+    assert prompt =~ ~s("maximum_age_hours": 42)
+    refute prompt =~ ~s("candidate_key": "resource-25")
+  end
+
+  test "a different result cannot inherit frozen discovery or proposal state", ctx do
+    {:ok, view, _} = live(build_conn(), path(ctx))
+    choose(view, "monitor")
+    unknown = Ecto.UUID.generate()
+    render_patch(view, "/checks/#{unknown}/discovery")
+    assert has_element?(view, "#discovery-missing")
+    refute has_element?(view, "#discovery-candidate-0")
+    refute has_element?(view, "#discovery-review-form")
   end
 
   defp path(ctx), do: "/checks/#{ctx.stream.id}/discovery"

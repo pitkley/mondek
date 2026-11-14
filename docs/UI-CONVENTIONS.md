@@ -1,18 +1,18 @@
 # Operator UI conventions
 
-Use these conventions when extending Mondek's existing interfaces. They preserve the approved light navigation, blue accents and compact evidence presentation; they do not introduce a new UI framework.
+Use these conventions to keep navigation, interaction and compact evidence presentation consistent across the operator interface.
 
-The parallel [overview prototype](UI-OVERVIEW-PREVIEW.md) at `/next` deliberately evaluates a replacement layout using PatternFly's HTML/CSS components with LiveView. Its separate root layout and asset bundles isolate the experiment. The evidence, identity, action-scope and accessibility requirements below also apply there; legacy-specific layout conventions do not constrain that prototype.
+The [operator interface](UI-ARCHITECTURE.md) uses PatternFly HTML/CSS with LiveView and the Pearl palette. There is one root layout and one JavaScript/CSS entry; all operator routes use the same UI.
 
 ## Visual hierarchy
 
-For the replacement prototype, treat exposed canvas text as a sign that content may be missing its parent section. Put filters in a list's toolbar, pagination in its footer, and headings, counts, empty states and explanations on the same surface as the content they describe. Use canvas space to separate coherent sections; avoid a separate card for every label. Summary and list columns should share a grid and content inset so comparable information lines up.
+Treat exposed canvas text as a sign that content may be missing its parent section. Put filters in a list's toolbar, pagination in its footer, and headings, counts, empty states and explanations on the same surface as the content they describe. Use canvas space to separate coherent sections; avoid a separate card for every label. Summary and list columns should share a grid and content inset so comparable information lines up.
 
-- Lead each page with its stable section heading, then view tabs, then the selected view's content. Changing a tab must not unexpectedly replace a heading above it.
+- Lead each page with its stable section heading, then its filter toolbar and named content sections. Filters belong in the shared chip search; show applied defaults as removable chips.
 - Put the operator's current task first: evidence during investigation, fields during editing, scope and changes during review, and the exact saved versions during adoption.
 - Keep source identity, raw configuration, timing provenance and other secondary details in clearly named disclosures. Keep check-authored measurement details expanded on result detail.
 - Reuse existing components, spacing and color tokens before adding a page-specific variation. Avoid repeated summary panels that compete with the primary result or action.
-- Retain the explicit List / By group switch. Do not automatically change layout when live result counts cross a threshold.
+- Use compact result tables and explicit Group/Target filters. Do not change layout automatically when live result counts cross a threshold.
 
 ## Vocabulary
 
@@ -54,15 +54,18 @@ Use technical protocol names where they help an author inspect a declaration, ra
 - State which existing checks/results match, which leave a previous scope, which are excluded, and which exceptions or conflicts prevent the proposed values from taking effect.
 - Distinguish a fixed bulk selection from a shared rule. Bulk exceptions cover those instances; rules can include future compatible checks.
 - Keep exact target identity through investigation and return navigation. An absent or unknown selected target must not silently select another one.
+- Register URL-owned presentation fields in the shared return-path allowlist, including historical event/evidence selection and copy/schema seeds. Test editor round trips through the rendered Back links, preserving exact identities and filters; direct navigation to the expected destination does not prove that return context survived.
 - A target-wide action spans matching observers; an observer filter used to find the target does not redefine that target's scope.
 - Preserve check-owned settings and multi-result execution boundaries. The UI configures delegated values; runner code defines monitoring membership.
 - Include declared units when editing or comparing values, including confirmation and exception-removal previews.
+- Exercise realistic LiveView change and recovery payloads in form tests, including empty `_unused_` markers for untouched inputs. Separate recognized framework metadata from declared values while retaining unknown-key, type, size and captured-revision validation.
 
 ## Narrow screens and accessibility
 
 - Keep result identity, observing runner, monitored environment, health, freshness and evidence age visible at narrow widths without discovering horizontal scrolling. Reuse labeled mobile rows for result evidence; keep the compact desktop table. Horizontal scrolling may support secondary technical data, but must not be required to identify whose observation is stale.
 - Make active editing, review and saved-progress steps easy to reach without scrolling through a long unrelated inventory first.
 - Preserve visible keyboard focus, meaningful headings, table relationships, associated field labels and readable wrapping of long identifiers.
+- Check overflow inside cards as well as the document: a clipping surface can conceal unreadable content. Keep inventory mobile-row rules from changing embedded fact-table cells, and allow long nested labels to wrap at narrow widths. Focus a revealed card’s heading rather than its entire tall section so the title stays visible.
 - Verify representative desktop and 320/390px workflows with real browser evidence. Automated accessibility checks and agent review do not replace human comprehension testing.
 
 ## Code-first setup and agent help
@@ -75,31 +78,31 @@ Source-defined check groups organize browsing only; exact targets remain visible
 
 ## Page ownership
 
-OverviewLive, ChecksLive, ResultLive, IncidentsLive, IncidentLive, ConfigurationLive and GuideLive own their respective route state, event handlers and bounded refresh queries. Shared evidence/presentation functions live in MonitoringUI and the existing domain components. Keep page-specific drafts and controls in their owning LiveView rather than growing another multipage dispatcher. Pages intentionally refresh on a one-second timer; they do not subscribe to the high-volume monitoring broadcast only to discard it. Explicit actions still refresh immediately, and clock/freshness updates remain independent of source traffic.
+LiveViews own list queries, URL state and explicit editing workflows. InvestigationStack owns the active typed entity and its retained controls. Do not forward another LiveView’s callbacks or create a second state owner for the same entity. Refresh bounded evidence on controlled ticks; explicit actions refresh immediately. Keep captured drafts and revisions independent of refreshed evidence.
 
 ## Detail surfaces
 
 Use the same entity detail body in the fly-over and full page. Shells own headings, layout, focus and navigation. The entity body owns facts, relationships, errors and actions. Entity state and permissions determine which actions are available. A compact fly-over may start with fewer history rows if the rest are reachable in place. Preserve the owning LiveView’s draft and validated return context when switching presentation. Keep only the active body interactive.
 
-Every new or changed preview detail pair must include a LiveView parity test against the same persisted entity in both routes. Scope assertions to the active detail body and assert the expected sections, evidence, relationship links and eligible actions in each. Include a representative actionable state when the entity supports actions. Assert intentional differences separately, including how to reach any rows collapsed initially. Compare capabilities rather than whole HTML, route strings that legitimately differ, or volatile timestamps. When adding a capability to a shared body, extend the corresponding parity test.
+Every new or changed detail pair must include a LiveView parity test against the same persisted entity in both routes. Scope assertions to the active detail body and assert the expected sections, evidence, relationship links and eligible actions in each. Include a representative actionable state when the entity supports actions. Assert intentional differences separately, including how to reach any rows collapsed initially. Compare capabilities rather than whole HTML, route strings that legitimately differ, or volatile timestamps. When adding a capability to a shared body, extend the corresponding parity test.
 
-## Preview component review
+## Shared components
 
-| Candidate | Where it repeats | Extraction boundary |
+| Primitive | Use | Keep with the entity or workflow owner |
 | --- | --- | --- |
-| Detail heading | Result, incident and both Coverage bodies each switch between nearly identical h1 and h2 markup. Maintenance also styles its entity heading locally. | Use `PreviewDetail.heading` for the focusable entity heading. Keep captions, badges and surrounding evidence with the entity. |
-| Detail shell | Overview result, Coverage observer, incident and Maintenance drawers repeat the active panel ID, dialog attributes, card classes and body wrapper. | Use `PreviewDetail.surface` for the dialog and card body. Keep routes, toolbar actions, focus and stack logic in their existing owners. |
-| Bordered sections and fact tables | Result and incident evidence, runner decisions and notification details still hand-write markup close to PreviewDetail.card and PreviewDetail.facts. | Use `PreviewDetail.card` and `PreviewDetail.facts` for simple sections and row-header tables. Keep column widths, disclosure controls and specialized tables with the entity. |
-| Status labels | Check health, incident severity and state, Coverage state, and delivery state each render colored labels. | Share visual tone and label markup once a new consumer needs it. Keep the mapping from domain state to operator wording and tone explicit in each domain. |
-| Result detail body | Overview, Checks, Incidents and Coverage render PreviewResultDetail. | Supply bounded evidence from PreviewResult and explicit configuration, incident and peer destinations. |
+| `PreviewDetail.heading` | Focusable entity headings with the appropriate page or panel level. | Captions, badges and surrounding evidence. |
+| `PreviewDetail.surface` | Dialog attributes, card classes and the panel body wrapper. | Routes, toolbar actions, focus and stack navigation. |
+| `PreviewDetail.card` / `PreviewDetail.facts` | Bordered sections and tables with row headers. | Column widths, disclosures and specialized tables. |
+| Status labels | Consistent visual tone and label markup. | The mapping from domain state to operator wording and tone. |
+| `PreviewResultDetail` | The canonical result body across Overview, Checks, Incidents and Coverage. | Bounded evidence from PreviewResult and explicit relationship destinations. |
 
 Reuse PreviewFilters, PreviewPagination, PreviewDetail and PanelStack as the starting primitives. Keep incident acknowledgement, maintenance review and notification delivery workflows entity-specific.
 
 
-## Preview component ownership
+## Component ownership
 
-PreviewResultDetail and PreviewIncidentDetail render the canonical entity bodies. Their owners prepare navigation callbacks and destinations so related links keep the appropriate investigation stack. PreviewNavigation builds shared list and result URLs. PreviewResult loads bounded result evidence. PreviewIncidentControls performs named acknowledgement and notification retry operations, returning assign changes and a refresh decision. The owning LiveView dispatches events, applies those changes and refreshes its evidence.
+Canonical entity bodies render within InvestigationStack on pages and panels. InvestigationTrail handles typed links, root participation, bounds and identity deduplication. InvestigationEntity loads bounded evidence; PreviewIncidentControls performs named acknowledgement and retry operations. The stable stack component retains entity drafts and captured revisions and validates active identity before events; domain contexts remain the write authority. See [architecture](UI-ARCHITECTURE.md) for the full ownership and recovery contract.
 
 MaintenanceLive composes PreviewMaintenanceChooser, PreviewMaintenanceEditor and PreviewMaintenanceDetails. It owns the proposal, captured revisions, review tokens, selection recovery and all mutations. MaintenancePresentation contains read-only formatting and local-link helpers shared by those templates. Chooser filter fields and chips come from the owner so the displayed defaults follow the same definitions as the accepted options.
 
-Keep picker application local to each owner. Overview options have key-and-kind identity and database suggestions; incident and Maintenance options have their own matching, clearing defaults and draft-versus-URL application. The existing shared filter component and keyboard hook define the interaction contract. A further generic event helper is deferred until it removes substantial duplication without hiding these differences.
+Keep picker application local to each owner. Overview options have key-and-kind identity and database suggestions; incident and Maintenance options have their own matching, clearing defaults and draft-versus-URL application. Use ScalarFilterPicker for repeated scalar suggestions and chip labels. The shared filter component and keyboard hook define the interaction contract; option loading, defaults and application remain explicit in each owner.

@@ -77,6 +77,7 @@ defmodule MondekWeb.PreviewIncidentDetail do
     </p>
     <.health_evidence
       :if={@incident && @kind == "health"}
+      full_page={@full_page}
       detail={@detail}
       current={@current}
       id_prefix={@id_prefix}
@@ -87,6 +88,7 @@ defmodule MondekWeb.PreviewIncidentDetail do
     />
     <.loss_evidence
       :if={@incident && @kind == "loss"}
+      full_page={@full_page}
       id_prefix={@id_prefix}
       detail={@detail}
       current={@current}
@@ -96,6 +98,7 @@ defmodule MondekWeb.PreviewIncidentDetail do
     />
     <PreviewIncidentSections.sections
       :if={@incident}
+      full_page={@full_page}
       incident={@incident}
       detail={@detail}
       kind={@kind}
@@ -112,6 +115,7 @@ defmodule MondekWeb.PreviewIncidentDetail do
       target={@target}
       entity={@entity}
       result_path={@result_path}
+      expected_path={@expected_path}
     >
       <:delivery_filter>
         <.detail_filter
@@ -135,6 +139,33 @@ defmodule MondekWeb.PreviewIncidentDetail do
         />
       </:delivery_pagination>
     </PreviewIncidentSections.sections>
+    <PreviewDetail.card
+      :if={@incident}
+      level={if @full_page, do: 2, else: 3}
+      id={@id_prefix <> "incident-investigation-help"}
+      title="Investigation help"
+    >
+      <div class="preview-incident-evidence">
+        <MondekWeb.AgentPrompts.prompt
+          id={@id_prefix <> "incident-agent-prompts-incident"}
+          kind={:incident}
+          context={
+            Map.merge(
+              Map.take(@incident, ~w(health source_id result_key condition_namespace condition_key)),
+              %{
+                "controller_url" => MondekWeb.Endpoint.url(),
+                "incident_id" => @incident["id"],
+                "incident_kind" => @kind,
+                "incident_status" => @incident["status"],
+                "runner_id" => @incident["runner_id"],
+                "check_id" => @incident["assignment_id"],
+                "page_path" => @current
+              }
+            )
+          }
+        />
+      </div>
+    </PreviewDetail.card>
     """
   end
 
@@ -172,6 +203,7 @@ defmodule MondekWeb.PreviewIncidentDetail do
   defp render_health_evidence(assigns) do
     ~H"""
     <PreviewDetail.card
+      level={if @full_page, do: 2, else: 3}
       id={@id_prefix <> "preview-health-evidence"}
       title={if @detail["contributions"], do: "Contributing results", else: "Recorded failure"}
     >
@@ -304,6 +336,22 @@ defmodule MondekWeb.PreviewIncidentDetail do
                       </p>
                     </td>
                   </tr>
+                  <tr :if={get_in(contribution, ["incident", "impacts"]) not in [nil, []]}>
+                    <th scope="row">Impacts</th><td>
+                      {Enum.map_join(
+                        contribution["incident"]["impacts"],
+                        ", ",
+                        &(&1["label"] || &1["key"])
+                      )}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Collection</th><td>
+                      <MondekWeb.PreviewResultDetail.state value={
+                        get_in(contribution, ["stream", "current", "knowledge"])
+                      } />
+                    </td>
+                  </tr>
                   <tr>
                     <th scope="row">State</th>
                     <td>
@@ -335,7 +383,7 @@ defmodule MondekWeb.PreviewIncidentDetail do
                       </p>
                       <p :for={window <- contribution["coverage"]["maintenance_windows"] || []}>
                         Paused for maintenance:
-                        <.link href={"/next/maintenance/" <> window["id"]}>{window["name"] ||
+                        <.link href={"/maintenance/" <> window["id"]}>{window["name"] ||
                           window["reason"] || "View maintenance"}</.link>
                         <span class="preview-caption"> · Ends {time(window["ends_at"])}</span>
                       </p>
@@ -391,6 +439,7 @@ defmodule MondekWeb.PreviewIncidentDetail do
   defp loss_evidence(assigns) do
     ~H"""
     <PreviewDetail.card
+      level={if @full_page, do: 2, else: 3}
       id={@id_prefix <> "preview-loss-evidence"}
       title={if @detail["status"] == "open", do: "Affected results", else: "Last affected results"}
     >
@@ -410,7 +459,9 @@ defmodule MondekWeb.PreviewIncidentDetail do
         No affected result details are available.
       </p>
       <div :for={member <- @detail["members"]["items"]} class="preview-incident-evidence">
-        <h4>{member["label"] || target_label(member["target"])}</h4>
+        <.dynamic_tag tag_name={if @full_page, do: "h3", else: "h4"}>
+          {member["label"] || target_label(member["target"])}
+        </.dynamic_tag>
         <p>
           {loss_reason(member["knowledge"])}
           <span :if={member["since_at"]}>· Since {time(member["since_at"])}</span>
@@ -423,10 +474,10 @@ defmodule MondekWeb.PreviewIncidentDetail do
           result_path={@result_path}
           id={member["stream_id"]}
         >View latest check result</.check_result_link>
-        <a
+        <.link
           :if={!member["stream_id"] && member["coverage_id"]}
-          href={@expected_path.(member["coverage_id"])}
-        >Review expected monitoring</a>
+          patch={@expected_path.(member["coverage_id"])}
+        >Review expected monitoring</.link>
       </div>
       <p :if={@detail["members"]["truncated"]} class="preview-incident-evidence">
         {length(@detail["members"]["items"])} of {@detail["member_count"]} affected results retained here.
@@ -471,32 +522,13 @@ defmodule MondekWeb.PreviewIncidentDetail do
 
   defp detail_pages(assigns) do
     ~H"""
-    <nav
-      :if={@listing["total"] > @listing["page_size"]}
-      class="preview-pager"
-      aria-label={@label}
-    >
-      <.page_links
-        page={@listing["page"]}
-        size={@listing["page_size"]}
-        total={@listing["total"]}
-        url={
-          fn p ->
-            @page_path.(@param, p)
-          end
-        }
-      />
-    </nav>
-    """
-  end
-
-  defp page_links(assigns) do
-    assigns = assign(assigns, :pages, max(1, ceil(assigns.total / assigns.size)))
-
-    ~H"""
-    <span>Page {@page} of {@pages} · {@total} total</span>
-    <.link :if={@page > 1} patch={@url.(@page - 1)}>Previous</.link>
-    <.link :if={@page < @pages} patch={@url.(@page + 1)}>Next</.link>
+    <MondekWeb.PreviewPagination.pagination
+      page={@listing["page"]}
+      size={@listing["page_size"]}
+      total={@listing["total"]}
+      label={@label}
+      url={fn page -> @page_path.(@param, page) end}
+    />
     """
   end
 

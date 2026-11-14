@@ -8,9 +8,19 @@ defmodule MondekWeb.PreviewResultDetail do
 
   attr :panel, :map, required: true
   attr :now, :any, required: true
+  attr :execution_path, :any, default: nil
+  attr :diagnostic_runner, :any, default: nil
+  attr :diagnostics_open, :boolean, default: false
+  attr :current, :string, default: ""
   attr :configuration_path, :string, required: true
+  attr :discovery_path, :string, default: nil
+  attr :discovery_settings_path, :string, default: nil
+  attr :discovery_settings_patch, :boolean, default: false
+  attr :discovery_patch, :boolean, default: false
+  attr :configuration_patch, :boolean, default: false
   attr :incident_path, :any, required: true
   attr :peer_path, :any, required: true
+  attr :runner_path, :any, default: nil
   attr :full_result_path, :string, default: nil
   attr :full_result_patch, :boolean, default: false
   attr :full_page, :boolean, default: false
@@ -19,11 +29,21 @@ defmodule MondekWeb.PreviewResultDetail do
 
   def detail(assigns) do
     history = result_history(assigns.panel)
+    current = assigns.panel.inspection["stream"]["current"] || %{}
+
+    confirmed =
+      Enum.find(
+        assigns.panel.inspection["evidence"] || [],
+        &(&1["id"] == current["confirmed_observation_id"])
+      )
 
     assigns =
       assigns
       |> assign(:result, assigns.panel.selected)
       |> assign(:history, history)
+      |> assign(:measurement, current)
+      |> assign(:confirmed_report, confirmed || %{})
+      |> assign(:confirmed_configuration, assigns.panel[:confirmed_configuration])
       |> assign(
         :visible_history,
         if(assigns[:full_page], do: history, else: Enum.take(history, 4))
@@ -44,6 +64,7 @@ defmodule MondekWeb.PreviewResultDetail do
       </p>
     </header>
     <PreviewDetail.card
+      level={if @full_page, do: 2, else: 3}
       id={@id_prefix <> "observer-" <> @result["id"]}
       class="preview-result-measurement"
       title="Latest measurement"
@@ -81,27 +102,216 @@ defmodule MondekWeb.PreviewResultDetail do
         </tr>
       </PreviewDetail.facts>
     </PreviewDetail.card>
+    <details
+      id={@id_prefix <> "result-measurement-provenance"}
+      class="preview-table-group"
+      phx-mounted={Phoenix.LiveView.JS.ignore_attributes("open")}
+    >
+      <summary class="preview-section-heading">Measurement timing &amp; configuration</summary>
+      <PreviewDetail.facts label="Result identity">
+        <tr>
+          <th scope="row">Result key</th><td>{@result["result_key"]}</td>
+        </tr>
+        <tr>
+          <th scope="row">Result ID</th><td>{@result["id"]}</td>
+        </tr>
+        <tr>
+          <th scope="row">Target kind / key</th><td>
+            {get_in(@result, ["target", "kind"])} / {get_in(@result, ["target", "key"])}
+          </td>
+        </tr>
+      </PreviewDetail.facts>
+      <p :if={!confirmed?(@result)} class="preview-empty">
+        No confirmed measurement is recorded for this result.
+      </p>
+      <PreviewDetail.facts :if={confirmed?(@result)} label="Confirmed result provenance">
+        <tr>
+          <th scope="row">Confirmed configuration version</th><td>
+            {@measurement["confirmed_generation"]}
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">Source time</th><td>{time(@measurement["source_at"])}</td>
+        </tr>
+        <tr>
+          <th scope="row">Evaluated</th><td>{time(@measurement["confirmed_evaluated_at"])}</td>
+        </tr>
+        <tr>
+          <th scope="row">Received</th><td>{time(@confirmed_report["received_at"])}</td>
+        </tr>
+        <tr>
+          <th scope="row">Observation ID</th><td>{@measurement["confirmed_observation_id"]}</td>
+        </tr>
+        <tr>
+          <th scope="row">Runner session</th><td>{@measurement["confirmed_session_id"]}</td>
+        </tr>
+        <tr>
+          <th scope="row">Current freshness limit</th><td>
+            {MondekWeb.Duration.format_seconds(@panel.inspection["assignment"]["freshness_seconds"])}
+          </td>
+        </tr>
+      </PreviewDetail.facts>
+      <p :if={confirmed?(@result) && !@confirmed_configuration} class="preview-caption">
+        The configuration for this result's confirmed measurement is no longer retained.
+      </p>
+      <%= if @confirmed_configuration do %>
+        <.dynamic_tag tag_name={if @full_page, do: "h3", else: "h4"} class="preview-section-heading">
+          Last measured result parameters
+        </.dynamic_tag>
+        <PreviewDetail.facts label="Last measured result parameters">
+          <tr :for={{key, value} <- Enum.sort(@confirmed_configuration["params"] || %{})}>
+            <th scope="row">
+              {MondekWeb.ParameterForm.field_label(
+                get_in(@confirmed_configuration, ["definition", "parameter_schema"]) || %{},
+                key
+              )} <span class="preview-caption">({key})</span>
+            </th>
+            <td>
+              {parameter_value(value)}<span :if={
+                get_in(@confirmed_configuration, [
+                  "definition",
+                  "parameter_schema",
+                  "fields",
+                  key,
+                  "unit"
+                ])
+              }>{" " <>
+                get_in(@confirmed_configuration, [
+                  "definition",
+                  "parameter_schema",
+                  "fields",
+                  key,
+                  "unit"
+                ])}</span>
+            </td>
+          </tr>
+        </PreviewDetail.facts>
+        <p :if={@confirmed_configuration["params"] in [nil, %{}]} class="preview-empty">
+          No parameter values recorded.
+        </p>
+      <% end %>
+      <p class="preview-caption">
+        These versions and times belong to this result's confirmed measurement. Sibling results can retain different evidence; saving settings and receiving later reports do not refresh it.
+      </p>
+    </details>
     <PreviewDetail.card
+      level={if @full_page, do: 2, else: 3}
       id={@id_prefix <> "preview-result-collection"}
       class="preview-result-source"
       title="Collection"
     >
       <PreviewDetail.facts label="Collection">
         <tr>
-          <th scope="row">Runner</th><td>{@result["runner_label"] || "Runner not recorded"}</td>
+          <th scope="row">Runner</th><td>
+            <.link
+              :if={@runner_path && @result["runner_id"]}
+              patch={@runner_path.(@result["runner_id"])}
+            >{@result["runner_label"] || "Unnamed runner"}</.link><span :if={
+              !@runner_path || !@result["runner_id"]
+            }>{@result["runner_label"] || "Runner not recorded"}</span>
+          </td>
         </tr>
         <tr>
           <th scope="row">Source</th><td title={@result["source_key"]}>{@result["source_id"]}</td>
         </tr>
       </PreviewDetail.facts>
       <div class="preview-recorded-actions">
-        <.link href={@configuration_path}>
+        <.link
+          patch={if @configuration_patch, do: @configuration_path}
+          href={if !@configuration_patch, do: @configuration_path}
+        >
           View check configuration
         </.link>
+        <.link :if={@execution_path} patch={@execution_path.(@result["assignment_id"])}>Shared execution and history</.link>
       </div>
     </PreviewDetail.card>
     <PreviewDetail.card
+      :if={@panel[:discovery_settings] && @discovery_settings_path}
+      level={if @full_page, do: 2, else: 3}
+      id={@id_prefix <> "resource-discovery-settings"}
+      title="Resource discovery"
+    >
+      <PreviewDetail.facts label="Resource discovery settings">
+        <tr>
+          <th scope="row">Membership</th><td>
+            {case get_in(@panel.inspection, ["assignment", "discovery", "origin"]) do
+              "required" ->
+                "Required by code; discovery exclusions cannot remove this resource."
+
+              "discovered" ->
+                "Automatically discovered; exclusions change future selection and do not report recovery."
+
+              _ ->
+                "Discovery manager"
+            end}
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">Discovery check</th><td>{@panel.discovery_settings.manager["label"]}</td>
+        </tr>
+      </PreviewDetail.facts>
+      <div class="preview-recorded-actions">
+        <.link
+          patch={if @discovery_settings_patch, do: @discovery_settings_path}
+          navigate={if !@discovery_settings_patch, do: @discovery_settings_path}
+        >Configure resource discovery</.link>
+      </div>
+    </PreviewDetail.card>
+    <PreviewDetail.card
+      :if={@panel[:discovery] && @discovery_path}
+      level={if @full_page, do: 2, else: 3}
+      id={@id_prefix <> "preview-result-discovery"}
+      title="Discovered resources"
+    >
+      <PreviewDetail.facts label="Discovery evidence">
+        <tr>
+          <th scope="row">Discovery</th><td>{@panel.discovery["discovery"]["title"]}</td>
+        </tr>
+        <tr>
+          <th scope="row">Candidates</th><td>
+            {length(@panel.discovery["discovery"]["candidates"])}
+          </td>
+        </tr>
+        <tr :if={@panel.discovery["reason"]}>
+          <th scope="row">Review availability</th><td>{@panel.discovery["reason"]}</td>
+        </tr>
+      </PreviewDetail.facts>
+      <div class="preview-recorded-actions">
+        <.link
+          navigate={if !@discovery_patch, do: @discovery_path}
+          patch={if @discovery_patch, do: @discovery_path}
+          id={@id_prefix <> "result-discovery-review"}
+        >{if @panel.discovery["reviewable"],
+          do: "Review discovered resources",
+          else: "Inspect recorded discovery"}</.link>
+      </div>
+    </PreviewDetail.card>
+    <details
+      :if={@execution_path}
+      id={@id_prefix <> "result-collection-diagnostics"}
+      class="preview-table-group result-diagnostic-disclosure"
+      open={
+        @diagnostics_open ||
+          get_in(@result, ["current", "knowledge"]) in ["unavailable", "stale", "awaiting"]
+      }
+      phx-mounted={Phoenix.LiveView.JS.ignore_attributes("open")}
+    >
+      <summary class="preview-section-heading">Collection diagnostics</summary>
+      <MondekWeb.CollectionDiagnostics.body
+        full_page={@full_page}
+        inspection={@panel.inspection}
+        runner={@diagnostic_runner}
+        now={@now}
+        id_prefix={@id_prefix}
+        runner_path={@runner_path}
+        configuration_path={@configuration_path}
+        configuration_patch={@configuration_patch}
+        current={@current}
+      />
+    </details>
+    <PreviewDetail.card
       :if={@history != []}
+      level={if @full_page, do: 2, else: 3}
       id={@id_prefix <> "preview-result-history"}
       title="Measurement history"
     >
@@ -127,6 +337,7 @@ defmodule MondekWeb.PreviewResultDetail do
     </PreviewDetail.card>
     <PreviewDetail.card
       :if={Enum.any?(@panel.inspection["incidents"], &(&1["status"] == "open"))}
+      level={if @full_page, do: 2, else: 3}
       id={@id_prefix <> "preview-result-incidents"}
       title="Open incidents"
     >
@@ -144,6 +355,14 @@ defmodule MondekWeb.PreviewResultDetail do
         </tr>
       </PreviewDetail.facts>
     </PreviewDetail.card>
+    <MondekWeb.PreviewMaintenanceSummary.body
+      full_page={@full_page}
+      assignment={@panel.inspection["assignment"]}
+      stream={@panel.inspection["stream"]}
+      windows={@panel[:maintenance_windows] || []}
+      current={@current}
+      id={@id_prefix <> "result-maintenance"}
+    />
     <details
       :if={@panel.total > 1}
       id={@id_prefix <> "preview-related-results"}
@@ -169,11 +388,14 @@ defmodule MondekWeb.PreviewResultDetail do
         </tr>
       </PreviewDetail.facts>
       <p :if={@panel.total > length(@panel.items)} class="preview-recorded-actions preview-caption">
-        Showing {length(@panel.items) - 1} of {@panel.total - 1} other results. <a href="/next/checks">Browse all results</a>.
+        Showing {length(@panel.items) - 1} of {@panel.total - 1} other results. <a href="/checks">Browse all results</a>.
       </p>
     </details>
     """
   end
+
+  defp parameter_value(value) when is_binary(value), do: value
+  defp parameter_value(value), do: Jason.encode!(value)
 
   defp result_history(panel) do
     current = get_in(panel.selected, ["current", "confirmed_observation_id"])
@@ -192,7 +414,7 @@ defmodule MondekWeb.PreviewResultDetail do
 
   attr(:value, :any, required: true)
 
-  defp state(assigns) do
+  def state(assigns) do
     assigns = assign(assigns, text: state_text(assigns.value), tone: state_tone(assigns.value))
 
     ~H"""

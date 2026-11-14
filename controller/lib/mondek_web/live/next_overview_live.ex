@@ -8,7 +8,6 @@ defmodule MondekWeb.NextOverviewLive do
   alias MondekWeb.{
     NextIncidentsLive,
     PreviewCoverage,
-    PreviewDetail,
     InvestigationStack,
     InvestigationTrail
   }
@@ -21,7 +20,6 @@ defmodule MondekWeb.NextOverviewLive do
      assign(socket,
        filters: %{},
        selected_id: nil,
-       panel: nil,
        filter_picker: nil,
        filter_chips: []
      )}
@@ -41,8 +39,14 @@ defmodule MondekWeb.NextOverviewLive do
           {:index, OverviewFilters}
       end
 
+    return_to = MondekWeb.BrowserNavigation.return_path(params["return_to"])
     filters = filter_module.params(params)
-    incident_return = NextIncidentsLive.return_path(params["incident_return"])
+    filters = if return_to, do: Map.put(filters, "return_to", return_to), else: filters
+
+    presentation_page =
+      !is_nil(
+        InvestigationTrail.promoted(params, InvestigationTrail.initial(URI.parse(uri).path))
+      )
 
     chips =
       for {field, name} <- filter_module.fields(),
@@ -59,16 +63,25 @@ defmodule MondekWeb.NextOverviewLive do
     {:noreply,
      socket
      |> assign(
-       coverage_full:
-         socket.assigns.live_action in [:expected, :coverage_result, :coverage_diagnostic] &&
-           String.ends_with?(URI.parse(uri).path, "/full"),
+       coverage_page:
+         case InvestigationTrail.root(URI.parse(uri).path) do
+           {kind, _} when kind in ~w(coverage diagnostic) -> true
+           _ -> false
+         end,
        filters: filters,
+       presentation_page: presentation_page,
        filter_module: filter_module,
        list_action: list_action,
        selected_id: params["id"],
-       runner_page: page_param(params["runner_page"]),
-       observer_result: uuid_param(params["observer_result"]),
-       incident_return: incident_return,
+       unavailable_result:
+         socket.assigns.live_action in [
+           :result,
+           :result_page,
+           :checks_result,
+           :checks_result_page
+         ] &&
+           is_nil(InvestigationTrail.identity({"result", params["id"]})),
+       return_to: return_to,
        filter_chips: chips,
        filter_picker: nil
      )
@@ -79,6 +92,11 @@ defmodule MondekWeb.NextOverviewLive do
            if(URI.parse(uri).query, do: "?" <> URI.parse(uri).query, else: ""),
        investigation_root: InvestigationTrail.root(URI.parse(uri).path),
        initial_trail: InvestigationTrail.initial(URI.parse(uri).path),
+       investigation_active:
+         List.last(
+           InvestigationTrail.resolve(params, InvestigationTrail.initial(URI.parse(uri).path))
+         ) ||
+           InvestigationTrail.root(URI.parse(uri).path),
        incident_selection: nil
      )
      |> refresh()}
@@ -104,6 +122,7 @@ defmodule MondekWeb.NextOverviewLive do
         |> filter_module.reset_pages()
         |> Map.put("search", search)
         |> filter_module.params()
+        |> Map.put("return_to", socket.assigns.return_to)
 
       {:noreply, push_patch(socket, to: path(filters, socket.assigns.list_action), replace: true)}
     end
@@ -213,18 +232,23 @@ defmodule MondekWeb.NextOverviewLive do
     }
   end
 
+  defp refresh(%{assigns: %{coverage_page: true} = assigns} = socket) do
+    assign(socket,
+      now: Monitoring.now(),
+      list_path: path(assigns.filters, assigns.list_action),
+      current_path: assigns.investigation_host,
+      page_title: "Coverage"
+    )
+  end
+
   defp refresh(%{assigns: %{live_action: action} = assigns} = socket)
        when action in [:result_page, :checks_result_page] do
     now = Monitoring.now()
-    panel = MondekWeb.PreviewResult.load(assigns.selected_id, now) || %{kind: :not_found}
-    filters = Map.put(assigns.filters, "incident_return", assigns.incident_return)
+    filters = Map.put(assigns.filters, "return_to", assigns.return_to)
 
-    socket
-    |> assign(
+    assign(socket,
       now: now,
-      panel: panel,
-      page_title:
-        if(panel.kind == :result, do: result_title(panel.selected), else: "Result unavailable"),
+      page_title: "Check result",
       list_path: path(assigns.filters, assigns.list_action),
       current_path: path(filters, action, assigns.selected_id)
     )
@@ -233,19 +257,14 @@ defmodule MondekWeb.NextOverviewLive do
   defp refresh(%{assigns: %{list_action: :checks} = assigns} = socket) do
     now = Monitoring.now()
 
-    panel =
-      if assigns.live_action == :checks_result,
-        do: MondekWeb.PreviewResult.load(assigns.selected_id, now) || %{kind: :not_found}
-
     socket
     |> assign(
       now: now,
-      panel: panel,
       checks: Inspection.preview_checks(assigns.filters, now),
       list_path: path(assigns.filters, :checks),
       current_path:
         path(
-          Map.put(assigns.filters, "incident_return", assigns.incident_return),
+          Map.put(assigns.filters, "return_to", assigns.return_to),
           assigns.live_action,
           assigns.selected_id
         ),
@@ -257,28 +276,15 @@ defmodule MondekWeb.NextOverviewLive do
     now = Monitoring.now()
     filters = assigns.filters
 
-    panel =
-      case assigns.live_action do
-        :coverage_diagnostic ->
-          case Coverage.diagnostic(assigns.selected_id, now) do
-            nil -> %{kind: :not_found}
-            item -> %{kind: :coverage_diagnostic, item: item}
-          end
-
-        :coverage_result ->
-          load_coverage_panel(assigns, now)
-
-        :coverage ->
-          nil
-      end
+    diagnostics_filters =
+      filters |> Map.drop(["status", "page"]) |> Map.put("page", filters["diagnostic_page"])
 
     assign(socket,
       now: now,
-      panel: panel,
       coverage: Coverage.scopes(filters, now),
-      runner_diagnostics: Coverage.diagnostics(%{}, now),
+      runner_diagnostics: Coverage.diagnostics(diagnostics_filters, now),
       list_path: path(filters, :coverage),
-      current_path: coverage_path(assigns),
+      current_path: assigns.investigation_host,
       page_title: "Coverage"
     )
   end
@@ -297,18 +303,6 @@ defmodule MondekWeb.NextOverviewLive do
     declarations = Coverage.summary(%{}, now)
     snapshot = Monitoring.overview(now)
 
-    panel =
-      case socket.assigns.live_action do
-        :result ->
-          MondekWeb.PreviewResult.load(socket.assigns.selected_id, now) || %{kind: :not_found}
-
-        :expected ->
-          load_coverage_panel(socket.assigns, now)
-
-        _ ->
-          nil
-      end
-
     assign(socket,
       now: now,
       overview: overview,
@@ -316,63 +310,15 @@ defmodule MondekWeb.NextOverviewLive do
       declarations: declarations,
       snapshot: snapshot,
       open_incidents: MondekWeb.NextIncidentsLive.open_summary(now),
-      panel: panel,
-      page_title: "Overview preview",
+      page_title: "Overview",
       list_path: path(filters),
       current_path:
-        if(socket.assigns.live_action == :expected,
-          do: coverage_path(socket.assigns),
-          else:
-            path(
-              Map.put(filters, "incident_return", socket.assigns.incident_return),
-              socket.assigns.live_action,
-              socket.assigns.selected_id
-            )
+        path(
+          Map.put(filters, "return_to", socket.assigns.return_to),
+          socket.assigns.live_action,
+          socket.assigns.selected_id
         )
     )
-  end
-
-  defp load_coverage_panel(assigns, now) do
-    case Coverage.scope(assigns.selected_id, now) do
-      nil ->
-        %{kind: :not_found}
-
-      scope ->
-        observers = Coverage.observers(scope["id"], %{"page" => assigns.runner_page}, now)
-
-        result =
-          if Enum.any?(
-               observers["items"],
-               &(&1["stream_id"] && &1["stream_id"] == assigns.observer_result)
-             ),
-             do: MondekWeb.PreviewResult.load(assigns.observer_result, now)
-
-        %{kind: :expected, scope: scope, observers: observers, result: result}
-    end
-  end
-
-  defp coverage_path(assigns, extra \\ %{}) do
-    assigns.filters
-    |> Map.put("incident_return", assigns.incident_return)
-    |> Map.put("runner_page", assigns.runner_page)
-    |> Map.merge(extra)
-    |> path(assigns.live_action, assigns.selected_id, assigns.coverage_full)
-  end
-
-  defp page_param(value) when is_binary(value) and byte_size(value) <= 7 do
-    case Integer.parse(value) do
-      {number, ""} when number > 1 -> Integer.to_string(number)
-      _ -> nil
-    end
-  end
-
-  defp page_param(_), do: nil
-
-  defp uuid_param(value) do
-    case Ecto.UUID.cast(value) do
-      {:ok, id} -> id
-      :error -> nil
-    end
   end
 
   def path(filters, action \\ :index, id \\ nil, full \\ false) do
@@ -393,22 +339,31 @@ defmodule MondekWeb.NextOverviewLive do
     >
       <MondekWeb.PreviewLayouts.navigation
         active={if @list_action == :checks, do: :checks, else: :overview}
-        overview_path={if @list_action == :checks, do: "/next", else: @list_path}
+        overview_path={if @list_action == :checks, do: "/", else: @list_path}
       />
       <main id="main-content" class="preview-main" tabindex="-1">
+        <section :if={!@investigation_root} class="preview-list" id="result-not-found">
+          <header class="preview-heading">
+            <h1 id="full-result-heading" tabindex="-1">Result unavailable</h1>
+          </header>
+          <p class="preview-empty">This result identity is not available.</p>
+          <div class="preview-recorded-actions"><.link navigate="/checks">Browse results</.link></div>
+        </section>
         <.investigation {assigns} />
       </main>
     </div>
     """
   end
 
-  def render(%{coverage_full: true} = assigns) do
+  def render(%{coverage_page: true} = assigns) do
     ~H"""
     <div
       id="coverage-detail-page"
       class="preview-shell"
       phx-hook="OverviewPanel"
-      data-panel-heading="coverage-page-heading"
+      data-panel-heading={
+        InvestigationTrail.heading(@investigation_params, "coverage-page-heading", @initial_trail)
+      }
       data-panel-background="#coverage-page-body"
       data-selection={overlay_selection(assigns)}
     >
@@ -416,27 +371,16 @@ defmodule MondekWeb.NextOverviewLive do
         if @list_action == :coverage, do: :coverage, else: :overview
       } />
       <main id="main-content" class="preview-main" tabindex="-1">
-        <article
-          id="coverage-page-body"
-          class="preview-incident-panel preview-incident-page pf-v6-c-card"
-          inert={@panel.kind == :expected && @panel.result != nil}
-        >
-          <div class="pf-v6-c-card__body">
-            <div class="preview-panel-tools">
-              <.link patch={@list_path} class="pf-v6-c-button pf-m-link">
-                ← Back to {if @list_action == :coverage, do: "coverage", else: "overview"}
-              </.link>
-              <.link
-                patch={coverage_path(assigns |> assign(:coverage_full, false))}
-                class="pf-v6-c-button pf-m-link"
-              >
-                Open fly-over
-              </.link>
-            </div>
-            <.coverage_detail_body {assigns} heading_id="coverage-page-heading" />
+        <section :if={!@investigation_root} class="preview-list">
+          <header class="preview-heading">
+            <h1 id="coverage-page-heading" tabindex="-1">Coverage unavailable</h1>
+          </header>
+          <p class="preview-empty">This declaration identity is not available.</p>
+          <div class="preview-recorded-actions">
+            <.link navigate="/coverage">Browse declared results</.link>
           </div>
-        </article>
-        <.coverage_overlay {assigns} />
+        </section>
+        <.investigation {assigns} />
       </main>
     </div>
     """
@@ -462,9 +406,13 @@ defmodule MondekWeb.NextOverviewLive do
     >
       <MondekWeb.PreviewLayouts.navigation active={:coverage} />
       <main id="main-content" class="preview-main" tabindex="-1">
-        <section class="preview-list" aria-labelledby="coverage-heading">
+        <section :if={!@presentation_page} class="preview-list" aria-labelledby="coverage-heading">
           <header class="preview-results-header">
             <h1 id="coverage-heading" class="pf-v6-c-title pf-m-2xl" tabindex="-1">Coverage</h1>
+            <.link :if={@return_to} navigate={@return_to} class="pf-v6-c-button pf-m-link">Back to {return_label(
+              @return_to,
+              @list_action
+            )}</.link>
             <.result_filters {assigns} />
           </header>
           <p class="preview-coverage-intro">
@@ -478,7 +426,12 @@ defmodule MondekWeb.NextOverviewLive do
             <PreviewCoverage.list
               :if={@coverage["items"] != []}
               items={@coverage["items"]}
-              selected_id={if @live_action == :coverage_result, do: @selected_id}
+              selected_id={
+                case @investigation_active do
+                  {"coverage", id} -> id
+                  _ -> nil
+                end
+              }
               open={
                 fn id ->
                   if id == @selected_id, do: @list_path, else: path(@filters, :coverage_result, id)
@@ -487,7 +440,8 @@ defmodule MondekWeb.NextOverviewLive do
             />
             <p :if={@coverage["items"] == []} class="preview-empty">
               {cond do
-                @filters["search"] || @filters["environment"] || @filters["target_key"] ->
+                @filters["search"] || @filters["environment"] || @filters["target_key"] ||
+                  @filters["runner_id"] || @filters["source_id"] ->
                   "No declared results match these filters."
 
                 @attention ->
@@ -505,6 +459,16 @@ defmodule MondekWeb.NextOverviewLive do
               url={fn page -> path(Map.put(@filters, "page", to_string(page)), :coverage) end}
             />
           </section>
+          <div
+            :if={(@coverage["summary"]["awaiting_publishers"] || 0) > 0}
+            class="preview-coverage-audit"
+            id="coverage-restoration-warning"
+          >
+            <p>
+              {count_label(@coverage["summary"]["awaiting_publishers"], "restored source")} waiting for a new inventory. Retained results stay historical until the runner publishes again.
+            </p>
+            <.link navigate="/coverage/publishers?lifecycle=awaiting_inventory">Review restored sources</.link>
+          </div>
           <div :if={@incomplete_catalogue} class="preview-coverage-audit">
             <p>
               Some runners have not confirmed which checks they should run.
@@ -513,7 +477,16 @@ defmodule MondekWeb.NextOverviewLive do
           </div>
           <PreviewCoverage.runner_diagnostics
             listing={@runner_diagnostics}
-            selected_id={if @live_action == :coverage_diagnostic, do: @selected_id}
+            runner_path={fn id -> InvestigationTrail.path(@list_path, [{"runner", id}]) end}
+            page_path={
+              fn page -> path(Map.put(@filters, "diagnostic_page", to_string(page)), :coverage) end
+            }
+            selected_id={
+              case @investigation_active do
+                {"diagnostic", id} -> id
+                _ -> nil
+              end
+            }
             open={
               fn id ->
                 if @live_action == :coverage_diagnostic && id == @selected_id,
@@ -523,7 +496,7 @@ defmodule MondekWeb.NextOverviewLive do
             }
           />
         </section>
-        <.coverage_overlay {assigns} />
+        <.investigation {assigns} />
         <div class="preview-connection" role="status">Connection interrupted. Reconnecting…</div>
       </main>
     </div>
@@ -536,18 +509,26 @@ defmodule MondekWeb.NextOverviewLive do
       id="checks-preview"
       class="preview-shell"
       phx-hook="OverviewPanel"
-      data-panel-heading={InvestigationTrail.heading(@investigation_params, "checks-heading")}
+      data-panel-heading={
+        if @presentation_page,
+          do: InvestigationTrail.heading(@investigation_params, "checks-heading"),
+          else: "checks-heading"
+      }
       data-selection={overlay_selection(assigns)}
     >
       <MondekWeb.PreviewLayouts.navigation active={:checks} />
       <main id="main-content" class="preview-main" tabindex="-1">
         <section
-          :if={@investigation_params["surface"] != "page"}
+          :if={!@presentation_page}
           class="preview-list"
           aria-labelledby="checks-heading"
         >
           <header class="preview-results-header">
             <h1 id="checks-heading" class="pf-v6-c-title pf-m-2xl" tabindex="-1">Checks</h1>
+            <.link :if={@return_to} navigate={@return_to} class="pf-v6-c-button pf-m-link">Back to {return_label(
+              @return_to,
+              @list_action
+            )}</.link>
             <.result_filters {assigns} />
           </header>
           <section class="preview-table-group" aria-labelledby="checks-results-heading">
@@ -560,13 +541,13 @@ defmodule MondekWeb.NextOverviewLive do
               id="preview-check-results"
               listing={@checks}
               filters={@filters}
-              panel={@panel}
+              active_identity={@investigation_active}
               now={@now}
               list_action={:checks}
               label="Check results"
             />
             <p :if={@checks.items == []} class="preview-empty">
-              {if @filters == %{},
+              {if Map.drop(@filters, ["return_to"]) == %{},
                 do: "No active check results yet.",
                 else: "No check results match these filters."}
               <.link
@@ -608,11 +589,11 @@ defmodule MondekWeb.NextOverviewLive do
       <MondekWeb.PreviewLayouts.navigation active={:overview} overview_path={@list_path} />
       <main
         id="main-content"
-        class={["preview-main", @panel && "preview-has-selection"]}
+        class={["preview-main", @investigation_active && "preview-has-selection"]}
         tabindex="-1"
       >
         <section
-          :if={@investigation_params["surface"] != "page"}
+          :if={!@presentation_page}
           id="preview-overview-card"
           class="preview-overview-card"
           aria-labelledby="overview-heading"
@@ -648,14 +629,31 @@ defmodule MondekWeb.NextOverviewLive do
                     (@declarations["unconfirmed_publishers"] || 0) > 0 ||
                     (@declarations["unbound_declarations"] || 0) > 0
                 }
-                href="/next/coverage"
+                href="/coverage"
                 class="preview-caption"
               >Some declarations need review</a>
             </div>
           </section>
         </section>
+        <MondekWeb.PreviewDetail.card
+          :if={
+            !@presentation_page && @snapshot["coverage"]["active"] == 0 &&
+              @declarations["scopes"] == 0
+          }
+          id="runner-onboarding"
+          title="Connect your monitoring project"
+          level={2}
+        >
+          <div class="preview-recorded-actions">
+            <p>
+              Install your consumer package on a runner. Its code declares the checks and targets that appear here.
+            </p>
+            <.link navigate="/guide" class="pf-v6-c-button pf-m-primary">Set up a runner</.link>
+            <.link navigate="/runners" class="pf-v6-c-button pf-m-secondary">Inspect runner connections</.link>
+          </div>
+        </MondekWeb.PreviewDetail.card>
         <section
-          :if={@investigation_params["surface"] != "page"}
+          :if={!@presentation_page}
           id="preview-open-incidents"
           class="preview-overview-card"
           aria-labelledby="overview-incidents-heading"
@@ -667,7 +665,7 @@ defmodule MondekWeb.NextOverviewLive do
             >
               Open incidents <span class="pf-v6-c-badge pf-m-read">{@open_incidents.total}</span>
             </h2>
-            <.link navigate="/next/incidents">View all incidents</.link>
+            <.link navigate="/incidents">View all incidents</.link>
           </div>
           <p :if={@open_incidents.rows == []} class="preview-empty">No open incidents.</p>
           <div :if={@open_incidents.rows != []} class="preview-table-group">
@@ -731,7 +729,7 @@ defmodule MondekWeb.NextOverviewLive do
         </section>
         <div class="preview-workspace">
           <section
-            :if={@investigation_params["surface"] != "page"}
+            :if={!@presentation_page}
             class="preview-list"
             aria-labelledby="preview-results-heading"
           >
@@ -770,7 +768,7 @@ defmodule MondekWeb.NextOverviewLive do
                 :if={@overview.attention.items != []}
                 listing={@overview.attention}
                 filters={@filters}
-                panel={@panel}
+                active_identity={@investigation_active}
                 now={@now}
                 id="preview-attention"
               />
@@ -817,7 +815,7 @@ defmodule MondekWeb.NextOverviewLive do
                     :for={scope <- @missing["items"]}
                     class={[
                       "pf-v6-c-table__tr",
-                      @panel && @panel.kind == :expected && @panel.scope["id"] == scope["id"] &&
+                      @investigation_active == {"coverage", scope["id"]} &&
                         "preview-selected"
                     ]}
                     data-overview-row
@@ -827,7 +825,7 @@ defmodule MondekWeb.NextOverviewLive do
                         <.link
                           id={"open-expected-" <> scope["id"]}
                           patch={
-                            if @panel && @panel.kind == :expected && @panel.scope["id"] == scope["id"],
+                            if @investigation_active == {"coverage", scope["id"]},
                               do: @list_path,
                               else: path(@filters, :expected, scope["id"])
                           }
@@ -875,7 +873,7 @@ defmodule MondekWeb.NextOverviewLive do
                 :if={@overview.healthy.items != []}
                 listing={@overview.healthy}
                 filters={@filters}
-                panel={@panel}
+                active_identity={@investigation_active}
                 now={@now}
                 id="preview-healthy-results"
               />
@@ -926,6 +924,14 @@ defmodule MondekWeb.NextOverviewLive do
     """
   end
 
+  defp return_label("/runners" <> _, _), do: "runners"
+  defp return_label("/notifications" <> _, _), do: "notifications"
+  defp return_label("/configuration" <> _, _), do: "configuration"
+  defp return_label("/maintenance/" <> _, _), do: "maintenance"
+  defp return_label("/coverage/" <> _, _), do: "coverage"
+  defp return_label("/expected/" <> _, _), do: "coverage"
+  defp return_label(path, _) when is_binary(path), do: "previous view"
+
   defp filter_icon("runner_id"), do: "terminal"
   defp filter_icon("source_id"), do: "code"
   defp filter_icon("environment"), do: "globe"
@@ -935,48 +941,15 @@ defmodule MondekWeb.NextOverviewLive do
   defp filter_icon("freshness"), do: "clock"
   defp filter_icon("status"), do: "server"
 
-  defp result_action(:checks, true), do: :checks_result_page
   defp result_action(:checks, false), do: :checks_result
-  defp result_action(_, true), do: :result_page
   defp result_action(_, false), do: :result
 
-  defp overlay_selection(%{
-         investigation_params: %{"inspect" => _} = params,
-         initial_trail: initial
-       }),
-       do: InvestigationTrail.selection(params, initial)
-
-  defp overlay_selection(%{incident_selection: {kind, id}, detail_filters: filters}),
-    do: "#{kind}-#{id}-#{filters["result"]}"
-
-  defp overlay_selection(%{panel: %{kind: :expected, result: %{selected: result}}}),
-    do: "coverage-result-#{result["id"]}"
-
-  defp overlay_selection(%{coverage_full: true}), do: nil
-
-  defp overlay_selection(%{live_action: action, selected_id: id, panel: panel})
-       when action in [:result, :checks_result, :expected, :coverage_result, :coverage_diagnostic],
-       do: if(panel, do: path(%{}, action, id))
-
-  defp overlay_selection(_), do: nil
+  defp overlay_selection(assigns),
+    do: InvestigationTrail.selection(assigns.investigation_params, assigns.initial_trail)
 
   defp evidence_overlay(assigns) do
     ~H"""
-    <.coverage_overlay
-      :if={@panel && @panel.kind == :expected && !@investigation_params["inspect"]}
-      {assigns}
-    />
-    <.result_drawer
-      :if={@panel && @panel.kind == :coverage_diagnostic && !@investigation_params["inspect"]}
-      {assigns}
-    />
-    <.investigation
-      :if={
-        !@panel || @panel.kind not in [:expected, :coverage_diagnostic] ||
-          @investigation_params["inspect"]
-      }
-      {assigns}
-    />
+    <.investigation {assigns} />
     """
   end
 
@@ -991,205 +964,9 @@ defmodule MondekWeb.NextOverviewLive do
       root={@investigation_root}
       initial={@initial_trail}
       context={if @investigation_root, do: {:result_page, @investigation_root}, else: @list_action}
-      unavailable={@selected_id && @panel && @panel.kind == :not_found}
-      back={@incident_return || @list_path}
+      unavailable={@unavailable_result}
+      back={if @investigation_root, do: @return_to || @list_path, else: @list_path}
     />
-    """
-  end
-
-  defp coverage_overlay(assigns) do
-    result = if assigns.panel && assigns.panel.kind == :expected, do: assigns.panel.result
-
-    assigns =
-      assign(assigns,
-        coverage_result: result,
-        coverage_ancestors:
-          if(result,
-            do: [
-              %{
-                kind: "Declared result",
-                title: PreviewCoverage.title(assigns.panel.scope),
-                path: assigns.current_path
-              }
-            ],
-            else: []
-          )
-      )
-
-    ~H"""
-    <MondekWeb.PanelStack.rear_cards
-      entries={if @coverage_full, do: [], else: @coverage_ancestors}
-      card_class="preview-incident-panel pf-v6-c-card"
-    >
-      <:fallback>
-        <.result_drawer_body {assigns} />
-      </:fallback>
-    </MondekWeb.PanelStack.rear_cards>
-    <PreviewDetail.surface
-      :if={@coverage_result}
-      path={coverage_path(assigns, %{"observer_result" => @coverage_result.selected["id"]})}
-    >
-      <div class="preview-panel-tools">
-        <.link patch={@current_path} data-overview-close class="pf-v6-c-button pf-m-link">← Back one level</.link>
-        <.link
-          navigate={coverage_full_result_path(@coverage_result.selected["id"], @current_path)}
-          class="pf-v6-c-button pf-m-link"
-        >Open as page</.link>
-      </div>
-      <MondekWeb.PreviewResultDetail.detail
-        configuration_path={"/checks/" <> @coverage_result.selected["id"] <> "?" <> URI.encode_query(%{"return_to" => coverage_path(assigns, %{"observer_result" => @coverage_result.selected["id"]})})}
-        panel={@coverage_result}
-        now={@now}
-        incident_path={
-          fn id ->
-            @coverage_result.selected["id"]
-            |> coverage_check_path(
-              coverage_path(assigns, %{"observer_result" => @coverage_result.selected["id"]})
-            )
-            |> NextIncidentsLive.incident_layer_path("health", id)
-          end
-        }
-        peer_path={
-          fn id ->
-            if Enum.any?(@panel.observers["items"], &(&1["stream_id"] == id)),
-              do: coverage_path(assigns, %{"observer_result" => id}),
-              else: coverage_check_path(id, @current_path)
-          end
-        }
-        full_result_path={coverage_full_result_path(@coverage_result.selected["id"], @current_path)}
-      />
-    </PreviewDetail.surface>
-    <.result_drawer :if={!@coverage_result && !@coverage_full} {assigns} />
-    """
-  end
-
-  defp coverage_check_path(id, back),
-    do: path(%{"incident_return" => back}, :checks_result, id)
-
-  defp return_label("/next/maintenance/" <> _, _), do: "maintenance"
-  defp return_label("/next/coverage/" <> _, _), do: "coverage"
-  defp return_label("/next/expected/" <> _, _), do: "coverage"
-  defp return_label(path, _) when is_binary(path), do: "incident"
-
-  defp coverage_full_result_path(id, back),
-    do: path(%{"incident_return" => back}, :checks_result_page, id)
-
-  defp result_drawer(assigns) do
-    ~H"""
-    <PreviewDetail.surface
-      :if={@panel}
-      tag="div"
-      wide={@panel.kind in [:result, :expected, :coverage_diagnostic]}
-      path={@current_path}
-    >
-      <.result_drawer_content {assigns} />
-    </PreviewDetail.surface>
-    """
-  end
-
-  defp result_drawer_body(assigns) do
-    ~H"""
-    <div class="pf-v6-c-card__body">
-      <.result_drawer_content {assigns} />
-    </div>
-    """
-  end
-
-  defp result_drawer_content(assigns) do
-    ~H"""
-    <div class="preview-panel-tools">
-      <.link
-        :if={@panel.kind == :result}
-        navigate={
-          path(
-            Map.put(@filters, "incident_return", @incident_return),
-            result_action(@list_action, true),
-            @selected_id
-          )
-        }
-        class="pf-v6-c-button pf-m-link"
-      >Open as page</.link>
-      <.link
-        :if={@live_action in [:expected, :coverage_result, :coverage_diagnostic]}
-        patch={coverage_path(assigns |> assign(:coverage_full, true))}
-        class="pf-v6-c-button pf-m-link"
-      >Open as page</.link>
-      <a
-        :if={@incident_return}
-        href={@incident_return}
-        class="pf-v6-c-button pf-m-link preview-panel-back"
-      >← Back to {return_label(@incident_return, @list_action)}</a>
-      <.link
-        patch={@list_path}
-        data-overview-close
-        class="pf-v6-c-button pf-m-link preview-panel-back"
-      >Close details ×</.link>
-      <div class="preview-connection" role="status">
-        Connection interrupted. Displayed evidence may be out of date.
-      </div>
-    </div>
-    <.result_panel
-      :if={@panel.kind == :result}
-      panel={@panel}
-      now={@now}
-      current_path={@current_path}
-      filters={@filters}
-      incident_return={@incident_return}
-      list_action={@list_action}
-    />
-    <.coverage_detail_body :if={@panel.kind != :result} {assigns} heading_id="overview-panel-title" />
-    """
-  end
-
-  defp coverage_detail_body(assigns) do
-    ~H"""
-    <div :if={@panel.kind == :not_found}>
-      <h2 id={@heading_id} tabindex="-1" class="pf-v6-c-title pf-m-xl">
-        {if @live_action == :coverage_diagnostic,
-          do: "Diagnostic unavailable",
-          else: "Result unavailable"}
-      </h2>
-      <p>
-        {cond do
-          @live_action == :coverage_diagnostic ->
-            "The runner may have updated or removed this declaration."
-
-          @list_action == :checks ->
-            "This result may have been removed by retention."
-
-          true ->
-            "The selected result or declaration is no longer available."
-        end}
-      </p>
-    </div>
-    <PreviewCoverage.diagnostic_detail
-      :if={@panel.kind == :coverage_diagnostic}
-      item={@panel.item}
-      heading_id={@heading_id}
-      full_page={@coverage_full}
-    />
-    <PreviewCoverage.detail
-      :if={@panel.kind == :expected}
-      scope={@panel.scope}
-      heading_id={@heading_id}
-      full_page={@coverage_full}
-      observers={@panel.observers}
-      result_path={fn id -> coverage_path(assigns, %{"observer_result" => id}) end}
-      page_path={
-        fn page -> coverage_path(assigns, %{"runner_page" => if(page > 1, do: to_string(page))}) end
-      }
-    />
-    <div :if={@panel.kind == :expected && @list_action == :index} class="preview-recorded-actions">
-      <.link navigate={
-        path(
-          CoverageFilters.params(Map.drop(@filters, ~w(page healthy_page expected_page))),
-          :coverage_result,
-          @panel.scope["id"]
-        )
-      }>
-        View in Coverage
-      </.link>
-    </div>
     """
   end
 
@@ -1223,7 +1000,7 @@ defmodule MondekWeb.NextOverviewLive do
           data-overview-row
           class={[
             "pf-v6-c-table__tr",
-            @panel && @panel.kind == :result && @panel.selected["id"] == row["id"] &&
+            @active_identity == {"result", row["id"]} &&
               "preview-selected"
           ]}
         >
@@ -1232,7 +1009,7 @@ defmodule MondekWeb.NextOverviewLive do
               <.link
                 id={"open-result-" <> row["id"]}
                 patch={
-                  if @panel && @panel.kind == :result && @panel.selected["id"] == row["id"],
+                  if @active_identity == {"result", row["id"]},
                     do: path(@filters, @list_action),
                     else: path(@filters, result_action(@list_action, false), row["id"])
                 }
@@ -1267,45 +1044,6 @@ defmodule MondekWeb.NextOverviewLive do
         </tr>
       </tbody>
     </table>
-    """
-  end
-
-  defp result_panel(assigns) do
-    full_page = assigns[:full_page] || false
-    action = result_action(assigns.list_action, full_page)
-    filters = Map.put(assigns.filters, "incident_return", assigns.incident_return)
-
-    assigns =
-      assign(assigns,
-        configuration_path:
-          "/checks/" <>
-            assigns.panel.selected["id"] <>
-            "?" <> URI.encode_query(%{"return_to" => assigns.current_path}),
-        incident_path: &NextIncidentsLive.incident_layer_path(assigns.current_path, "health", &1),
-        peer_path: &path(filters, action, &1),
-        full_result_path:
-          if(!full_page,
-            do:
-              path(
-                filters,
-                result_action(assigns.list_action, true),
-                assigns.panel.selected["id"]
-              )
-          )
-      )
-
-    ~H"""
-    <MondekWeb.PreviewResultDetail.detail
-      panel={@panel}
-      now={@now}
-      configuration_path={@configuration_path}
-      incident_path={@incident_path}
-      peer_path={@peer_path}
-      full_result_path={@full_result_path}
-      full_page={assigns[:full_page] || false}
-      heading_id={assigns[:heading_id] || "overview-panel-title"}
-      id_prefix={assigns[:id_prefix] || ""}
-    />
     """
   end
 

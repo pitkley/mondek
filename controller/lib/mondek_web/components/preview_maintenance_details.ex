@@ -65,17 +65,27 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
   attr :window, :map, required: true
   attr :context, :map, required: true
   attr :current_path, :string, required: true
+  attr :section_level, :integer, values: [2, 3], default: 2
 
   def preview_window_details(assigns) do
     ~H"""
-    <.preview_saved_window window={@window} context={@context} current_path={@current_path} />
-    <.preview_history events={@window["history"] || []} total={@window["history_count"] || 0} />
+    <.preview_saved_window
+      window={@window}
+      context={@context}
+      current_path={@current_path}
+      section_level={@section_level}
+    />
+    <.preview_history
+      events={@window["history"] || []}
+      total={@window["history_count"] || 0}
+      section_level={@section_level}
+    />
     """
   end
 
   defp preview_saved_window(assigns) do
     ~H"""
-    <PreviewDetail.card id="maintenance-saved" title="Saved window">
+    <PreviewDetail.card id="maintenance-saved" title="Saved window" level={@section_level}>
       <PreviewDetail.facts label="Saved window">
         <tr>
           <th scope="row">Status</th><td>{status_label(@window)}</td>
@@ -92,6 +102,11 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
         <tr>
           <th scope="row">Ends</th><td>{utc_time(@window["ends_at"])}</td>
         </tr>
+        <tr>
+          <th scope="row">{if @window["cancelled_at"], do: "Planned duration", else: "Duration"}</th><td>
+            {duration(@window["starts_at"], @window["ends_at"])}
+          </td>
+        </tr>
         <tr :if={@window["timezone"] not in [nil, "UTC", "Etc/UTC"]}>
           <th scope="row">Local schedule</th>
           <td>
@@ -102,18 +117,21 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
           </td>
         </tr>
         <tr :if={@window["cancelled_at"]}>
-          <th scope="row">Cancelled</th><td>
+          <th scope="row">{status_label(@window)}</th><td>
             {utc_time(@window["cancelled_at"])} · {@window["cancellation_reason"]}
           </td>
         </tr>
         <tr :if={@window["series_id"]}>
           <th scope="row">Series</th><td>
             <.link navigate={preview_entity_path(:series, @window["series_id"], :page, @context)}>Inspect the series</.link>
+            <p class="preview-caption">
+              Editing or cancelling this window changes only this date. Other windows in the series remain scheduled.
+            </p>
           </td>
         </tr>
       </PreviewDetail.facts>
     </PreviewDetail.card>
-    <PreviewDetail.card id="maintenance-saved-matches" title="Matching results">
+    <PreviewDetail.card id="maintenance-saved-matches" title="Matching results" level={@section_level}>
       <p :if={(@window["current_matches"] || []) == []} class="preview-recorded-actions">
         No current results match this scope.
       </p>
@@ -132,13 +150,7 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
           <tr :for={row <- @window["current_matches"]} class="pf-v6-c-table__tr">
             <td class="pf-v6-c-table__td">
               <.link
-                href={
-                  MondekWeb.PreviewNavigation.path(
-                    %{"incident_return" => @current_path},
-                    :checks_result_page,
-                    row["id"]
-                  )
-                }
+                patch={related_result_path(@current_path, row["id"])}
                 class="preview-result-link"
               >{row[
                 "label"
@@ -163,7 +175,7 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
 
   defp preview_history(assigns) do
     ~H"""
-    <PreviewDetail.card id="maintenance-history" title="Window history">
+    <PreviewDetail.card id="maintenance-history" title="Window history" level={@section_level}>
       <p :if={@events == []} class="preview-recorded-actions">No recorded changes.</p>
       <PreviewDetail.facts :if={@events != []} label="Window history">
         <tr :for={event <- @events}>
@@ -191,56 +203,6 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
         Showing {length(@events)} of {@total} recorded changes.
       </p>
     </PreviewDetail.card>
-    """
-  end
-
-  attr :window, :map, required: true
-
-  def saved_window(assigns) do
-    ~H"""
-    <section class="panel" id="maintenance-saved">
-      <div class="panel-heading">
-        <h2>Saved window</h2><span class="badge">{status_label(@window)}</span>
-      </div>
-      <div class="panel-body">
-        <p
-          :if={@window["series_id"]}
-          id="maintenance-series-membership"
-          class="notice notice-copy space-top"
-        >
-          Window {@window["series_index"]} of a weekly series.
-          <.link navigate={series_path(@window["series_id"])} class="text-link">Inspect the series</.link>
-          Editing or cancelling here changes only this window; the other dates stay scheduled.
-        </p>
-        <p>{@window["reason"]}</p><p class="space-top">{scope_label(@window)}</p><.times window={
-          @window
-        } />
-        <p class="footnote space-top">
-          Recorded by {@window["actor"] || "Local operator"}. Revision {@window["revision"]}. Saved UTC instants remain fixed across timezone database updates.
-        </p>
-        <p :if={!editable?(@window)} class="notice notice-copy space-top">
-          This window is retained for history and can no longer be edited.
-        </p>
-        <p :if={@window["cancelled_at"]} class="space-top">
-          {status_label(@window)} at {utc_time(@window["cancelled_at"])} by {@window["cancelled_by"] ||
-            "Local operator"}. {@window["cancellation_reason"]}
-        </p>
-        <p class="footnote space-top" id="maintenance-match-count">
-          Current matches: {count_label(@window["match_count"] || 0, "result")}.
-        </p>
-        <details
-          class="space-top"
-          id="maintenance-saved-matches"
-          phx-mounted={JS.ignore_attributes("open")}
-        >
-          <summary>Inspect currently matching results ({@window["match_count"] || 0})</summary>
-          <.matches rows={@window["current_matches"] || []} />
-          <p class="footnote">
-            Showing {length(@window["current_matches"] || [])} of {@window["match_count"] || 0} currently matching results. This detail view shows at most 25 matches.
-          </p>
-        </details>
-      </div>
-    </section>
     """
   end
 
@@ -280,16 +242,19 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
   attr :cancel_reason, :string, required: true
   attr :cancel_revision, :any, required: true
   attr :preview, :any, required: true
-  attr :preview_ui, :boolean, required: true
   attr :return_to, :any, required: true
   attr :list_filters, :map, required: true
   attr :series_path, :any, required: true
+  attr :current_path, :string, required: true
+  attr :section_level, :integer, values: [2, 3], default: 2
 
   def series_detail(assigns) do
     ~H"""
     <section class="panel" id="maintenance-series-saved">
       <div class="panel-heading">
-        <h2>Saved maintenance series</h2><span class="badge">{status_label(@series)}</span>
+        <.dynamic_tag tag_name={"h#{@section_level}"}>Saved maintenance series</.dynamic_tag><span class="badge">{status_label(
+          @series
+        )}</span>
       </div>
       <div class="panel-body">
         <p>{@series["reason"]}</p><p class="space-top">
@@ -305,7 +270,7 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
         <div class="form-actions">
           <.link
             id="maintenance-series-copy"
-            navigate={maintenance_base(@preview_ui) <> "/new?" <> URI.encode_query(Map.reject(Map.merge(@list_filters, %{"copy_series" => @series["id"], "return_to" => @return_to}), fn {_, value} -> is_nil(value) end))}
+            navigate={"/maintenance/new?" <> URI.encode_query(Map.reject(Map.merge(@list_filters, %{"copy_series" => @series["id"], "return_to" => @return_to}), fn {_, value} -> is_nil(value) end))}
             class="button"
           >Copy into a new schedule</.link>
           <button
@@ -326,7 +291,7 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
       style={if !@cancel_open, do: "display: none"}
     >
       <div class="panel-heading">
-        <h2>Cancel upcoming windows</h2>
+        <.dynamic_tag tag_name={"h#{@section_level}"}>Cancel upcoming windows</.dynamic_tag>
       </div>
       <div class="panel-body">
         <p>
@@ -417,9 +382,13 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
     </section>
     <section class="panel space-top" id="maintenance-series-windows">
       <div class="panel-heading">
-        <h2 id="maintenance-series-windows-heading" tabindex="-1">
+        <.dynamic_tag
+          tag_name={"h#{@section_level}"}
+          id="maintenance-series-windows-heading"
+          tabindex="-1"
+        >
           Scheduled windows ({@series["occurrence_total"]})
-        </h2>
+        </.dynamic_tag>
       </div>
       <div class="panel-body">
         <p id="maintenance-series-window-help">
@@ -433,7 +402,6 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
           rows={@series["occurrences"] || []}
           timezone={@series["timezone"]}
           saved={true}
-          preview_ui={@preview_ui}
         />
         <nav
           :if={(@series["occurrence_pages"] || 1) > 1}
@@ -486,7 +454,11 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
           class="space-top"
           phx-mounted={JS.ignore_attributes("open")}
         >
-          <summary>Inspect currently matching results</summary><.matches rows={@series["rows"] || []} />
+          <summary>Inspect currently matching results</summary><.matches
+            rows={@series["rows"] || []}
+            current_path={@current_path}
+            section_level={@section_level}
+          />
           <nav
             :if={(@series["result_pages"] || 1) > 1}
             class="pagination"
@@ -521,15 +493,15 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
     </section>
     <section class="panel space-top" id="maintenance-series-history">
       <div class="panel-heading">
-        <h2>Series history</h2>
+        <.dynamic_tag tag_name={"h#{@section_level}"}>Series history</.dynamic_tag>
       </div><div class="panel-body">
         <p>
           Showing {length(@series["history"] || [])} of {@series["history_count"] || 0} series decisions. Individual window pages retain their own edits and cancellations.
         </p>
         <article :for={event <- @series["history"] || []} class="maintenance-history-event">
-          <h3>
+          <.dynamic_tag tag_name={"h#{@section_level + 1}"}>
             {series_event_label(event["kind"])}
-          </h3>
+          </.dynamic_tag>
           <p :if={get_in(event, ["snapshot", "window_id"])}>
             <.link navigate={window_path(event["snapshot"]["window_id"])} class="text-link">Window {event[
               "snapshot"
@@ -626,14 +598,17 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
 
   attr :rows, :list, required: true
 
+  attr :current_path, :string, required: true
+  attr :section_level, :integer, values: [2, 3], default: 2
+
   def matches(assigns) do
     ~H"""
     <div class="space-top maintenance-matches">
-      <h3>Currently matching results</h3>
+      <.dynamic_tag tag_name={"h#{@section_level + 1}"}>Currently matching results</.dynamic_tag>
       <p :if={@rows == []}>No current results match.</p>
       <ul :if={@rows != []} class="maintenance-candidates">
         <li :for={row <- @rows}>
-          <.link navigate={"/checks/" <> row["id"]} class="text-link">{row["label"] ||
+          <.link patch={related_result_path(@current_path, row["id"])} class="text-link">{row["label"] ||
             row["check_label"]}</.link>
           <small>Scheduled check: {row["check_label"]} · {row["environment"] ||
             "No declared environment"} · {row["runner_label"] || row["runner_id"]}</small>
@@ -644,53 +619,11 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
     """
   end
 
-  attr :events, :list, required: true
-  attr :total, :integer, required: true
-
-  def history(assigns) do
-    ~H"""
-    <section class="panel space-top" id="maintenance-history">
-      <div class="panel-heading">
-        <h2>Window history</h2>
-      </div><div class="panel-body">
-        <p :if={@events == []}>No retained events.</p>
-        <p :if={@total > length(@events)} class="footnote">
-          Showing the latest {length(@events)} of {@total} retained changes.
-        </p>
-        <div :for={event <- @events} class="maintenance-history-event">
-          <h3>{event_label(event)}</h3><p>{event["reason"]}</p>
-          <small>{event["actor"] || "Local operator"} · {utc_time(event["inserted_at"] || event["at"])} · revision {event[
-            "revision"
-          ]}</small>
-          <details
-            :if={is_map(event["snapshot"])}
-            class="space-top"
-            phx-mounted={JS.ignore_attributes("open")}
-          >
-            <summary>Window at this revision</summary>
-            <p class="space-top"><strong>{event["snapshot"]["name"]}</strong></p>
-            <p>{scope_label(event["snapshot"])}</p>
-            <a
-              :if={event["snapshot"]["scope_window_id"]}
-              href="#maintenance-saved-selection"
-              class="text-link"
-            >Inspect this window's fixed selection</a>
-            <.times window={event["snapshot"]} />
-          </details>
-        </div>
-      </div>
-    </section>
-    """
-  end
-
   attr :rows, :list, required: true
   attr :timezone, :string, required: true
   attr :saved, :boolean, required: true
-  attr :preview_ui, :boolean, default: false
 
   def occurrence_rows(assigns) do
-    assigns = assign_new(assigns, :preview_ui, fn -> false end)
-
     ~H"""
     <ol class="maintenance-series-dates">
       <li :for={row <- @rows} data-window-index={row["index"] || row["series_index"]}>
@@ -711,7 +644,7 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
         </p>
         <.link
           :if={@saved && row["id"]}
-          navigate={window_path(row["id"], @preview_ui)}
+          navigate={window_path(row["id"])}
           class="text-link"
         >{if editable?(row),
           do: "Inspect or change this window",

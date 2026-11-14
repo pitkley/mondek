@@ -4,148 +4,96 @@ defmodule MondekWeb.CheckGroupsLiveTest do
   use Mondek.DataCase, async: false
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-  alias Mondek.Inventory
-  alias MondekWeb.CheckInventory
-
+  alias Mondek.{Inventory}
   @endpoint MondekWeb.Endpoint
 
-  test "declared groups collect distinct targets while keeping exact target investigation" do
+  test "declared group chip gathers distinct targets without merging result identities" do
     publish([
       check("controller", "Node", "node"),
       check("database", "Node", "node"),
       check("deadline", "Miscellaneous", "misc"),
-      check("un-grouped", nil, nil)
+      check("ungrouped", nil, nil)
     ])
 
-    {:ok, view, _} = live(build_conn(), "/checks?search=browse-")
-    assert has_element?(view, "#inventory-view-targets", "By group")
-    assert length(elements(view, "#inventory-target-options > button")) == 3
-    view |> element("#inventory-view-list") |> render_click()
-    assert length(elements(view, ".checks-result-group")) == 3
-    assert has_element?(view, ".checks-group-heading h3", "Node")
-    assert has_element?(view, ".checks-resource-link", "Resource controller")
-    view |> element("#inventory-view-targets") |> render_click()
-    view |> element("#inventory-target-options > button", "Node") |> render_click()
-    assert length(elements(view, ".checks-results-table tbody tr")) == 2
-    assert has_element?(view, ".checks-group-heading h3", "Node")
-    refute has_element?(view, ".checks-group-heading .target-context-link")
-    assert has_element?(view, ".checks-resource-link", "Resource controller")
-    assert has_element?(view, ".checks-resource-link", "Resource database")
-
-    view |> element(".checks-resource-link", "Resource database") |> render_click()
-    assert has_element?(view, "#checks-target-context", "Resource database")
-    assert length(elements(view, ".checks-results-table tbody tr")) == 1
-    assert has_element?(view, "#checks-investigation-return")
-    refute has_element?(view, ".checks-resource-link")
+    [node] = Mondek.ChecksFilters.options("group", "Node")
+    {:ok, view, _} = live(build_conn(), "/checks?group=" <> node.key)
+    assert rows(view) == 2
+    assert has_element?(view, "#preview-check-results", "Resource controller")
+    assert has_element?(view, "#preview-check-results", "Resource database")
+    refute has_element?(view, "#preview-check-results", "Resource deadline")
+    render_click(view, "filter_open", %{"field" => "target"})
+    render_change(view, "filter_query", %{"search" => "database"})
+    render_click(view, "filter_select", %{"key" => "database", "kind" => "container"})
+    assert rows(view) == 1
   end
 
-  test "local group search finds unloaded groups without changing the open results or global filters" do
+  test "bounded group suggestions search beyond the initial twenty choices" do
     publish(
       for index <- 1..107, do: check(padded(index), "Group #{padded(index)}", padded(index))
     )
 
+    assert length(Mondek.ChecksFilters.options("group", "")) == 20
     {:ok, view, _} = live(build_conn(), "/checks?search=browse-")
-    assert length(elements(view, "#inventory-target-options > button")) == 100
-    assert has_element?(view, "#inventory-group-loader", "100 of 107 groups shown")
-    assert has_element?(view, "#inventory-load-more-groups")
-    selected = row_ids(view)
-
-    selected_group =
-      attribute(view, "#inventory-target-options > button[aria-pressed='true']", "id")
-
-    view |> form("#inventory-group-search-form", group_search: "Group 107") |> render_change()
-    assert length(elements(view, "#inventory-target-options > button")) == 1
-    assert has_element?(view, "#inventory-target-options > button", "Group 107")
-    assert has_element?(view, "#inventory-search[value='browse-']")
-    assert row_ids(view) == selected
-    assert has_element?(view, ".checks-group-heading h3", "Group 001")
-    refute has_element?(view, "#inventory-load-more-groups")
-
-    view |> form("#inventory-group-search-form", group_search: "No such group") |> render_change()
-    assert has_element?(view, ".checks-group-search-empty", "The selected results remain open")
-    assert row_ids(view) == selected
+    before = rows(view)
+    render_click(view, "filter_open", %{"field" => "group"})
+    render_change(view, "filter_query", %{"search" => "Group 107"})
+    assert has_element?(view, "[role=option]", "Group 107")
+    assert rows(view) == before
     send(view.pid, :tick)
-    assert row_ids(view) == selected
-    assert has_element?(view, "#inventory-group-search[value='No such group']")
-
-    view |> form("#inventory-group-search-form", group_search: "") |> render_change()
-    assert has_element?(view, "##{selected_group}[aria-pressed='true']")
-    assert length(elements(view, "#inventory-target-options > button")) == 100
+    assert has_element?(view, "[role=option]", "Group 107")
   end
 
-  test "cumulative loading survives updates, recovered forms, details and fresh connections" do
-    publish(
-      for index <- 1..107, do: check(padded(index), "Group #{padded(index)}", padded(index))
-    )
+  test "selected group survives result paging, a panel and a fresh connection" do
+    publish(for index <- 1..67, do: check(padded(index), "Nodes", "node"))
+    [group] = Mondek.ChecksFilters.options("group", "Nodes")
+    path = "/checks?group=" <> group.key <> "&page=2"
+    {:ok, view, _} = live(build_conn(), path)
+    assert rows(view) == 30
 
-    {:ok, view, _} = live(build_conn(), "/checks?search=browse-")
-    selected = row_ids(view)
-    view |> element("#inventory-load-more-groups") |> render_click()
-    path = assert_patch(view)
-    assert URI.decode_query(URI.parse(path).query)["group_limit"] == "200"
-    assert row_ids(view) == selected
-    assert length(elements(view, "#inventory-target-options > button")) == 107
-    refute has_element?(view, "#inventory-load-more-groups")
-    assert has_element?(view, "#inventory-group-loader", "107 of 107 groups shown")
+    view
+    |> element("#preview-check-results tbody tr:first-child a[data-overview-open]")
+    |> render_click()
 
-    render_change(view, "group_search", %{"group_search" => ""})
-    refute_patched(view)
-    send(view.pid, :tick)
-    assert length(elements(view, "#inventory-target-options > button")) == 107
-    assert row_ids(view) == selected
-
-    result_link = view |> element(".checks-result-link") |> render_click()
-    {:ok, detail, _} = follow_redirect(result_link, build_conn())
-    assert has_element?(detail, ".back[href='#{path}']")
-
-    {:ok, returned, _} =
-      follow_redirect(detail |> element(".back") |> render_click(), build_conn())
-
-    assert length(elements(returned, "#inventory-target-options > button")) == 107
-    assert row_ids(returned) == selected
-
-    {:ok, reconnected, _} = live(build_conn(), path)
-    assert length(elements(reconnected, "#inventory-target-options > button")) == 107
-    assert row_ids(reconnected) == selected
+    panel_path = assert_patch(view)
+    assert has_element?(view, "#overview-panel")
+    {:ok, reopened, _} = live(build_conn(), panel_path)
+    assert rows(reopened) == 30
+    assert has_element?(reopened, ".preview-filter-chip", "Nodes")
   end
 
-  test "group searches survive presentation changes and remain distinct from global search" do
+  test "group picker queries are separate from applied text search" do
     publish([check("one", "Node", "node"), check("two", "Miscellaneous", "misc")])
-    {:ok, view, _} = live(build_conn(), "/checks?search=browse-&group_search=Node")
-    assert has_element?(view, "#inventory-group-search[value='Node']")
-    view |> element("#inventory-view-list") |> render_click()
-    assert length(elements(view, ".checks-results-table tbody tr")) == 2
-    refute has_element?(view, "#inventory-group-search")
-    view |> element("#inventory-view-targets") |> render_click()
-    assert has_element?(view, "#inventory-group-search[value='Node']")
-    assert length(elements(view, "#inventory-target-options > button")) == 1
+    {:ok, view, _} = live(build_conn(), "/checks?search=browse-")
+    render_click(view, "filter_open", %{"field" => "group"})
+    render_change(view, "filter_query", %{"search" => "Node"})
+    assert rows(view) == 2
+
+    assert has_element?(view, "form[phx-hook='PreviewFilterPicker'][data-search='browse-']")
+
+    render_click(view, "filter_close", %{})
+    assert rows(view) == 2
   end
 
-  test "group loading URL bounds remain independent of result paging and legacy view links" do
-    filters =
-      CheckInventory.normalize(%{"view" => "targets", "group_limit" => "5000", "page" => "3"})
+  test "group identity rejects malformed selection and does not accept retired explorer controls" do
+    valid = "group-" <> String.duplicate("a", 64)
+    assert Mondek.ChecksFilters.params(%{"group" => valid, "page" => "3"})["group"] == valid
 
-    assert filters["group_limit"] == "1000"
-    assert filters["page"] == "3"
-    assert filters["view"] == "targets"
-
-    for value <- ["all", "-100", "0", "100", "120tail"] do
-      refute CheckInventory.normalize(%{"group_limit" => value})["group_limit"]
+    for value <- ["invalid", "group-" <> String.duplicate("g", 64), "target-x"] do
+      refute Mondek.ChecksFilters.params(%{"group" => value})["group"]
     end
 
-    refute CheckInventory.normalize(%{"group_search" => String.duplicate("x", 201)})[
-             "group_search"
+    refute Mondek.ChecksFilters.params(%{"group_limit" => "5000", "group_search" => "Node"})[
+             "group_limit"
            ]
   end
 
-  defp row_ids(view),
-    do: Enum.map(elements(view, ".checks-results-table tbody tr"), &LazyHTML.attribute(&1, "id"))
-
-  defp elements(view, selector),
-    do: view |> render() |> LazyHTML.from_document() |> LazyHTML.query(selector) |> Enum.to_list()
-
-  defp attribute(view, selector, name),
-    do: view |> elements(selector) |> hd() |> LazyHTML.attribute(name) |> hd()
+  defp rows(view),
+    do:
+      view
+      |> render()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#preview-check-results tbody > tr")
+      |> Enum.count()
 
   defp padded(index), do: String.pad_leading(to_string(index), 3, "0")
 

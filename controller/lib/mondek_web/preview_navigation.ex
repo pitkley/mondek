@@ -7,34 +7,34 @@ defmodule MondekWeb.PreviewNavigation do
     base =
       case action do
         :checks ->
-          "/next/checks"
+          "/checks"
 
         :checks_result ->
-          "/next/checks/" <> URI.encode(id || "", &URI.char_unreserved?/1)
+          "/checks/" <> URI.encode(id || "", &URI.char_unreserved?/1)
 
         :checks_result_page ->
-          "/next/checks/" <> URI.encode(id || "", &URI.char_unreserved?/1) <> "/full"
+          "/checks/" <> URI.encode(id || "", &URI.char_unreserved?/1) <> "/full"
 
         :result ->
-          "/next/results/" <> URI.encode(id || "", &URI.char_unreserved?/1)
+          "/results/" <> URI.encode(id || "", &URI.char_unreserved?/1)
 
         :result_page ->
-          "/next/results/" <> URI.encode(id || "", &URI.char_unreserved?/1) <> "/full"
+          "/results/" <> URI.encode(id || "", &URI.char_unreserved?/1) <> "/full"
 
         :coverage ->
-          "/next/coverage"
+          "/coverage"
 
         :coverage_diagnostic ->
-          "/next/coverage/diagnostics/" <> URI.encode(id || "", &URI.char_unreserved?/1)
+          "/coverage/diagnostics/" <> URI.encode(id || "", &URI.char_unreserved?/1)
 
         :coverage_result ->
-          "/next/coverage/" <> URI.encode(id || "", &URI.char_unreserved?/1)
+          "/coverage/" <> URI.encode(id || "", &URI.char_unreserved?/1)
 
         :expected ->
-          "/next/expected/" <> URI.encode(id || "", &URI.char_unreserved?/1)
+          "/expected/" <> URI.encode(id || "", &URI.char_unreserved?/1)
 
         _ ->
-          "/next"
+          "/"
       end
 
     query =

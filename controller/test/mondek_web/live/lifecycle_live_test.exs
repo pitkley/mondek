@@ -72,7 +72,7 @@ defmodule MondekWeb.LifecycleLiveTest do
              &(&1["id"] == "10000000-0000-4000-8000-000000000001")
            )
 
-    {:ok, view, _} = live(build_conn(), "/incidents/" <> incident.id)
+    {:ok, view, _} = live(build_conn(), "/incidents/health/" <> incident.id <> "/full")
     assert has_element?(view, "h1", "Linux filesystem")
 
     stream =
@@ -81,21 +81,21 @@ defmodule MondekWeb.LifecycleLiveTest do
           where: s.assignment_id == "10000000-0000-4000-8000-000000000001"
       )
 
-    assert render(view) =~ "No recovery measurement is implied"
+    assert has_element?(
+             view,
+             "#preview-history",
+             MondekWeb.EvidencePresentation.badge_text(
+               Repo.get!(Incident, incident.id).closure_reason
+             )
+           )
 
-    result_path =
-      "/checks/#{stream.id}?" <>
-        URI.encode_query(%{"return_to" => "/incidents/#{incident.id}"})
-
-    {:ok, result, _} =
-      view
-      |> element(".page-heading #incident-view-check", "View check")
-      |> render_click()
-      |> follow_redirect(build_conn(), result_path)
-
-    assert has_element?(result, "h1", "Linux filesystem")
-    assert has_element?(result, "#retired-check-notice")
-    assert has_element?(result, ".back[href='/incidents/#{incident.id}']", "Back to incident")
+    refute Repo.get!(Incident, incident.id).closure_reason == "measured_recovery"
+    view |> element("#incident-page a", "View latest check result") |> render_click()
+    assert has_element?(view, "#overview-panel", "Linux filesystem")
+    assert has_element?(view, "#overview-panel", "This result is retired")
+    assert has_element?(view, "#overview-panel #result-measurement-provenance", stream.id)
+    view |> element("#overview-panel [data-overview-close]") |> render_click()
+    assert has_element?(view, "#incident-page")
   end
 
   test "selected configuration edits one check without loading every parameter form" do
@@ -128,10 +128,10 @@ defmodule MondekWeb.LifecycleLiveTest do
     {:ok, _} =
       withdraw_source_fixture("10000000-0000-4000-8000-000000000002", "Target removed", at())
 
-    {:ok, view, _} = live(build_conn(), "/resources/10000000-0000-4000-8000-000000000002")
-    assert has_element?(view, "#retired-check-notice", "retirement does not mean recovery")
+    {:ok, view, _} = live(build_conn(), "/executions/10000000-0000-4000-8000-000000000002")
+    assert has_element?(view, "#execution-scope", "retirement is not recovery")
     refute has_element?(view, "#retire-check-form")
-    refute has_element?(view, "#maintenance-summary-10000000-0000-4000-8000-000000000002")
+    refute has_element?(view, "#execution-maintenance a", "Schedule maintenance")
     {:ok, configuration, _} = live(build_conn(), "/configuration?status=retired")
 
     assert has_element?(

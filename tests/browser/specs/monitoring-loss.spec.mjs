@@ -3,7 +3,7 @@
 import { test, expect } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { attachState, checkpoint, connected, fixtureURL, incidentNavigation, keyboardSubmit, measured, mode, sectionTabs, snapshot, streams } from '../support/helpers.mjs';
+import { attachState, checkpoint, connected, fixtureURL, incidentNavigation, keyboardSubmit, measured, mode, snapshot, streams, setFilter, expectInvestigationReturn } from '../support/helpers.mjs';
 import { demoAssignments } from '../support/helpers.mjs';
 
 let filesystemId, httpId, consumerId;
@@ -73,9 +73,9 @@ async function reconnect(page) {
 }
 
 async function acknowledge(page, note) {
-  await page.locator('#monitoring-ack-note').fill(note);
-  await keyboardSubmit(page, page.locator('#monitoring-acknowledgement-form').getByRole('button', { name: 'Acknowledge monitoring loss', exact: true }));
-  await expect(page.locator('#active-monitoring-acknowledgement')).toContainText(note);
+  await page.locator('#preview-incident-ack-form textarea[name=note]').fill(note);
+  await keyboardSubmit(page, page.locator('#preview-incident-ack-form').getByRole('button', { name: 'Save acknowledgement', exact: true }));
+  await expect(page.getByRole('table', { name: 'Active acknowledgement', exact: true })).toContainText(note);
 }
 
 test('real monitoring failures debounce, group by runner, hold original delivery and restore through fresh measurements', async ({ page, request }, testInfo) => {
@@ -113,30 +113,20 @@ test('real monitoring failures debounce, group by runner, hold original delivery
 
     await page.goto('/incidents');
     await connected(page);
-    await sectionTabs(page, 'Incidents', 'Incident views', 'Target health');
     await incidentNavigation(page, request, { health: 0, monitoring: 1 });
-    const lossTab = page.getByRole('navigation', { name: 'Incident views' }).getByRole('link', { name: /Monitoring loss/ });
-    await lossTab.click();
+    await setFilter(page, 'type', 'loss');
+    await expect(page.locator('[id^="preview-incident-loss-"]')).toHaveCount(1);
+    await page.locator(`#preview-incident-loss-${episode.id}`).getByRole('link').click();
     await connected(page);
-    await sectionTabs(page, 'Incidents', 'Incident views', 'Monitoring loss');
-    await expect(page.locator('.monitoring-loss-row')).toHaveCount(1);
-    await page.locator(`#monitoring-incident-${episode.id} h3 a`).click();
-    await expect(page).toHaveURL(new RegExp(`/monitoring-incidents/${episode.id}(?:\\?|$)`));
+    await expect(page.locator('#preview-loss-evidence > div.preview-incident-evidence')).toHaveCount(1);
+    await expect(page.locator('#preview-loss-evidence')).toContainText('Collection unavailable');
+    const lossURL = page.url();
+    await page.getByRole('link', { name: 'View latest check result', exact: true }).click();
     await connected(page);
-    await expect(page.locator('#monitoring-members .monitoring-loss-member')).toHaveCount(1);
-    await expect(page.locator('#monitoring-members')).toContainText('Unavailable');
-    const investigate = page.locator('#monitoring-members a').first();
-    const investigationURL = new URL(await investigate.getAttribute('href'), page.url());
-    expect(investigationURL.pathname).toBe(`/checks/${baseline.id}/diagnostics`);
-    expect(investigationURL.searchParams.get('return_to')).toBe(`/monitoring-incidents/${episode.id}`);
-    await investigate.click();
-    await connected(page);
-    await expect(page.locator('#latest-execution')).toContainText('worker execution timed out');
-    await expect(page.locator('#investigation-back')).toContainText('Back to monitoring incident');
-    await page.locator('#investigation-back').click();
-    await connected(page);
-    await expect(page).toHaveURL(new RegExp(`/monitoring-incidents/${episode.id}(?:\\?|$)`));
-    await expect(page.locator('#monitoring-loss-summary')).toContainText('Target-health incidents');
+    await expect(page.locator('#overview-panel')).toContainText('worker execution timed out');
+    await expect(page.locator('#overview-panel')).toContainText('Healthy');
+    await page.locator('#overview-panel [data-overview-close]').click();
+    await expectInvestigationReturn(page, lossURL, `loss:${episode.id}`);
     await checkpoint(page, testInfo, 'collection-loss-retains-target-health');
 
     // Exhaust the real HTTP 503 deliveries. An operator retry while acknowledged
@@ -144,25 +134,25 @@ test('real monitoring failures debounce, group by runner, hold original delivery
     await expect.poll(async () => (await occurrence(request, episode.id))?.status, { timeout: 60_000 }).toBe('exhausted');
     const exhausted = await occurrence(request, episode.id);
     expect(exhausted.attempt_count).toBe(3);
-    await expect(page.locator(`#notification-${opening.id}`)).toContainText('HTTP 503');
-    await page.locator('#monitoring-ack-note').fill('Investigating this runner and later affected results');
+    await expect(page.locator('section[aria-labelledby=preview-delivery-heading]')).toContainText('HTTP 503');
+    await page.locator('#preview-incident-ack-form textarea[name=note]').fill('Investigating this runner and later affected results');
     await reconnect(page);
-    await expect(page.locator('#monitoring-ack-note')).toHaveValue('Investigating this runner and later affected results');
+    await expect(page.locator('#preview-incident-ack-form textarea[name=note]')).toHaveValue('Investigating this runner and later affected results');
     await acknowledge(page, 'Investigating this runner and later affected results');
-    await page.goto('/monitoring-incidents');
+    await page.goto('/incidents?type=loss');
     await connected(page);
-    await expect(page.locator(`#monitoring-incident-${episode.id}`)).toHaveClass(/monitoring-loss-acknowledged/);
-    await expect(page.locator('#monitoring-incident-list .panel-heading')).toContainText('0 unacknowledged');
+    await expect(page.locator(`#preview-incident-loss-${episode.id}`)).toContainText('Acknowledged');
+    await incidentNavigation(page, request, { health: 0, monitoring: 0 });
     await checkpoint(page, testInfo, 'acknowledged-monitoring-loss-inventory');
-    await page.locator(`#monitoring-incident-${episode.id} h3 a`).click();
+    await page.locator(`#preview-incident-loss-${episode.id}`).getByRole('link').click();
     await connected(page);
     await mode(request, { webhook: 'ok' });
-    const retry = page.locator(`#retry-monitoring-notification-${opening.id}`);
-    await retry.getByLabel('Retry reason', { exact: true }).fill('Local receiver repaired; keep acknowledgement active');
+    const retry = page.locator(`#preview-retry-${opening.id}`);
+    await retry.getByLabel('Reason for retry', { exact: true }).fill('Local receiver repaired; keep acknowledgement active');
     await reconnect(page);
-    await expect(retry.getByLabel('Retry reason', { exact: true })).toHaveValue('Local receiver repaired; keep acknowledgement active');
+    await expect(retry.getByLabel('Reason for retry', { exact: true })).toHaveValue('Local receiver repaired; keep acknowledgement active');
     await keyboardSubmit(page, retry.getByRole('button', { name: 'Retry notification', exact: true }));
-    await expect(page.locator(`#notification-${opening.id}`)).toContainText('held by acknowledgement');
+    await expect(page.locator('section[aria-labelledby=preview-delivery-heading]')).toContainText('Acknowledgement');
     expect((await occurrence(request, episode.id)).attempt_count).toBe(3);
 
     // The runner keeps executing while controller transport is partitioned.
@@ -170,8 +160,8 @@ test('real monitoring failures debounce, group by runner, hold original delivery
     const blockedAt = Date.now();
     await mode(request, { offline_installations: [runner.id] });
     expect((await grouped(request, 3)).id).toBe(episode.id);
-    await expect(page.locator('#monitoring-members .monitoring-loss-member')).toHaveCount(3);
-    await expect(page.locator('#active-monitoring-acknowledgement')).toBeVisible();
+    await expect(page.locator('#preview-loss-evidence > div.preview-incident-evidence')).toHaveCount(3);
+    await expect(page.getByRole('table', { name: 'Active acknowledgement', exact: true })).toBeVisible();
     expect((await detail(request, episode.id)).acknowledgement_mode).toBe('until_incident_ends');
     expect((await snapshot(request)).occurrences.filter((row) => row.monitoring_incident_id === episode.id && row.kind === 'firing')).toHaveLength(1);
     expect((await occurrence(request, episode.id)).attempt_count).toBe(3);
@@ -179,9 +169,9 @@ test('real monitoring failures debounce, group by runner, hold original delivery
     await checkpoint(page, testInfo, 'runner-outage-one-acknowledged-episode-320');
     await page.reload();
     await connected(page);
-    await expect(page.locator('#active-monitoring-acknowledgement')).toBeVisible();
+    await expect(page.getByRole('table', { name: 'Active acknowledgement', exact: true })).toBeVisible();
 
-    await keyboardSubmit(page, page.locator('#end-monitoring-acknowledgement'));
+    await keyboardSubmit(page, page.getByRole('button', { name: 'End acknowledgement', exact: true }));
     await expect.poll(async () => (await occurrence(request, episode.id))?.status, { timeout: 45_000 }).toBe('delivered');
     const delivered = await occurrence(request, episode.id);
     expect(delivered.id).toBe(exhausted.id);
@@ -201,8 +191,8 @@ test('real monitoring failures debounce, group by runner, hold original delivery
     const resumedAt = Date.now();
     await mode(request, { offline_installations: [] });
     await measured(request, consumerId, 'WARN');
-    await expect(page.locator('#monitoring-loss-summary h2')).toHaveText('Monitoring restored');
-    await expect(page.locator('#active-monitoring-acknowledgement')).toHaveCount(0);
+    await expect(page.locator('#incident-page, #overview-panel').filter({has: page.locator('#preview-loss-evidence')})).toContainText('Monitoring restored');
+    await expect(page.getByRole('table', { name: 'Active acknowledgement', exact: true })).toHaveCount(0);
     const ended = await detail(request, episode.id);
     expect(ended.status).toBe('closed');
     expect(ended.closure_reason).toBe('monitoring_restored');
@@ -245,7 +235,7 @@ test('overview keeps independently unacknowledged health and monitoring problems
     const failed = await unavailable(request);
     expect(failed.current.health).toBe('CRIT');
     const loss = await grouped(request, 1);
-    await page.goto('/next/incidents');
+    await page.goto('/incidents');
     await connected(page);
     const healthRow = page.locator(`#preview-incident-health-${health.id}`);
     const lossRow = page.locator(`#preview-incident-loss-${loss.id}`);
@@ -316,11 +306,12 @@ test('overview keeps independently unacknowledged health and monitoring problems
     await expect(page.locator('main')).toContainText('Collection unavailable');
     const lossURL = page.url();
     await incidentPanel.getByRole('link', {name: 'View latest check result'}).click();
-    await expect(page.locator('#overview-panel')).toContainText('Collection unavailable');
+    await expect(page.locator('#overview-panel .preview-result-measurement')).toContainText('Collection unavailable');
+    await expect(page).toHaveURL(url => url.searchParams.get('inspect')?.split(',').at(-1) === `result:${stream.id}`);
     await page.locator('#overview-panel [data-overview-close]').click();
-    await expect(page).toHaveURL(lossURL);
+    await expectInvestigationReturn(page, lossURL, `loss:${loss.id}`);
     await connected(page);
-    await page.getByRole('link', {name: /Back to incidents/}).click();
+    await page.locator('#overview-panel [data-overview-close]').click();
     const typeChip = page.getByRole('button', {name: 'Edit Type filter: Monitoring loss'});
     await expect(typeChip).toBeVisible();
     await typeChip.click();
@@ -336,72 +327,63 @@ test('overview keeps independently unacknowledged health and monitoring problems
     await page.setViewportSize({width: 1280, height: 900});
     await overview.goto('/');
     await connected(overview);
-    const row = overview.locator(`#overview-attention #result-${stream.id}`);
+    const row = overview.locator(`#preview-attention #result-row-${stream.id}`);
     await expect(row).toContainText('Critical');
-    await expect(row).toContainText('Unavailable');
+    await expect(row).toContainText('Collection unavailable');
     await incidentNavigation(overview, request, { health: 1, monitoring: 1 });
     await checkpoint(overview, testInfo, 'overview-independent-health-and-monitoring-desktop');
 
     // Every shared shell must preserve both live counts on direct load and
     // reconnect, including views that formerly built their own navigation.
-    for (const route of ['/coverage', '/coverage/diagnostics', '/coverage/publishers', '/maintenance', '/maintenance/new', '/configuration/rules', '/configuration/rules/new', '/runners', '/notifications', '/guide']) {
+    for (const route of ['/coverage', '/coverage/publishers', '/maintenance', '/maintenance/new', '/configuration/rules', '/configuration/rules/new', '/runners', '/notifications', '/guide']) {
       await navigation.goto(route);
       await connected(navigation);
       await incidentNavigation(navigation, request, { health: 1, monitoring: 1 });
-      if (route === '/coverage/publishers') {
-        await navigation.getByRole('link', { name: 'Manage publication', exact: true }).first().click();
-        await expect(navigation).toHaveURL(/\/coverage\/publishers\/[^/?]+$/);
-        await expect(navigation.locator('#publisher-heading')).toBeVisible();
-        await connected(navigation);
-        await incidentNavigation(navigation, request, { health: 1, monitoring: 1 });
-      }
       await reconnect(navigation);
       await incidentNavigation(navigation, request, { health: 1, monitoring: 1 });
     }
     await navigation.goto('/coverage');
     await connected(navigation);
 
-    await page.goto(`/incidents/${health.id}`);
+    await page.goto(`/incidents/health/${health.id}/full`);
     await connected(page);
-    await page.locator('#ack-note').fill('Health investigation does not acknowledge collection loss');
-    await page.locator('#acknowledgement-form').getByRole('button', { name: 'Acknowledge', exact: true }).click();
-    await expect(page.locator('#active-acknowledgement')).toBeVisible();
+    await acknowledge(page, 'Health investigation does not acknowledge collection loss');
+    await expect(page.getByRole('table', { name: 'Active acknowledgement', exact: true })).toBeVisible();
     await expect(row).toBeVisible();
     await incidentNavigation(overview, request, { health: 0, monitoring: 1 });
     await incidentNavigation(navigation, request, { health: 0, monitoring: 1 });
     await overview.setViewportSize({ width: 390, height: 844 });
     await checkpoint(overview, testInfo, 'overview-acknowledged-health-still-needs-monitoring-390');
 
-    await page.goto(`/monitoring-incidents/${loss.id}`);
+    await page.goto(`/incidents/loss/${loss.id}/full`);
     await connected(page);
     await acknowledge(page, 'Collection investigation acknowledged independently');
-    await expect(row).toHaveCount(0);
+    await expect(row).toContainText('Critical');
     await incidentNavigation(overview, request, { health: 0, monitoring: 0 });
     await incidentNavigation(navigation, request, { health: 0, monitoring: 0 });
     await overview.reload();
     await connected(overview);
     await reconnect(overview);
-    await expect(row).toHaveCount(0);
+    await expect(row).toContainText('Critical');
     expect((await streams(request)).items.find((item) => item.id === stream.id).current.health).toBe('CRIT');
 
-    await page.goto(`/incidents/${health.id}`);
+    await page.goto(`/incidents/health/${health.id}/full`);
     await connected(page);
-    await page.locator('#end-acknowledgement').click();
-    await expect(page.locator('#active-acknowledgement')).toHaveCount(0);
+    await page.getByRole('button', { name: 'End acknowledgement', exact: true }).click();
+    await expect(page.getByRole('table', { name: 'Active acknowledgement', exact: true })).toHaveCount(0);
     await expect(row).toContainText('Critical');
     await incidentNavigation(overview, request, { health: 1, monitoring: 0 });
     await overview.setViewportSize({ width: 320, height: 740 });
     await checkpoint(overview, testInfo, 'overview-acknowledged-monitoring-still-needs-health-320');
-    await page.locator('#ack-note').fill('Resume health investigation');
-    await page.locator('#acknowledgement-form').getByRole('button', { name: 'Acknowledge', exact: true }).click();
-    await expect(page.locator('#active-acknowledgement')).toBeVisible();
-    await expect(row).toHaveCount(0);
+    await acknowledge(page, 'Resume health investigation');
+    await expect(page.getByRole('table', { name: 'Active acknowledgement', exact: true })).toBeVisible();
+    await expect(row).toContainText('Critical');
 
-    await page.goto(`/monitoring-incidents/${loss.id}`);
+    await page.goto(`/incidents/loss/${loss.id}/full`);
     await connected(page);
-    await page.locator('#end-monitoring-acknowledgement').click();
-    await expect(page.locator('#active-monitoring-acknowledgement')).toHaveCount(0);
-    await expect(row).toContainText('Unavailable');
+    await page.getByRole('button', { name: 'End acknowledgement', exact: true }).click();
+    await expect(page.getByRole('table', { name: 'Active acknowledgement', exact: true })).toHaveCount(0);
+    await expect(row).toContainText('Collection unavailable');
     await incidentNavigation(overview, request, { health: 0, monitoring: 1 });
     await incidentNavigation(navigation, request, { health: 0, monitoring: 1 });
     await healthy(request);
@@ -435,9 +417,9 @@ test('maintenance holds a new monitoring episode until uncovered results join it
     const episode = await grouped(request, 1);
     expect(episode.acknowledgement_mode).toBeNull();
     const held = await occurrence(request, episode.id);
-    await page.goto(`/monitoring-incidents/${episode.id}`);
+    await page.goto(`/incidents/loss/${episode.id}/full`);
     await connected(page);
-    await expect(page.locator(`#notification-${held.id}`)).toContainText('held by maintenance');
+    await expect(page.locator('section[aria-labelledby=preview-delivery-heading]')).toContainText('Maintenance');
     expect((await occurrence(request, episode.id)).attempt_count).toBe(0);
     await checkpoint(page, testInfo, 'all-affected-results-maintained');
 
@@ -452,7 +434,7 @@ test('maintenance holds a new monitoring episode until uncovered results join it
     await checkpoint(page, testInfo, 'partial-maintenance-releases-original-notification');
 
     await healthy(request);
-    await expect(page.locator('#monitoring-loss-summary h2')).toHaveText('Monitoring restored');
+    await expect(page.locator('#incident-page, #overview-panel').filter({has: page.locator('#preview-loss-evidence')})).toContainText('Monitoring restored');
     expect((await detail(request, episode.id)).closure_reason).toBe('monitoring_restored');
   } finally {
     await healthy(request);
@@ -476,15 +458,15 @@ test('prepare acknowledged monitoring loss and held delivery before controller r
     const episode = await grouped(request, 1);
     await expect.poll(async () => (await occurrence(request, episode.id))?.status, { timeout: 60_000 }).toBe('exhausted');
     const original = await occurrence(request, episode.id);
-    await page.goto(`/next/incidents/loss/${episode.id}`);
+    await page.goto(`/incidents/loss/${episode.id}/full`);
     await connected(page);
     await page.getByLabel('Note (optional)', { exact: true }).fill('Preserve this acknowledged monitoring episode across controller restart');
     await keyboardSubmit(page, page.getByRole('button', { name: 'Save acknowledgement', exact: true }));
-    await expect(page.getByText('Acknowledgement saved.', { exact: true })).toBeVisible();
+    await expect(page.getByRole('table', { name: 'Active acknowledgement', exact: true })).toContainText('Preserve this acknowledged monitoring episode');
     const retry = page.locator(`#preview-retry-${original.id}`);
     await retry.getByLabel('Reason for retry', { exact: true }).fill('Retry after controller restart; acknowledgement remains in effect');
     await keyboardSubmit(page, retry.getByRole('button', { name: 'Retry notification', exact: true }));
-    await expect(page.getByRole('region', { name: 'Notification delivery' }).getByRole('status'))
+    await expect(page.locator('section[aria-labelledby=preview-delivery-heading]').getByRole('status'))
       .toContainText('Notification retry requested');
     const persisted = await detail(request, episode.id);
     await writeFile(restartStatePath, JSON.stringify({ episode: persisted, occurrence: await occurrence(request, episode.id) }, null, 2));
@@ -511,19 +493,19 @@ test('acknowledged monitoring loss and original delivery survive actual controll
     expect(retained.attempt_count).toBe(saved.occurrence.attempt_count);
     expect(retained.attempt_count).toBe(3);
 
-    await page.goto(`/monitoring-incidents/${episode.id}`);
+    await page.goto(`/incidents/loss/${episode.id}/full`);
     await connected(page);
-    await expect(page.locator('#active-monitoring-acknowledgement')).toContainText('Preserve this acknowledged monitoring episode across controller restart');
-    await expect(page.locator(`#notification-${retained.id}`)).toContainText('held by acknowledgement');
+    await expect(page.getByRole('table', { name: 'Active acknowledgement', exact: true })).toContainText('Preserve this acknowledged monitoring episode across controller restart');
+    await expect(page.locator('section[aria-labelledby=preview-delivery-heading]')).toContainText('Acknowledgement');
     await page.setViewportSize({ width: 320, height: 740 });
     await checkpoint(page, testInfo, 'controller-restarted-with-original-held-notification-320');
-    await keyboardSubmit(page, page.locator('#end-monitoring-acknowledgement'));
+    await keyboardSubmit(page, page.getByRole('button', { name: 'End acknowledgement', exact: true }));
     await expect.poll(async () => (await occurrence(request, episode.id))?.status).toBe('delivered');
     const delivered = await occurrence(request, episode.id);
     expect(delivered.payload).toEqual(saved.occurrence.payload);
     expect(delivered.attempt_count).toBe(4);
     await healthy(request);
-    await expect(page.locator('#monitoring-loss-summary h2')).toHaveText('Monitoring restored');
+    await expect(page.locator('#incident-page, #overview-panel').filter({has: page.locator('#preview-loss-evidence')})).toContainText('Monitoring restored');
     await expect.poll(async () => (await occurrence(request, episode.id, 'resolved'))?.status).toBe('delivered');
     await checkpoint(page, testInfo, 'monitoring-recovery-after-controller-restart-320');
     await testInfo.attach('monitoring-episode-after-controller-restart', { body: JSON.stringify(await detail(request, episode.id), null, 2), contentType: 'application/json' });

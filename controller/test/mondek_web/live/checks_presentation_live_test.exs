@@ -5,254 +5,123 @@ defmodule MondekWeb.ChecksPresentationLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Mondek.{Inventory, ResultStream}
-
   @endpoint MondekWeb.Endpoint
 
-  test "task defaults expose independent health and gaps without changing the evidence" do
+  test "one result table keeps measured health and collection gaps independent" do
     mixed_inventory()
     {:ok, view, _} = live(build_conn(), "/checks?search=presentation-")
-    assert selected?(view, "all")
-    assert view?(view, "targets")
-    assert length(elements(view, ".target-group")) == 1
-    assert length(elements(view, ".checks-target-index button[id^='inventory-target-']")) == 2
-    assert has_element?(view, "#inventory-tab-all", "6")
-    assert has_element?(view, "#inventory-tab-attention", "5")
-    assert has_element?(view, "#inventory-tab-critical", "2")
-    assert has_element?(view, "#inventory-tab-gaps", "3")
+    assert length(rows(view)) == 6
 
-    click(view, "#inventory-tab-critical")
-    assert view?(view, "list")
-    critical = stream("critical")
-    retained = stream("retained")
-    assert row_ids(view) |> Enum.sort() == Enum.sort([critical.id, retained.id])
-    assert has_element?(view, "#result-#{critical.id} .badge.crit", "Critical")
-    assert has_element?(view, "#result-#{retained.id} .badge.crit", "Critical")
-    assert has_element?(view, "#result-#{retained.id} .badge.stale", "Stale")
-    assert has_element?(view, ".target-group-size", "1 of 4 results match")
-    assert has_element?(view, ".target-group-size", "1 of 2 results match")
-    refute has_element?(view, ".target-health-counts")
-    refute has_element?(view, ".target-knowledge-counts")
-    refute has_element?(view, "#inventory-pagination-top")
-    refute has_element?(view, "#inventory-pagination-bottom")
+    for {key, health, collection} <- [
+          {"critical", "Critical", "Fresh"},
+          {"retained", "Critical", "Overdue"},
+          {"healthy", "Healthy", "Fresh"},
+          {"pending-a", "Not measured", "Awaiting"}
+        ] do
+      assert has_element?(view, "#result-row-#{stream(key).id}", health)
+      assert has_element?(view, "#result-row-#{stream(key).id}", collection)
+    end
 
-    click(view, "#inventory-tab-attention")
-    assert view?(view, "list")
-    assert length(row_ids(view)) == 5
-    refute has_element?(view, "#result-#{stream("healthy").id}")
-    click(view, "#inventory-tab-gaps")
-    assert view?(view, "list")
-
-    assert row_ids(view) |> Enum.sort() ==
-             Enum.sort(Enum.map(["pending-a", "pending-b", "retained"], &stream(&1).id))
-
-    assert Repo.get!(ResultStream, retained.id).current == retained.current
-  end
-
-  test "manual views belong to each tab and survive URL reopening and equivalent form recovery" do
-    mixed_inventory()
-    {:ok, view, _} = live(build_conn(), "/checks?search=presentation-")
-    click(view, "#inventory-view-list")
-    click(view, "#inventory-tab-critical")
-    assert view?(view, "list")
-    click(view, "#inventory-view-targets")
-    click(view, "#inventory-tab-all")
-    assert view?(view, "list")
-    path = click(view, "#inventory-tab-critical")
-    assert view?(view, "targets")
-    query = path |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
-    assert query["all_view"] == "list"
-    assert query["critical_view"] == "targets"
-
-    {:ok, reopened, _} = live(build_conn(), path)
-    before = row_ids(reopened)
-    assert selected?(reopened, "critical")
-    assert view?(reopened, "targets")
-    render_change(reopened, "recover_filters", filters("presentation-", "CRIT"))
-    refute_patched(reopened)
-    send(reopened.pid, :tick)
-    assert selected?(reopened, "critical")
-    assert view?(reopened, "targets")
-    assert row_ids(reopened) == before
-    click(reopened, "#inventory-tab-all")
-    assert view?(reopened, "list")
-    click(reopened, "#inventory-tab-critical")
-    assert view?(reopened, "targets")
-  end
-
-  test "search and Clear preserve the health task and explicit view even with no matches" do
-    mixed_inventory()
-    {:ok, view, _} = live(build_conn(), "/checks?search=presentation-&tab=critical")
-    click(view, "#inventory-view-targets")
-    view |> form("#inventory-filters", search: "no-matching-monitor") |> render_change()
-    assert_patch(view)
-    assert selected?(view, "critical")
-    assert view?(view, "targets")
-    assert has_element?(view, "#check-inventory", "No matching results")
-    view |> element("#inventory-filters button", "Clear") |> render_click()
-    assert_patch(view)
-    assert selected?(view, "critical")
-    assert view?(view, "targets")
-    assert has_element?(view, "#inventory-search[value='']")
-    assert has_element?(view, "#inventory-tab-critical", "2")
-  end
-
-  test "target selection has its own bounded results and survives list detours and reload" do
-    publish(
-      for(index <- 1..12, do: check("a-#{pad(index)}", "a")) ++
-        for(index <- 1..3, do: check("b-#{pad(index)}", "b"))
-    )
-
-    {:ok, view, _} = live(build_conn(), "/checks?search=presentation-&page_size=10")
-    assert view?(view, "targets")
-    select_target(view, "Target a")
-    assert has_element?(view, ".target-group-size", "12 matching results")
-    assert length(row_ids(view)) == 10
-    click(view, "#inventory-pagination-bottom a", "Next")
-    assert length(row_ids(view)) == 2
-    assert has_element?(view, ".target-group-range", "11–12 of 12")
-    path = select_target(view, "Target b")
-    assert length(row_ids(view)) == 3
-    refute has_element?(view, "#inventory-pagination-top")
-
-    target =
-      path |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("target")
-
-    click(view, "#inventory-view-list")
-    assert length(row_ids(view)) == 10
-    path = click(view, "#inventory-view-targets")
-    assert has_element?(view, ".target-group h3", "Target b")
-    assert length(row_ids(view)) == 3
-    assert has_element?(view, "#inventory-target-#{target}[aria-pressed='true']")
-    {:ok, reopened, _} = live(build_conn(), path)
-    assert has_element?(reopened, ".target-group h3", "Target b")
-    assert row_ids(reopened) == row_ids(view)
-
-    reopened |> form("#inventory-filters", search: "presentation-a-") |> render_change()
-    assert_patch(reopened)
-    assert view?(reopened, "targets")
-    assert has_element?(reopened, ".target-group h3", "Target a")
-    refute has_element?(reopened, ".target-group h3", "Target b")
-  end
-
-  test "a changed search cannot replay stale dropdown values from before a tab patch" do
-    mixed_inventory()
-    {:ok, view, _} = live(build_conn(), "/checks?search=presentation-&tab=critical&view=targets")
-
-    # A browser can serialize the old form while a preceding tab patch is
-    # still in flight. Only search changed; the old health value is incidental.
-    render_change(
-      view,
-      "filter",
-      Map.put(filters("presentation-critical", ""), "_target", ["search"])
-    )
-
-    assert_patch(view)
-    assert selected?(view, "critical")
-    assert view?(view, "targets")
-    assert has_element?(view, "#inventory-search[value='presentation-critical']")
-    assert row_ids(view) == [stream("critical").id]
-
-    view |> element("#inventory-clear-scope") |> render_click()
-    assert_patch(view)
-    assert selected?(view, "critical")
-    assert view?(view, "targets")
-
-    # Explicit health edits still change the task, without replaying a stale
-    # search value from the same form.
-    render_change(view, "filter", Map.put(filters("old-search", ""), "_target", ["health"]))
-    assert_patch(view)
-    assert selected?(view, "all")
-    assert has_element?(view, "#inventory-search[value='']")
-  end
-
-  test "alphabetical group navigation and selected results remain stable through health changes" do
-    publish([check("a", "a"), check("b", "b")])
-    {:ok, view, _} = live(build_conn(), "/checks?search=presentation-")
-    assert has_element?(view, ".target-group h3", "Target a")
-    measure("b", "CRIT", "fresh")
+    retained = Repo.get!(ResultStream, stream("retained").id).current
     send(view.pid, :tick)
-    assert has_element?(view, ".target-group h3", "Target a")
-    assert has_element?(view, "#inventory-tab-critical", "1")
-
-    {:ok, fallback, _} =
-      live(build_conn(), "/checks?search=presentation-&target=no-longer-present")
-
-    assert has_element?(fallback, ".target-group h3", "Target a")
-    measure("a", "CRIT", "fresh")
-    send(fallback.pid, :tick)
-    assert has_element?(fallback, ".target-group h3", "Target a")
-    assert has_element?(fallback, "#inventory-tab-critical", "2")
-
-    assert fallback
-           |> elements(".checks-target-index button[id^='inventory-target-'] .checks-target-name")
-           |> Enum.map(&LazyHTML.text/1)
-           |> Enum.map(&hd(Regex.run(~r/Target [ab]/, &1))) == ["Target a", "Target b"]
-
-    select_target(fallback, "Target b")
-    measure("a", "WARN", "fresh")
-    send(fallback.pid, :tick)
-    assert has_element?(fallback, ".target-group h3", "Target b")
-    assert has_element?(fallback, "#inventory-tab-critical", "1")
+    assert Repo.get!(ResultStream, stream("retained").id).current == retained
   end
 
-  test "same-named results from one observer expose their distinct scheduled checks" do
-    publish(
-      for key <- ["os-disk", "api-disk"] do
-        check(key, "a")
-        |> Map.put("label", "Disk usage")
-        |> put_in(["outputs", Access.at(0), "label"], "Disk usage")
-      end
-    )
-
-    {:ok, view, _} = live(build_conn(), "/checks?environment=production&view=list")
-    assert length(row_ids(view)) == 2
-
-    for key <- ["os-disk", "api-disk"] do
-      result = stream(key)
-      row = "#result-#{result.id}"
-      assert has_element?(view, row <> " .checks-result-link", "Disk usage")
-      assert has_element?(view, row <> " .checks-scheduled-check", key)
-
-      assert has_element?(
-               view,
-               row <> " .checks-scheduled-check[href^='/configuration/#{result.assignment_id}?']"
-             )
-    end
+  test "health and measurement chips compose instead of task-specific tabs" do
+    mixed_inventory()
+    {:ok, view, _} = live(build_conn(), "/checks?search=presentation-")
+    choose(view, "health", "CRIT")
+    assert length(rows(view)) == 2
+    choose(view, "freshness", "stale")
+    assert rows(view) == ["result-row-" <> stream("retained").id]
+    assert has_element?(view, ".preview-filter-chip", "Critical")
+    assert has_element?(view, ".preview-filter-chip", "Overdue")
   end
 
-  defp selected?(view, tab),
-    do: has_element?(view, "#inventory-tab-#{tab}[aria-pressed='true']")
-
-  defp view?(view, layout),
-    do: has_element?(view, "#inventory-view-#{layout}[aria-pressed='true']")
-
-  defp click(view, selector, text \\ nil) do
-    view |> element(selector, text) |> render_click()
-    assert_patch(view)
+  test "search and clearing text preserve the selected health filter" do
+    mixed_inventory()
+    {:ok, view, _} = live(build_conn(), "/checks?health=CRIT&search=presentation-")
+    render_change(view, "search", %{"search" => "absent"})
+    assert has_element?(view, ".preview-empty", "No check results match")
+    assert has_element?(view, ".preview-filter-chip", "Critical")
+    render_change(view, "search", %{"search" => ""})
+    assert length(rows(view)) == 2
+    assert has_element?(view, ".preview-filter-chip", "Critical")
   end
 
-  defp select_target(view, label),
-    do: click(view, ".checks-target-index button[id^='inventory-target-']", label)
+  test "target filtering and reopening preserve exact target scope" do
+    mixed_inventory()
+    {:ok, view, _} = live(build_conn(), "/checks?target_kind=host&target_key=b")
 
-  defp elements(view, selector),
-    do: view |> render() |> LazyHTML.from_document() |> LazyHTML.query(selector) |> Enum.to_list()
+    assert Enum.sort(rows(view)) ==
+             Enum.sort(Enum.map(["retained", "pending-b"], &("result-row-" <> stream(&1).id)))
 
-  defp row_ids(view) do
-    for row <- elements(view, "#check-inventory tr[id^='result-']") do
-      row |> LazyHTML.attribute("id") |> hd() |> String.replace_prefix("result-", "")
-    end
+    view |> element("#open-result-#{stream("retained").id}") |> render_click()
+    path = assert_patch(view)
+    assert has_element?(view, "#overview-panel")
+    {:ok, reopened, _} = live(build_conn(), path)
+    assert has_element?(reopened, "#overview-panel")
+    assert rows(reopened) == rows(view)
   end
 
-  defp filters(search, health) do
-    %{
-      "search" => search,
-      "runner_id" => "",
-      "environment" => "",
-      "status" => "active",
-      "health" => health,
-      "freshness" => ""
-    }
+  test "text recovery cannot replay stale incidental dropdown controls" do
+    mixed_inventory()
+    {:ok, view, _} = live(build_conn(), "/checks?health=CRIT")
+
+    render_change(view, "search", %{
+      "search" => "presentation-retained",
+      "health" => "OK",
+      "freshness" => "fresh"
+    })
+
+    assert rows(view) == ["result-row-" <> stream("retained").id]
+    assert has_element?(view, ".preview-filter-chip", "Critical")
   end
+
+  test "priority ordering changes with evidence while group identity stays stable" do
+    mixed_inventory()
+    options = Mondek.ChecksFilters.options("group", "")
+    {:ok, view, _} = live(build_conn(), "/checks?search=presentation-")
+    [first | _] = rows(view)
+    assert first in Enum.map(["critical", "retained"], &("result-row-" <> stream(&1).id))
+    measure("healthy", "CRIT", "fresh")
+    send(view.pid, :tick)
+    assert Mondek.ChecksFilters.options("group", "") == options
+    assert has_element?(view, "#result-row-#{stream("healthy").id}", "Critical")
+  end
+
+  test "same-named result labels still expose their scheduled check identity" do
+    checks =
+      for key <- ["first", "second"],
+          do:
+            check(key, "a")
+            |> Map.put("outputs", [
+              %{
+                "key" => "capacity",
+                "label" => "Disk capacity",
+                "target" => %{"key" => "a", "kind" => "host", "label" => "Target a"}
+              }
+            ])
+
+    publish(checks)
+    {:ok, view, _} = live(build_conn(), "/checks?search=presentation-")
+    assert length(rows(view)) == 2
+    assert has_element?(view, "#preview-check-results", "presentation-first")
+    assert has_element?(view, "#preview-check-results", "presentation-second")
+  end
+
+  defp choose(view, field, key) do
+    render_click(view, "filter_open", %{"field" => field})
+    render_click(view, "filter_select", %{"key" => key, "kind" => ""})
+  end
+
+  defp rows(view),
+    do:
+      view
+      |> render()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#preview-check-results tbody > tr")
+      |> Enum.map(&(LazyHTML.attribute(&1, "id") |> hd()))
 
   defp mixed_inventory do
     publish([
@@ -360,6 +229,4 @@ defmodule MondekWeb.ChecksPresentationLiveTest do
       "freshness_seconds" => 60
     }
   end
-
-  defp pad(index), do: String.pad_leading(to_string(index), 3, "0")
 end

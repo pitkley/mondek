@@ -53,7 +53,7 @@ defmodule Mondek.MonitoringMailTest do
     {subject, body, id, _, _} = render("firing")
     assert subject == "[Mondek] MONITORING LOST: Node observer"
     assert body =~ "Disk usage: Overdue · Node A · Production"
-    assert body =~ "/monitoring-incidents/#{id}"
+    assert body =~ "/incidents/loss/#{id}/full"
     assert body =~ "not a measured target-health failure"
     refute body =~ "Incident severity"
     refute body =~ "Recovery measurement"

@@ -79,117 +79,78 @@ defmodule MondekWeb.MonitoringIncidentsLiveTest do
     Repo.insert!(struct(Occurrence, attrs))
   end
 
-  test "monitoring loss is a separate discoverable incident view with truthful empty and invalid states" do
-    {:ok, health, _} = live(build_conn(), "/incidents")
-
-    assert has_element?(
-             health,
-             "nav[aria-label='Incident views'] a[href='/monitoring-incidents']",
-             "Monitoring loss"
-           )
-
-    {:ok, view, _} = live(build_conn(), "/monitoring-incidents")
-    assert has_element?(view, "h1", "Incidents")
-    assert has_element?(view, ".view-heading h2", "Monitoring loss")
-    assert has_element?(view, "#monitoring-incident-list", "No matching monitoring incidents")
-    assert has_element?(view, "#monitoring-loss-explanation", "healthy heartbeat alone does not")
-    {:ok, invalid, _} = live(build_conn(), "/monitoring-incidents/not-an-id")
-    assert has_element?(invalid, ".notice", "not in retained history")
+  test "monitoring loss uses the unified list and truthful empty and invalid states" do
+    {:ok, empty, _} = live(build_conn(), "/incidents?type=loss")
+    assert has_element?(empty, "h1", "Incidents")
+    assert render(empty) =~ "No incidents match these filters"
+    assert has_element?(empty, "#preview-chip-type", "Monitoring loss")
+    {:ok, invalid, _} = live(build_conn(), "/incidents/loss/not-an-id/full")
+    assert has_element?(invalid, "h1", "Incident unavailable")
   end
 
-  test "affected results page independently of the incident list and link to the actual investigation" do
+  test "affected results paginate independently and open actual result evidence in the stack" do
     record = incident(%{member_count: 27})
     for index <- 1..27, do: member(record, index)
-    {:ok, view, _} = live(build_conn(), "/monitoring-incidents/#{record.id}?page=2")
-
-    assert Enum.count(
-             view
-             |> element("#monitoring-members")
-             |> render()
-             |> LazyHTML.from_document()
-             |> LazyHTML.query(".monitoring-loss-member")
-           ) == 25
-
-    view |> element("nav[aria-label='Affected results pages'] a", "Next") |> render_click()
-    assert_patch(view, "/monitoring-incidents/#{record.id}?members_page=2&page=2")
-
-    assert Enum.count(
-             view
-             |> element("#monitoring-members")
-             |> render()
-             |> LazyHTML.from_document()
-             |> LazyHTML.query(".monitoring-loss-member")
-           ) == 2
-
-    assert has_element?(view, "a.back[href='/monitoring-incidents?page=2']")
-
+    {:ok, view, _} = live(build_conn(), path(record) <> "?page=2")
+    assert count(view, "#preview-loss-evidence .preview-incident-evidence > :is(h3,h4)") == 25
+    view |> element("nav[aria-label='Affected result pages'] a", "Next") |> render_click()
+    assert count(view, "#preview-loss-evidence .preview-incident-evidence > :is(h3,h4)") == 2
+    assert render(view) =~ "member_page=2"
     Repo.delete_all(MonitoringGap)
-    stream_id = Ecto.UUID.generate()
+    connect()
+    ingest(measurement("OK"))
+
+    stream =
+      Repo.get_by!(Mondek.ResultStream, assignment_id: "10000000-0000-4000-8000-000000000001")
 
     member(record, 1, %{
-      "stream_id" => stream_id,
-      "assignment_id" => "10000000-0000-4000-8000-000000000001",
+      "stream_id" => stream.id,
+      "assignment_id" => stream.assignment_id,
       "knowledge" => "control_contact_overdue"
     })
 
     send(view.pid, :tick)
-
-    assert has_element?(
-             view,
-             "#monitoring-members a[href^='/checks/#{stream_id}/diagnostics?']",
-             "Investigate measurement"
-           )
-
-    assert has_element?(view, "#monitoring-members", "Control contact overdue")
-    refute has_element?(view, "#monitoring-members a[href='/coverage/member-1']")
+    assert has_element?(view, "#preview-loss-evidence", "Runner contact overdue")
+    view |> element("#preview-loss-evidence a", "View latest check result") |> render_click()
+    assert has_element?(view, "#overview-panel .preview-result-measurement", "Healthy")
+    view |> element("#overview-panel [data-overview-close]") |> render_click()
+    assert has_element?(view, "#preview-loss-evidence", "Runner contact overdue")
   end
 
-  test "acknowledgement explicitly covers later scope losses and survives refresh without silently extending a timed acknowledgement" do
+  test "acknowledgement covers later scope losses and refresh never extends its timed expiry" do
     record = incident()
     member(record, 1)
-    {:ok, view, _} = live(build_conn(), "/monitoring-incidents/#{record.id}")
-    assert has_element?(view, "#monitoring-ack-scope", "including results added later")
+    {:ok, view, _} = live(build_conn(), path(record))
+    assert has_element?(view, "#preview-incident-ack-form", "including results added later")
 
     view
-    |> form("#monitoring-acknowledgement-form", %{note: "Waiting for network repair"})
+    |> form("#preview-incident-ack-form", note: "Waiting for network repair")
     |> render_submit()
 
     assert Monitoring.acknowledgement_active?(Repo.get!(MonitoringIncident, record.id))
-
-    assert has_element?(
-             view,
-             "#active-monitoring-acknowledgement",
-             "Until this monitoring incident ends"
-           )
-
-    assert has_element?(view, "#monitoring-loss-summary", "Acknowledged")
+    assert has_element?(view, "table[aria-label='Active acknowledgement']", "Incident ends")
     assert Repo.aggregate(Incident, :count) == 0
-    view |> element("#end-monitoring-acknowledgement") |> render_click()
+    view |> element("button", "End acknowledgement") |> render_click()
     refute Monitoring.acknowledgement_active?(Repo.get!(MonitoringIncident, record.id))
-
-    view |> form("#monitoring-acknowledgement-form", %{mode: "duration"}) |> render_change()
+    view |> form("#preview-incident-ack-form", mode: "duration") |> render_change()
 
     view
-    |> form("#monitoring-acknowledgement-form", %{
-      hours: "720",
-      note: "Long maintenance investigation"
-    })
+    |> form("#preview-incident-ack-form", amount: "30", unit: "days", note: "Long investigation")
     |> render_submit()
 
-    updated = Repo.get!(MonitoringIncident, record.id)
-    assert DateTime.diff(updated.acknowledged_until, Monitoring.now()) > 29 * 86_400
-    assert has_element?(view, "#active-monitoring-acknowledgement", "Until ")
-    assert has_element?(view, "#monitoring-ack-mode option[value='until'][selected]")
+    saved = Repo.get!(MonitoringIncident, record.id)
+    assert DateTime.diff(saved.acknowledged_until, Monitoring.now()) > 29 * 86_400
+    member(record, 2)
+    send(view.pid, :tick)
+    assert Repo.get!(MonitoringIncident, record.id).acknowledged_until == saved.acknowledged_until
+    assert has_element?(view, "table[aria-label='Active acknowledgement']", "UTC")
   end
 
-  test "concurrent control changes preserve an operator draft and require renewed review" do
+  test "concurrent controls preserve a draft and require renewed explicit review" do
     record = incident()
     member(record, 1)
-    {:ok, view, _} = live(build_conn(), "/monitoring-incidents/#{record.id}")
-
-    view
-    |> form("#monitoring-acknowledgement-form", %{note: "My investigation note"})
-    |> render_change()
+    {:ok, view, _} = live(build_conn(), path(record))
+    view |> form("#preview-incident-ack-form", note: "My investigation note") |> render_change()
 
     {:ok, _} =
       reviewed_monitoring_acknowledgement_fixture(
@@ -198,34 +159,37 @@ defmodule MondekWeb.MonitoringIncidentsLiveTest do
         "Another operator"
       )
 
-    send(view.pid, :tick)
-    assert has_element?(view, "#monitoring-acknowledgement-form button[disabled]")
-    assert has_element?(view, "#monitoring-ack-note", "My investigation note")
-    view |> element("#review-monitoring-acknowledgement") |> render_click()
-    view |> form("#monitoring-acknowledgement-form") |> render_submit()
+    view |> form("#preview-incident-ack-form") |> render_submit()
+    assert has_element?(view, "[role=alert]", "The incident changed")
+    assert Repo.get!(MonitoringIncident, record.id).acknowledgement_note == "Another operator"
+    view |> element("button", "Replace acknowledgement") |> render_click()
+    view |> element("button", "Review current incident") |> render_click()
+
+    view
+    |> form("#preview-incident-ack-form", note: "My reviewed investigation")
+    |> render_submit()
 
     assert Repo.get!(MonitoringIncident, record.id).acknowledgement_note ==
-             "My investigation note"
+             "My reviewed investigation"
   end
 
-  test "restored visibility and withdrawn scope do not claim measured healthy recovery" do
+  test "restored monitoring and withdrawn scope stay distinct from measured target recovery" do
     for reason <- ["monitoring_restored", "scope_withdrawn"] do
       record = incident(%{status: "closed", closed_at: Monitoring.now(), closure_reason: reason})
-      {:ok, view, _} = live(build_conn(), "/monitoring-incidents/#{record.id}")
-      refute has_element?(view, "#monitoring-acknowledgement-form")
-      refute has_element?(view, "#monitoring-loss-summary .badge", "Healthy")
+      {:ok, view, _} = live(build_conn(), path(record))
+      refute has_element?(view, "#preview-incident-ack-form")
+      refute has_element?(view, "#preview-loss-evidence", "Healthy")
 
       if reason == "monitoring_restored" do
-        assert has_element?(view, "#monitoring-loss-summary h2", "Monitoring restored")
-        assert has_element?(view, "#monitoring-loss-summary", "not healthy targets")
+        assert has_element?(view, "#preview-loss-evidence", "Monitoring was restored")
       else
-        assert has_element?(view, "#monitoring-loss-summary h2", "Closed")
-        assert has_element?(view, "#monitoring-loss-summary", "administrative closure")
+        assert has_element?(view, "#preview-history", "Scope withdrawn")
+        refute has_element?(view, "#preview-loss-evidence", "Monitoring was restored")
       end
     end
   end
 
-  test "monitoring notification history and global delivery links use the correct incident kind" do
+  test "monitoring delivery history and global notification use the loss identity" do
     record = incident()
     member(record, 1)
     work = occurrence(record)
@@ -246,26 +210,16 @@ defmodule MondekWeb.MonitoringIncidentsLiveTest do
         "Investigating"
       )
 
-    {:ok, view, _} = live(build_conn(), "/monitoring-incidents/#{record.id}")
-    assert has_element?(view, "#notification-#{work.id}", "held by acknowledgement")
-    assert has_element?(view, "#notification-#{work.id}", "Failed or uncertain · HTTP 503")
-    assert has_element?(view, "#monitoring-incident-prompts-incident-text", "monitoring_loss")
-    {:ok, delivery, _} = live(build_conn(), "/notifications")
-
-    assert has_element?(
-             delivery,
-             "#notification-row-#{work.id} a[href^='/notifications/#{work.id}']"
-           )
-
-    {:ok, notification, _} = live(build_conn(), "/notifications/#{work.id}")
-
-    assert has_element?(
-             notification,
-             "#notification-#{work.id} a[href^='/monitoring-incidents/#{record.id}']"
-           )
+    {:ok, view, _} = live(build_conn(), path(record))
+    assert render(view) =~ "Waiting for Acknowledgement"
+    assert render(view) =~ "HTTP 503"
+    {:ok, notification, _} = live(build_conn(), "/notifications/#{work.id}/full")
+    notification |> element("a", "View monitoring loss") |> render_click()
+    assert has_element?(notification, "#overview-panel #preview-loss-evidence")
+    refute has_element?(notification, "#overview-panel #preview-health-evidence")
   end
 
-  test "list sorting and counters put acknowledged episodes after unacknowledged pages" do
+  test "priority pages put acknowledged episodes after outstanding losses" do
     old =
       incident(%{
         label: "Acknowledged oldest",
@@ -274,84 +228,38 @@ defmodule MondekWeb.MonitoringIncidentsLiveTest do
       })
 
     for index <- 1..26, do: incident(%{label: "Investigate #{index}"})
-    {:ok, view, _} = live(build_conn(), "/monitoring-incidents")
-    refute has_element?(view, "#monitoring-incident-#{old.id}")
-    assert has_element?(view, "#monitoring-incident-list", "27 open · 26 unacknowledged")
-    view |> element("nav[aria-label='Monitoring incident pages'] a", "Next") |> render_click()
-
-    assert has_element?(
-             view,
-             "#monitoring-incident-#{old.id}.monitoring-loss-acknowledged",
-             "Acknowledged"
-           )
+    {:ok, view, _} = live(build_conn(), "/incidents?type=loss")
+    refute has_element?(view, "#preview-incident-loss-#{old.id}")
+    view |> element("nav[aria-label='Incident pages'] a", "Next") |> render_click()
+    assert has_element?(view, "#preview-incident-loss-#{old.id}", "Acknowledged")
   end
 
-  test "measurement investigation returns to its monitoring episode and originating delivery view" do
+  test "a monitoring investigation retains the originating delivery and rejects external returns" do
     connect()
     ingest(measurement("OK"))
 
     stream =
-      Repo.one!(
-        from s in Mondek.ResultStream,
-          where: s.assignment_id == "10000000-0000-4000-8000-000000000001"
-      )
+      Repo.get_by!(Mondek.ResultStream, assignment_id: "10000000-0000-4000-8000-000000000001")
 
     record = incident()
-
-    member(record, 1, %{
-      "stream_id" => stream.id,
-      "assignment_id" => "10000000-0000-4000-8000-000000000001"
-    })
-
+    member(record, 1, %{"stream_id" => stream.id, "assignment_id" => stream.assignment_id})
     work = occurrence(record)
-
-    return_to =
-      MondekWeb.NotificationNavigation.detail_path(
-        work.id,
-        "/notifications?notification_page=3&notification_status=all"
-      )
-
-    episode_path =
-      "/monitoring-incidents/#{record.id}?" <> URI.encode_query(%{"return_to" => return_to})
-
-    {:ok, view, _} = live(build_conn(), episode_path)
-
-    assert has_element?(
-             view,
-             "a.back[href='#{episode_path |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("return_to")}']",
-             "Back to notification delivery"
-           )
-
-    diagnostic_path =
-      view
-      |> element("#monitoring-members a")
-      |> render()
-      |> LazyHTML.from_document()
-      |> LazyHTML.query("a")
-      |> LazyHTML.attribute("href")
-      |> hd()
-
-    {:ok, diagnostic, _} = live(build_conn(), diagnostic_path)
-
-    assert has_element?(
-             diagnostic,
-             "#investigation-back[href='#{episode_path}']",
-             "Back to monitoring incident"
-           )
-
-    assert has_element?(diagnostic, "a", "View result")
-
-    refute MondekWeb.MonitoringIncidentsLive.return_path(
-             "https://other.invalid/monitoring-incidents/#{record.id}"
-           )
-
-    {:ok, untrusted, _} =
-      live(
-        build_conn(),
-        "/monitoring-incidents/#{record.id}?" <>
-          URI.encode_query(%{"return_to" => "//other.invalid/runners"})
-      )
-
-    assert has_element?(untrusted, "a.back[href='/monitoring-incidents']")
+    {:ok, view, _} = live(build_conn(), "/notifications/#{work.id}/full")
+    view |> element("a", "View monitoring loss") |> render_click()
+    assert has_element?(view, "#overview-panel #preview-loss-evidence")
+    view |> element("#overview-panel a", "View latest check result") |> render_click()
+    assert has_element?(view, "#overview-panel .preview-result-measurement")
+    view |> element("#overview-panel [data-overview-close]") |> render_click()
+    assert has_element?(view, "#overview-panel #preview-loss-evidence")
+    view |> element("#overview-panel [data-overview-close]") |> render_click()
+    assert has_element?(view, "#notification-delivery")
+    refute MondekWeb.BrowserNavigation.return_path("https://other.invalid" <> path(record))
+    {:ok, safe, _} = live(build_conn(), path(record) <> "?return_to=//other.invalid/runners")
+    refute render(safe) =~ "href=\"//other.invalid"
   end
+
+  defp path(record), do: "/incidents/loss/#{record.id}/full"
+
+  defp count(view, selector),
+    do: view |> render() |> LazyHTML.from_document() |> LazyHTML.query(selector) |> Enum.count()
 end

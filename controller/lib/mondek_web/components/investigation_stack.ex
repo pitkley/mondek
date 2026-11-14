@@ -17,9 +17,13 @@ defmodule MondekWeb.InvestigationStack do
     InvestigationTrail,
     PanelStack,
     PreviewDetail,
+    PreviewCoverage,
+    NotificationDetail,
+    ExecutionDetail,
     PreviewIncidentControls,
     PreviewIncidentDetail,
-    PreviewResultDetail
+    PreviewResultDetail,
+    RunnerDetail
   }
 
   @retained_limit 16
@@ -136,12 +140,51 @@ defmodule MondekWeb.InvestigationStack do
     identity = socket.assigns.active
     state = socket.assigns.states[identity]
 
-    if state && params["entity"] == InvestigationTrail.token(identity) &&
-         elem(identity, 0) in ~w(health loss) do
+    allowed =
+      case identity do
+        {kind, _} when kind in ~w(health loss) ->
+          event in ~w(filter_incident_detail edit_acknowledgement review_control toggle_acknowledgement_replacement save_acknowledgement end_acknowledgement edit_retry_delivery retry_delivery)
+
+        {"notification", _} ->
+          event in ~w(edit_notification_retry retry_notification)
+
+        _ ->
+          false
+      end
+
+    if state && allowed && params["entity"] == InvestigationTrail.token(identity) do
       {:noreply, operate(socket, state, event, params)}
     else
       {:noreply, socket}
     end
+  end
+
+  defp operate(socket, %{identity: {"notification", _}} = state, "edit_notification_retry", %{
+         "_id" => id,
+         "reason" => reason
+       }) do
+    drafts =
+      MondekWeb.NotificationRetry.keep_draft(
+        state.retry_drafts,
+        List.wrap(get_in(state.data || %{}, ["occurrence"])),
+        id,
+        reason
+      )
+
+    put_state(socket, %{state | retry_drafts: drafts})
+  end
+
+  defp operate(socket, %{identity: {"notification", _}} = state, "retry_notification", %{
+         "_id" => id,
+         "reason" => reason
+       }) do
+    detail = %{"occurrences" => List.wrap(get_in(state.data || %{}, ["occurrence"]))}
+
+    apply_result(
+      socket,
+      state,
+      PreviewIncidentControls.retry(detail, state.retry_drafts, id, reason)
+    )
   end
 
   defp operate(socket, _state, "filter_incident_detail", %{"notification_status" => value}) do
@@ -301,7 +344,7 @@ defmodule MondekWeb.InvestigationStack do
           identity: identity,
           title: InvestigationEntity.title(state),
           kind: InvestigationEntity.kind(state),
-          path: url(assigns, Enum.take(assigns.trail, count)),
+          path: restore_view(url(assigns, Enum.take(assigns.trail, count)), state),
           state: state
         }
       end)
@@ -311,7 +354,7 @@ defmodule MondekWeb.InvestigationStack do
         ancestors: entries,
         state: assigns.states[assigns.active],
         root_state: assigns.states[assigns.root],
-        current: url(assigns, assigns.trail),
+        current: restore_view(url(assigns, assigns.trail), assigns.states[assigns.active]),
         recovery_snapshot: recovery_snapshot(assigns)
       )
 
@@ -346,17 +389,22 @@ defmodule MondekWeb.InvestigationStack do
       <article
         :if={@root_state}
         id={
-          if elem(@root_state.identity, 0) == "result",
-            do: "preview-result-page",
-            else: "incident-page"
+          case elem(@root_state.identity, 0) do
+            "result" -> "preview-result-page"
+            "runner" -> "runner-page"
+            "notification" -> "notification-page"
+            "execution" -> "execution-page"
+            kind when kind in ~w(coverage diagnostic) -> "coverage-page-body"
+            _ -> "incident-page"
+          end
         }
         class="preview-incident-panel preview-incident-page pf-v6-c-card"
         inert={@trail != []}
       >
         <div class="pf-v6-c-card__body">
           <div class="preview-panel-tools">
-            <.link patch={Map.get(assigns, :back, "/next")} class="pf-v6-c-button pf-m-link">← {back_label(
-              Map.get(assigns, :back, "/next")
+            <.link patch={Map.get(assigns, :back, "/")} class="pf-v6-c-button pf-m-link">← {back_label(
+              Map.get(assigns, :back, "/")
             )}</.link>
             <.link
               :if={@params["surface"] == "page"}
@@ -392,7 +440,16 @@ defmodule MondekWeb.InvestigationStack do
         :if={@state && @trail != []}
         path={@current}
         heading_id={
-          if elem(@active, 0) == "result", do: "overview-panel-title", else: "incident-heading"
+          if elem(@active, 0) in [
+               "result",
+               "runner",
+               "notification",
+               "execution",
+               "coverage",
+               "diagnostic"
+             ],
+             do: "overview-panel-title",
+             else: "incident-heading"
         }
       >
         <div class="preview-panel-tools">
@@ -414,16 +471,55 @@ defmodule MondekWeb.InvestigationStack do
   end
 
   defp entity_body(%{state: %{identity: {"result", _id}}} = assigns) do
-    assigns = assign(assigns, :panel, assigns.state.data)
+    panel = assigns.state.data
+
+    {configuration_path, configuration_patch} =
+      editor_destination(
+        assigns.host_assigns,
+        panel && "/configuration/" <> panel.selected["assignment_id"]
+      )
+
+    {discovery_path, discovery_patch} =
+      editor_destination(
+        assigns.host_assigns,
+        panel && "/checks/" <> panel.selected["id"] <> "/discovery"
+      )
+
+    {discovery_settings_path, discovery_settings_patch} =
+      editor_destination(
+        assigns.host_assigns,
+        panel && "/configuration/discovery/" <> panel.selected["assignment_id"]
+      )
+
+    assigns =
+      assign(assigns,
+        discovery_settings_path: discovery_settings_path,
+        discovery_settings_patch: discovery_settings_patch,
+        panel: panel,
+        configuration_path: configuration_path,
+        configuration_patch: configuration_patch,
+        discovery_path: discovery_path,
+        discovery_patch: discovery_patch
+      )
 
     ~H"""
     <PreviewResultDetail.detail
       :if={@panel}
       panel={@panel}
       now={@host_assigns.now}
-      configuration_path={"/configuration/" <> @panel.selected["assignment_id"] <> "?" <> URI.encode_query(%{"return_to" => @host_assigns.current})}
+      configuration_path={@configuration_path}
+      configuration_patch={@configuration_patch}
+      discovery_settings_path={@discovery_settings_path}
+      discovery_settings_patch={@discovery_settings_patch}
+      discovery_path={@discovery_path}
+      discovery_patch={@discovery_patch}
       incident_path={fn id -> destination(@host_assigns, {"health", id}) end}
       peer_path={fn id -> destination(@host_assigns, {"result", id}) end}
+      runner_path={fn id -> destination(@host_assigns, {"runner", id}) end}
+      execution_path={fn id -> destination(@host_assigns, {"execution", id}) end}
+      diagnostic_runner={@panel[:diagnostic_runner]}
+      diagnostics_open={@host_assigns.params["diagnostics"] == "1"}
+      current={@host_assigns.current}
       full_page={@full_page}
       full_result_path={if !@full_page, do: page_path(@host_assigns)}
       full_result_patch={true}
@@ -431,6 +527,101 @@ defmodule MondekWeb.InvestigationStack do
       id_prefix={@id_prefix}
     />
     <h2 :if={!@panel} id="overview-panel-title" tabindex="-1">Result unavailable</h2>
+    """
+  end
+
+  defp entity_body(%{state: %{identity: {kind, id}}} = assigns)
+       when kind in ~w(coverage diagnostic) do
+    assigns = assign(assigns, kind: kind, coverage_id: id)
+
+    ~H"""
+    <PreviewCoverage.body
+      evidence={@state.data}
+      kind={@kind}
+      full_page={@full_page}
+      id_prefix={@id_prefix}
+      heading_id={if @full_page, do: "coverage-page-heading", else: "overview-panel-title"}
+      current={@host_assigns.current}
+      runner_path={fn id -> destination(@host_assigns, {"runner", id}) end}
+      result_path={fn id -> destination(@host_assigns, {"result", id}) end}
+      page_path={
+        fn page ->
+          url(@host_assigns, @host_assigns.trail, %{
+            "coverage_entity" => @coverage_id,
+            "coverage_observer_page" => to_string(page)
+          })
+        end
+      }
+    />
+    """
+  end
+
+  defp entity_body(%{state: %{identity: {"execution", _id}}} = assigns) do
+    data = assigns.state.data || %{}
+
+    {configuration_path, configuration_patch} =
+      editor_destination(
+        assigns.host_assigns,
+        if(data[:inspection], do: "/configuration/" <> data.inspection["assignment"]["id"])
+      )
+
+    assigns =
+      assign(assigns,
+        inspection: data[:inspection],
+        runner: data[:runner],
+        windows: data[:windows] || [],
+        configuration_path: configuration_path || "/configuration",
+        configuration_patch: configuration_patch
+      )
+
+    ~H"""
+    <ExecutionDetail.body
+      inspection={@inspection}
+      runner={@runner}
+      windows={@windows}
+      now={@host_assigns.now}
+      full_page={@full_page}
+      id_prefix={@id_prefix}
+      current={@host_assigns.current}
+      result_path={fn id -> destination(@host_assigns, {"result", id}) end}
+      incident_path={fn id -> destination(@host_assigns, {"health", id}) end}
+      runner_path={fn id -> destination(@host_assigns, {"runner", id}) end}
+      configuration_path={@configuration_path}
+      configuration_patch={@configuration_patch}
+    />
+    """
+  end
+
+  defp entity_body(%{state: %{identity: {"notification", _}}} = assigns) do
+    ~H"""
+    <NotificationDetail.body
+      inspection={@state.data}
+      now={@host_assigns.now}
+      full_page={@full_page}
+      target={@host_assigns.myself}
+      entity={InvestigationTrail.token(@state.identity)}
+      retry_drafts={@state.retry_drafts}
+      feedback={@state.delivery_feedback}
+      id_prefix={@id_prefix}
+      incident_path={fn identity -> destination(@host_assigns, identity) end}
+      result_path={fn id -> destination(@host_assigns, {"result", id}) end}
+      execution_path={fn id -> destination(@host_assigns, {"execution", id}) end}
+      maintenance_path={fn id -> "/maintenance/" <> id end}
+    />
+    """
+  end
+
+  defp entity_body(%{state: %{identity: {"runner", _}}} = assigns) do
+    ~H"""
+    <RunnerDetail.body
+      runner={@state.data}
+      now={@host_assigns.now}
+      full_page={@full_page}
+      id_prefix={@id_prefix}
+      heading_id={if @full_page, do: "runner-heading", else: "overview-panel-title"}
+      current={@host_assigns.current}
+      controller_url={Map.get(@host_assigns, :controller_url, MondekWeb.Endpoint.url())}
+    />
     """
   end
 
@@ -469,12 +660,7 @@ defmodule MondekWeb.InvestigationStack do
       entity={InvestigationTrail.token(@state.identity)}
       result_path={fn id -> destination(@host_assigns, {"result", id}) end}
       incident_path={fn id, _ -> destination(@host_assigns, {"health", id}) end}
-      expected_path={
-        fn id ->
-          "/next/expected/" <>
-            id <> "?" <> URI.encode_query(%{"incident_return" => @host_assigns.current})
-        end
-      }
+      expected_path={fn id -> destination(@host_assigns, {"coverage", id}) end}
       page_path={
         fn param, page -> url(@host_assigns, @host_assigns.trail, %{param => to_string(page)}) end
       }
@@ -486,13 +672,23 @@ defmodule MondekWeb.InvestigationStack do
   defp recovery_snapshot(assigns) do
     states =
       Map.new(assigns.states, fn {identity, state} ->
-        {identity, Map.take(state, [:review, :draft, :replacing, :retry_drafts])}
+        {identity, Map.take(state, [:review, :draft, :replacing, :retry_drafts, :view])}
       end)
 
     Phoenix.Token.sign(MondekWeb.Endpoint, "investigation-drafts-v1", %{
       context: assigns.context,
       states: states
     })
+  end
+
+  defp editor_destination(_, nil), do: {nil, false}
+
+  defp editor_destination(assigns, path) do
+    if URI.parse(assigns.host).path == path do
+      {InvestigationTrail.path(assigns.host, [], %{"surface" => nil, "page_entity" => nil}), true}
+    else
+      {path <> "?" <> URI.encode_query(%{"return_to" => assigns.current}), false}
+    end
   end
 
   defp detail_filters(params),
@@ -507,58 +703,89 @@ defmodule MondekWeb.InvestigationStack do
   defp destination(assigns, identity) do
     prefix_index = Enum.find_index(assigns.trail_prefix, &(&1 == identity))
 
-    cond do
-      identity == assigns.origin_root ->
-        InvestigationTrail.path(assigns.host, [], %{"surface" => nil, "page_entity" => nil})
+    path =
+      cond do
+        identity == assigns.origin_root ->
+          InvestigationTrail.path(assigns.host, [], %{"surface" => nil, "page_entity" => nil})
 
-      is_integer(prefix_index) && identity != assigns.root ->
-        InvestigationTrail.path(
-          assigns.host,
-          Enum.take(assigns.trail_prefix, prefix_index + 1),
-          %{"surface" => nil, "page_entity" => nil}
-        )
+        is_integer(prefix_index) && identity != assigns.root ->
+          InvestigationTrail.path(
+            assigns.host,
+            Enum.take(assigns.trail_prefix, prefix_index + 1),
+            %{"surface" => nil, "page_entity" => nil}
+          )
 
-      !Map.has_key?(assigns.states, identity) && map_size(assigns.states) >= @retained_limit ->
-        assigns.current
+        !Map.has_key?(assigns.states, identity) && map_size(assigns.states) >= @retained_limit ->
+          assigns.current
 
-      identity not in Enum.uniq(
-        List.wrap(assigns.origin_root) ++
-            assigns.trail_prefix ++ List.wrap(assigns.root) ++ assigns.trail
-      ) &&
-          length(
-            Enum.uniq(
-              List.wrap(assigns.origin_root) ++
-                  assigns.trail_prefix ++ List.wrap(assigns.root) ++ assigns.trail
-            )
-          ) >= 6 ->
-        assigns.current
+        identity not in Enum.uniq(
+          List.wrap(assigns.origin_root) ++
+              assigns.trail_prefix ++ List.wrap(assigns.root) ++ assigns.trail
+        ) &&
+            length(
+              Enum.uniq(
+                List.wrap(assigns.origin_root) ++
+                    assigns.trail_prefix ++ List.wrap(assigns.root) ++ assigns.trail
+              )
+            ) >= 6 ->
+          assigns.current
 
-      true ->
-        case InvestigationTrail.open(assigns.trail, identity, assigns.root) do
-          {:ok, trail} -> url(assigns, trail)
-          _ -> assigns.current
-        end
-    end
+        true ->
+          case InvestigationTrail.open(assigns.trail, identity, assigns.root) do
+            {:ok, trail} -> url(assigns, trail)
+            _ -> assigns.current
+          end
+      end
+
+    restore_view(path, assigns.states[identity])
   end
 
-  defp back_label("/next/checks" <> _), do: "Back to checks"
-  defp back_label("/next/incidents" <> _), do: "Back to incidents"
+  defp restore_view(path, %{identity: {"coverage", _}, view: view}) when map_size(view) > 0 do
+    params = URI.decode_query(URI.parse(path).query || "")
+
+    view =
+      if view["coverage_observer_page"] in [nil, "1"],
+        do: %{"coverage_entity" => nil, "coverage_observer_page" => nil},
+        else: view
+
+    InvestigationTrail.path(path, InvestigationTrail.resolve(params), view)
+  end
+
+  defp restore_view(path, _), do: path
+
+  defp back_label("/runners" <> _), do: "Back to runners"
+  defp back_label("/notifications" <> _), do: "Back to notifications"
+  defp back_label("/coverage" <> _), do: "Back to coverage"
+  defp back_label("/checks" <> _), do: "Back to checks"
+  defp back_label("/incidents" <> _), do: "Back to incidents"
   defp back_label(_), do: "Back to overview"
-  defp canonical({"result", id}), do: "/next/results/" <> id <> "/full"
-  defp canonical({kind, id}), do: "/next/incidents/" <> kind <> "/" <> id <> "/full"
+  defp canonical({"coverage", id}), do: "/coverage/" <> id <> "/full"
+  defp canonical({"diagnostic", id}), do: "/coverage/diagnostics/" <> id <> "/full"
+  defp canonical({"execution", id}), do: "/executions/" <> id
+  defp canonical({"notification", id}), do: "/notifications/" <> id <> "/full"
+  defp canonical({"runner", id}), do: "/runners/" <> id <> "/full"
+  defp canonical({"result", id}), do: "/results/" <> id <> "/full"
+  defp canonical({kind, id}), do: "/incidents/" <> kind <> "/" <> id <> "/full"
 
   defp back_path(assigns) do
-    if length(assigns.trail) == 1 && is_nil(assigns.root),
-      do: Map.get(assigns, :back, url(assigns, [])),
-      else: url(assigns, Enum.drop(assigns.trail, -1))
+    if length(assigns.trail) == 1 && is_nil(assigns.root) do
+      Map.get(assigns, :back, url(assigns, []))
+    else
+      previous = Enum.drop(assigns.trail, -1)
+      identity = List.last(previous) || assigns.root
+      restore_view(url(assigns, previous), assigns.states[identity])
+    end
   end
 
   defp page_path(assigns),
     do:
-      url(assigns, assigns.trail, %{
-        "surface" => "page",
-        "page_entity" => InvestigationTrail.token(assigns.active)
-      })
+      restore_view(
+        url(assigns, assigns.trail, %{
+          "surface" => "page",
+          "page_entity" => InvestigationTrail.token(assigns.active)
+        }),
+        assigns.states[assigns.active]
+      )
 
   defp url(assigns, trail, changes \\ %{}) do
     trail =

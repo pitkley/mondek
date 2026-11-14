@@ -1,0 +1,23 @@
+/*! Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com> */
+/*! SPDX-License-Identifier: Apache-2.0 */
+.notification-disclosure { border-top: 1px solid var(--preview-line); }
+.notification-disclosure > summary { padding: 8px var(--preview-content-inset); cursor: pointer; font-size: 13px; }
+.notification-disclosure > pre { margin: 0 var(--preview-content-inset) 10px; }
+.notification-retry-form { padding: 10px var(--preview-content-inset); }
+.notification-retry-form > label { display: block; font-weight: 600; }
+.notification-retry-form > input { width: min(100%, 38rem); }
+.notification-retry-form > p { margin: 6px 0; }
+.notification-attempt-table th { width: 1%; white-space: nowrap; }
+.notification-filter-toolbar { padding: 8px var(--preview-content-inset); }
+.notification-list-note { padding: 8px var(--preview-content-inset); font-size: 12px; color: var(--preview-subtle); }
+.notification-table { --preview-label-column: 11rem; }
+.notification-table th:nth-child(2) { width: auto; }
+.notification-table th:nth-child(3) { width: 9rem; }
+.notification-table th:nth-child(4) { width: 6rem; }
+.notification-table th:nth-child(5) { width: 5rem; }
+.notification-table th:nth-child(6) { width: 7rem; }
+.notification-secondary { display: block; font-weight: 400; }
+@media(max-width:1100px) { .notification-table { --preview-label-column: 9rem; } .notification-table th:nth-child(3) { width: 7rem; } }
+@media(max-width:700px) { .notification-table,.notification-table tbody,.notification-table tr,.notification-table td { display: block; width: 100%; } .notification-table thead { display: none; } .notification-table td::before { content: attr(data-label); display: inline-block; width: 6rem; color: var(--preview-subtle); font-size: 12px; } .notification-table tr { padding: 6px 0; } }
+
+.notification-matching-count { padding: 5px var(--preview-content-inset) 0; }

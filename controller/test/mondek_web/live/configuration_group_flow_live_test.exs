@@ -12,8 +12,8 @@ defmodule MondekWeb.ConfigurationGroupFlowLiveTest do
     {:ok, view, _} = live(build_conn(), "/configuration/rules/new")
     assert has_element?(view, "#configuration-group-chooser", "2 scheduled checks")
     assert has_element?(view, "#configuration-group-chooser", "Threshold")
-    assert has_element?(view, "#configuration-group-chooser", "other check names")
-    view |> form("#configuration-group-search", search: "Threshold") |> render_submit()
+    assert has_element?(view, "#configuration-group-chooser", "other check name")
+    view |> form("#overview-search", search: "Threshold") |> render_submit()
     assert_patch(view, "/configuration/rules/new?page=1&search=Threshold")
     assert has_element?(view, "#configuration-group-chooser", "2 scheduled checks")
 
@@ -44,7 +44,7 @@ defmodule MondekWeb.ConfigurationGroupFlowLiveTest do
     refute has_element?(view, "#rule-environment")
     refute has_element?(view, "#rule-target-key")
     view |> form("#configuration-rule-form", params: %{limit: "60"}) |> render_submit()
-    assert has_element?(view, "#rule-preview-summary", "1 checks reviewed")
+    assert has_element?(view, "#rule-preview-summary", "1 check reviewed")
   end
 
   test "incompatible schema preview preserves the current field meaning and blocks save" do
@@ -71,11 +71,11 @@ defmodule MondekWeb.ConfigurationGroupFlowLiveTest do
 
     assert has_element?(
              view,
-             "#rule-preview-#{other["id"]} td[headers='rule-review-current'] dt",
+             "#rule-preview-#{other["id"]} td[headers='rule-review-current'] th",
              "(seconds)"
            )
 
-    assert has_element?(view, "#rule-preview-summary", "1 conflicts")
+    assert has_element?(view, "#rule-preview-summary", "1 conflict")
     assert has_element?(view, "#rule-save[disabled]")
   end
 
@@ -204,7 +204,7 @@ defmodule MondekWeb.ConfigurationGroupFlowLiveTest do
     assert_patch(other)
     send(recovered.pid, :tick)
     assert has_element?(recovered, "#rule-saved-change-summary", "1 superseded")
-    assert has_element?(recovered, "#rule-saved-change .badge", "Rule revision 1")
+    assert has_element?(recovered, "#rule-saved-change tr", "Rule revision1")
     refute has_element?(recovered, "#rule-saved-change-summary", "measured")
     render_patch(recovered, "/configuration/rules")
     refute has_element?(recovered, "#rule-saved-change")

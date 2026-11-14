@@ -85,19 +85,25 @@ The supported operator interfaces above preserve their documented operations, sc
 
 ## Browser and framework HTTP surfaces
 
-All following GET routes are **supported operator navigation**, owned by the listed LiveView. Their HTML, internal assigns and event payloads are **internal**; browser acceptance tests deliberately exercise real navigation, draft persistence and reconnect. Preserve deep links, filter/return-context semantics and the approved List / By target view. This does not make the pages a scraping API.
+The following GET routes are operator navigation. HTML, internal assigns and event payloads are internal; they are not a scraping API. All pages use the one `operator_ui` LiveView session and shared Pearl root. URL shape has no compatibility guarantee in this experimental project. Deep links, validated filter context and entity identity still have behavioral tests.
 
 | Owner | GET routes |
 | --- | --- |
-| DashboardLive | `/`, `/checks`, `/checks/:id`, `/checks/:id/diagnostics`, `/resources/:id`, `/resources/:id/diagnostics`, `/incidents`, `/incidents/:id`, `/configuration`, `/configuration/new`, `/configuration/:id`, `/guide` |
-| NotificationsLive | `/notifications`, `/notifications/:id` |
-| CoverageLive | `/coverage`, `/coverage/publishers`, `/coverage/diagnostics`, `/coverage/:id` |
-| PublisherLive | `/coverage/publishers/:id` |
-| MonitoringIncidentsLive | `/monitoring-incidents`, `/monitoring-incidents/:id` |
-| MaintenanceLive | `/maintenance`, `/maintenance/new`, `/maintenance/series/:id`, `/maintenance/:id` |
+| NextOverviewLive | `/`, `/checks`, `/results/:id`, `/results/:id/full`, `/checks/:id`, `/checks/:id/full`, `/expected/:id`, `/expected/:id/full`, `/coverage`, `/coverage/:id`, `/coverage/:id/full`, `/coverage/diagnostics/:id`, `/coverage/diagnostics/:id/full` |
+| NextIncidentsLive | `/incidents`, `/incidents/health/:id`, `/incidents/health/:id/full`, `/incidents/loss/:id`, `/incidents/loss/:id/full` |
+| ExecutionLive | `/executions/:id` |
+| NotificationsLive | `/notifications`, `/notifications/:id`, `/notifications/:id/full` |
+| PublicationInventoryLive / PublisherLive | `/coverage/publishers`, `/coverage/publishers/:id` |
+| MaintenanceLive | `/maintenance`, `/maintenance/new`, `/maintenance/series/:id`, `/maintenance/series/:id/full`, `/maintenance/:id`, `/maintenance/:id/full` |
+| ConfigurationLive | `/configuration`, `/configuration/:id` |
 | ConfigurationRulesLive | `/configuration/rules`, `/configuration/rules/new`, `/configuration/rules/:id` |
-| DiscoveryLive | `/checks/:id/discovery` (result-stream identity; read-only proposal flow) |
-| RunnersLive | `/runners`, `/runners/:id` |
+| ConfigurationRepositoryLive | `/configuration/history` |
+| DiscoveryLive | `/checks/:id/discovery` (result-stream identity; read-only source proposal) |
+| DiscoveryConfigurationLive | `/configuration/discovery/:id`, `/configuration/discovery/changes/:id` |
+| RunnersLive | `/runners`, `/runners/:id`, `/runners/:id/full` |
+| GuideLive / LicensesLive | `/guide`, `/licenses` |
+
+Result, execution and incident routes have distinct identities. Fly-overs opened from a host use its bounded typed `inspect` trail; page promotion uses a validated `page_entity`. Editing destinations keep their explicit workflow owners. See [UI architecture](UI-ARCHITECTURE.md).
 
 `GET /health` outside the API scope is a supported probe owned by APIController with the same body as its `/api/v1/health` alias. Endpoint also mounts Phoenix's `/live` WebSocket transport (long polling disabled) and serves static `/assets/*` and `/favicon.ico`; these are internal framework/browser assets, not controller integration APIs. `Plug.Head` supplies HEAD behavior for GET routes. Fixture-server `/mode`, `/records`, proxy controls and SMTP test controls belong to isolated test services, not this controller's API.
 

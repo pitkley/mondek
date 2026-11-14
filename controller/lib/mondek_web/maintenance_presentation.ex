@@ -3,6 +3,19 @@
 defmodule MondekWeb.MaintenancePresentation do
   @moduledoc "Maintenance display formatting and local links, shared by the owner and its templates."
   alias Mondek.MaintenanceSelection
+
+  def related_result_path(current, id) do
+    identity = MondekWeb.InvestigationTrail.identity({"result", id})
+
+    if identity,
+      do:
+        MondekWeb.InvestigationTrail.path(current, [identity], %{
+          "surface" => nil,
+          "page_entity" => nil
+        }),
+      else: current
+  end
+
   def editable?(nil), do: true
   def editable?(window), do: window["status"] in ["active", "upcoming"]
 
@@ -138,8 +151,6 @@ defmodule MondekWeb.MaintenancePresentation do
     end
   end
 
-  def entry_path(%{"kind" => "series", "id" => id}), do: series_path(id)
-  def entry_path(entry), do: window_path(entry["id"])
   def series_path(id), do: "/maintenance/series/" <> id
 
   def series_page_path(path, key, page) do
@@ -148,25 +159,15 @@ defmodule MondekWeb.MaintenancePresentation do
     uri.path <> "?" <> query
   end
 
-  def new_path(id, preview_ui, return_to) do
-    params = %{"check_id" => id}
-    params = if return_to, do: Map.put(params, "return_to", return_to), else: params
-    maintenance_base(preview_ui) <> "/new?" <> URI.encode_query(params)
-  end
-
-  def window_path(id, preview_ui \\ false, return_to \\ nil) do
-    maintenance_base(preview_ui) <>
-      "/" <>
-      id <>
-      if(preview_ui, do: "/full", else: "") <>
-      if(return_to, do: "?" <> URI.encode_query(%{"return_to" => return_to}), else: "")
-  end
-
-  def maintenance_base(true), do: "/next/maintenance"
-  def maintenance_base(_), do: "/maintenance"
+  def window_path(id, return_to \\ nil),
+    do:
+      "/maintenance/" <>
+        id <>
+        "/full" <>
+        if(return_to, do: "?" <> URI.encode_query(%{"return_to" => return_to}), else: "")
 
   def preview_entity_path(kind, id, surface, filters) do
-    prefix = if kind == :series, do: "/next/maintenance/series/", else: "/next/maintenance/"
+    prefix = if kind == :series, do: "/maintenance/series/", else: "/maintenance/"
     query = filters |> Map.reject(fn {_, value} -> is_nil(value) end) |> URI.encode_query()
 
     prefix <>

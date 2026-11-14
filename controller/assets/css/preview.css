@@ -16,6 +16,15 @@
 @import "./panel_stack.css";
 @import "./setup.css";
 @import "./agent_prompts.css";
+@import "./runners.css";
+@import "./notification_detail.css";
+@import "./discovery_review.css";
+@import "./configuration.css";
+@import "./configuration_rules.css";
+@import "./configuration_history.css";
+@import "./discovery_settings.css";
+@import "./publications.css";
+@import "./collection_diagnostics.css";
 
 :root {
   color-scheme: light;
@@ -165,7 +174,7 @@ button,input { font: inherit; }
 .preview-findings { font: 13px/1.6 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; }
 .preview-collection-error { color: var(--pf-t--global--text--color--status--danger--default); }
 .preview-expected-description { margin-top: 16px; }
-.preview-connection { display: none; padding: 10px; color: var(--pf-t--global--text--color--status--danger--default); background: var(--pf-t--global--background--color--primary--default); }
+.preview-connection { display: none; position: fixed; inset-inline: 16px; bottom: 12px; z-index: 1000; padding: 10px 14px; border: 1px solid var(--preview-line); border-radius: 6px; box-shadow: 0 3px 16px #172b4d26; color: var(--pf-t--global--text--color--status--danger--default); background: var(--pf-t--global--background--color--primary--default); }
 .phx-client-error .preview-connection,.phx-server-error .preview-connection { display: block; }
 @media(max-width:700px) {
   .preview-shell { display: block; }
@@ -481,7 +490,7 @@ button,input { font: inherit; }
 .preview-page-range > span { grid-area: 1 / 1; }
 .preview-page-range > [aria-hidden] { visibility: hidden; }
 .preview-page-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
-.preview-page-controls > :is(a, span) {
+.preview-page-controls > :is(a, span, button) {
   display: inline-grid;
   place-items: center;
   min-width: 26px;
@@ -491,7 +500,7 @@ button,input { font: inherit; }
   border-radius: 4px;
   text-decoration: none;
 }
-.preview-page-controls > a:hover { background: var(--preview-hover); }
+.preview-page-controls > :is(a, button):hover { background: var(--preview-hover); }
 .preview-page-controls > [aria-current="page"] {
   color: var(--preview-accent);
   background: var(--preview-selected);
@@ -702,3 +711,5 @@ button,input { font: inherit; }
 .ui-feedback { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 16px; margin-bottom: 10px; background: var(--preview-surface); border: 1px solid var(--preview-line); border-radius: 6px; }
 .ui-feedback.ui-error { border-color: #b13842; }
 .ui-feedback button { border: 0; background: transparent; color: inherit; cursor: pointer; }
+
+.preview-page-controls > button { font: inherit; color: var(--preview-accent); background: transparent; cursor: pointer; }

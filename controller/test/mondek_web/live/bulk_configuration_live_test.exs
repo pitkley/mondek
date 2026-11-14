@@ -60,7 +60,7 @@ defmodule MondekWeb.BulkConfigurationLiveTest do
 
     {:ok, selected, _} = live(build_conn(), "/configuration?environment=bulk-test")
     select_check(selected, check)
-    selected |> form("#inventory-filters", configuration_stage: "measured") |> render_change()
+    apply_adoption(selected, "measured")
     assert has_element?(selected, "#configuration-adoption-summary", "0 matching")
     assert has_element?(selected, "#bulk-selection-count", "1 selected")
     assert has_element?(selected, "button[phx-click='prepare']:not([disabled])")
@@ -82,7 +82,7 @@ defmodule MondekWeb.BulkConfigurationLiveTest do
 
     path = "/configuration?configuration_stage=saved&environment=bulk-test"
     {:ok, view, _} = live(build_conn(), path)
-    assert has_element?(view, "#inventory-configuration-stage option[value='saved'][selected]")
+    assert has_element?(view, "#preview-chip-configuration_stage")
     assert has_element?(view, "#configuration-adoption-summary", "52 matching")
     assert has_element?(view, "#configuration-adoption-summary", "53 before the adoption filter")
 
@@ -108,15 +108,19 @@ defmodule MondekWeb.BulkConfigurationLiveTest do
 
     assert has_element?(
              reloaded,
-             "#inventory-configuration-stage option[value='saved'][selected]"
+             "#preview-chip-configuration_stage"
            )
 
-    assert has_element?(reloaded, "#check-inventory > .pagination", "Page 2 of 2")
+    assert has_element?(
+             reloaded,
+             "#check-inventory > .pagination [aria-current=page][aria-label='Page 2']"
+           )
+
     navigation = reloaded |> element("[id^='configuration-row-']:first-child a") |> render_click()
     {:ok, detail, _} = follow_redirect(navigation, build_conn())
     assert has_element?(detail, ".back[href='#{page_path}']")
 
-    view |> form("#inventory-filters", configuration_stage: "prepared") |> render_change()
+    apply_adoption(view, "prepared")
     filtered_path = assert_patch(view)
     filters = URI.decode_query(URI.parse(filtered_path).query)
     assert filters["configuration_stage"] == "prepared"
@@ -140,10 +144,16 @@ defmodule MondekWeb.BulkConfigurationLiveTest do
     view |> form("#bulk-configuration-form", params: %{limit: "73"}) |> render_change()
     original_selection = hidden(view, "_selection")
     original_token = hidden(view, "_prepare_token")
-    view |> form("#inventory-filters", configuration_stage: "measured") |> render_change()
+    apply_adoption(view, "measured")
     filtered_path = assert_patch(view)
     assert has_element?(view, "#configuration-row-#{second["id"]}", "Measured")
     refute has_element?(view, "#configuration-row-#{first["id"]}")
+
+    assert has_element?(
+             view,
+             "#configuration-retained-#{first["id"]} input[type=checkbox][checked]"
+           )
+
     assert has_element?(view, "#bulk-param-limit[value='73']")
     assert hidden(view, "_selection") == original_selection
     recovered = recovery_form(view)
@@ -152,7 +162,7 @@ defmodule MondekWeb.BulkConfigurationLiveTest do
 
     assert has_element?(
              reconnected,
-             "#inventory-configuration-stage option[value='measured'][selected]"
+             "#preview-chip-configuration_stage"
            )
 
     assert has_element?(reconnected, "#bulk-param-limit[value='73']")
@@ -249,8 +259,13 @@ defmodule MondekWeb.BulkConfigurationLiveTest do
     assert row_count(view, "#bulk-preview tbody tr") == 25
     assert has_element?(view, "#bulk-preview", "target")
     original_token = hidden(view, "_review_token")
-    view |> element("#bulk-preview button", "Next review page") |> render_click()
-    assert has_element?(view, "#bulk-preview .pagination", "Page 2 of 3")
+    view |> element("#bulk-preview button[phx-click=page]", "Next") |> render_click()
+
+    assert has_element?(
+             view,
+             "#bulk-preview .pagination [aria-current=page][aria-label='Page 2']"
+           )
+
     assert hidden(view, "_review_token") == original_token
     assert row_count(view, "#bulk-preview tbody tr") == 25
     refute render(view) =~ "batch-54 target"
@@ -532,6 +547,42 @@ defmodule MondekWeb.BulkConfigurationLiveTest do
         order_by: a.source_key
     )
     |> Enum.map(&Monitoring.public/1)
+  end
+
+  test "retained selections stay visible with their captured revisions and can be deselected" do
+    [first, second] = publish([check("first"), check("second")])
+    {:ok, view, _} = live(build_conn(), "/configuration?environment=bulk-test")
+    select_check(view, first)
+    render_patch(view, "/configuration?environment=bulk-test&search=second")
+    assert has_element?(view, "#configuration-row-#{second["id"]}")
+
+    assert has_element?(
+             view,
+             "#configuration-retained-#{first["id"]} input[type=checkbox][checked][value='1']"
+           )
+
+    Repo.update_all(from(a in Assignment, where: a.id == ^first["id"]), set: [revision: 2])
+    send(view.pid, :tick)
+
+    assert has_element?(
+             view,
+             "#configuration-retained-#{first["id"]} input[type=checkbox][value='1']"
+           )
+
+    view
+    |> form("#bulk-configuration-form", %{"selected" => %{first["id"] => ""}})
+    |> render_change(%{"_target" => ["selected", first["id"]]})
+
+    refute has_element?(view, "#configuration-retained-#{first["id"]}")
+    refute hidden(view, "_selection") =~ first["id"]
+  end
+
+  defp apply_adoption(view, value) do
+    view
+    |> element("[phx-click='filter_open'][phx-value-field='configuration_stage']")
+    |> render_click()
+
+    view |> element("[phx-click='filter_select'][phx-value-key='#{value}']") |> render_click()
   end
 
   defp check(key, limit \\ 80) do

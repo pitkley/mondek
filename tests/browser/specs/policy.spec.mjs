@@ -1,7 +1,7 @@
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
-import { checkpoint, connected, mode, streams } from '../support/helpers.mjs';
+import { checkpoint, connected, mode, streams, searchFilters } from '../support/helpers.mjs';
 
 const project = 'browser-monitoring';
 const source = 'durable-volume-monitoring';
@@ -37,25 +37,24 @@ test('project policy stays readable through exceptions, offline adoption and bro
   async function assignment() {
     return (await request.get(`/api/v1/assignments/${assignmentID}`)).json();
   }
-  await page.goto(`/checks/${stream.id}?return_to=${encodeURIComponent('/checks?search=volume&tab=all&view=list')}`);
-  await page.getByRole('link', { name: 'Review configuration', exact: true }).click();
-  await expect(page.getByRole('link', {name: 'Back to result', exact: true})).toBeVisible();
+  await page.goto(`/results/${stream.id}/full?return_to=${encodeURIComponent('/checks?search=volume')}`);
+  await page.getByRole('link', { name: 'View check configuration', exact: true }).click();
+  await expect(page.getByRole('link', {name: '← Back to result', exact: true})).toBeVisible();
   await connected(page);
   await expect(page.locator('#configuration-origin')).toContainText('Defaults from code');
   await expect(page.locator('#configuration-value-comparison')).toHaveCount(0);
-  await page.locator('#configuration-origin > summary').click();
-  await page.locator('#configuration-as-code > summary').click();
-  await expect(page.locator('#configuration-as-code')).toContainText('Rules are optional');
+  await expect(page.locator('#delegated-parameters')).toContainText('Shared rules and code defaults no longer apply until that exception is removed');
+  await expect(page.getByRole('link', {name: 'Configure similar checks', exact: true})).toBeVisible();
   await checkpoint(page, testInfo, 'source-values-without-a-policy-document');
 
   await mode(request, { offline_installations: [stream.runner_id] });
   try {
     await policy(request, manifest([rule()]));
-    await expect(page.locator('#configuration-value-comparison')).toContainText('Project:');
+    await expect(page.locator('#configuration-value-comparison')).toContainText('Project');
     await expect(page.locator('#configuration-value-comparison')).toContainText(project);
     await expect(page.locator('#configuration-value-comparison')).toContainText('Default from code');
     await expect(page.locator('#configuration-adoption-status')).toContainText('still being adopted');
-    await expect(page.locator('#configuration-editor-updated')).toContainText('Your draft has been kept');
+    await expect(page.locator('#configuration-editor-updated')).toContainText('Your draft keeps version');
     await expect(page.locator('[name="params[warning_items]"]')).toHaveValue('50');
     await page.setViewportSize({ width: 390, height: 844 });
     await checkpoint(page, testInfo, 'managed-policy-source-differences-offline');
@@ -78,18 +77,16 @@ test('project policy stays readable through exceptions, offline adoption and bro
     await expect(page.locator('#managed-rule')).toContainText('Edit here or through Git');
     await expect(page.locator('#configuration-rule-form')).toBeVisible();
 
-    await page.goto(`/checks/${stream.id}?return_to=${encodeURIComponent('/checks?search=volume&tab=all&view=list')}`);
-    const originalResultURL = page.url();
-    await page.getByRole('link', { name: 'Review configuration', exact: true }).click();
+    await page.goto(`/results/${stream.id}/full?return_to=${encodeURIComponent('/checks?search=volume')}`);
+    await page.getByRole('link', { name: 'View check configuration', exact: true }).click();
     await connected(page);
-    await page.locator('#configuration-origin > summary').click();
     await page.locator('[name="params[warning_items]"]').fill('60');
     await page.locator('[name="params[critical_items]"]').fill('120');
-    await page.getByRole('button', { name: 'Save settings for this check', exact: true }).click();
-    await page.locator('#configuration-saved-actions').getByRole('link', {name: 'Back to result', exact: true}).click();
-    await expect(page).toHaveURL(originalResultURL);
-    await page.getByRole('link', {name: 'Review configuration', exact: true}).click();
-    await page.locator('#configuration-origin > summary').click();
+    await page.getByRole('button', { name: 'Review settings for this check', exact: true }).click();
+    await page.locator('#confirm-instance-save').click();
+    await page.locator('a.back').click();
+    await expect(page).toHaveURL(url => url.pathname === `/results/${stream.id}/full`);
+    await page.getByRole('link', {name: 'View check configuration', exact: true}).click();
     await expect(page.locator('#configuration-under-exception')).toContainText('Project volume limits');
     await expect(page.locator('#configuration-value-comparison')).toContainText('Without exception');
     await checkpoint(page, testInfo, 'instance-exception-compares-source-and-project');
@@ -101,7 +98,7 @@ test('project policy stays readable through exceptions, offline adoption and bro
     await page.getByRole('button', { name: 'Remove exception and use rules/defaults', exact: true }).click();
     await expect(page.locator('#exception-reset-preview')).toContainText('10');
     await page.getByRole('button', { name: 'Confirm removal', exact: true }).click();
-    await expect(page.locator('#configuration-origin')).toContainText('From rule');
+    await expect(page.locator('#configuration-origin')).toContainText('rule');
   } finally {
     await mode(request, { offline_installations: [] });
   }
@@ -137,7 +134,7 @@ test('adopting a UI rule preserves editing and removing policy retains an unders
   await expect(page.locator('#configuration-rule-form')).toBeVisible();
   await checkpoint(page, testInfo, 'adopted-rule-preserves-ui-editing');
   await page.goto('/configuration/rules');
-  await expect(page.locator(`#rule-row-${saved.rule.id}`)).toContainText(`Project: ${project}`);
+  await expect(page.locator(`#rule-row-${saved.rule.id}`)).toContainText(`Project ${project}`);
   await checkpoint(page, testInfo, 'rule-list-explains-project-ownership');
   await page.goto(`/configuration/rules/${saved.rule.id}`);
   await page.locator('#rule-param-warning_items').fill('6');
@@ -147,10 +144,10 @@ test('adopting a UI rule preserves editing and removing policy retains an unders
   await page.goto('/configuration/history');
   await connected(page);
   await expect(page.locator('#configuration-repository-history')).toContainText('UI save');
-  await page.getByRole('button', {name: /Inspect changes/}).first().click();
+  await page.locator('.repository-change-link').first().click();
   await expect(page.locator('#configuration-change-detail')).toContainText('Warning at (items)');
-  await expect(page.locator('#configuration-change-detail')).toContainText('Before: 5');
-  await expect(page.locator('#configuration-change-detail')).toContainText('After: 6');
+  await expect(page.locator('#configuration-change-detail')).toContainText('5');
+  await expect(page.locator('#configuration-change-detail')).toContainText('6');
   await checkpoint(page, testInfo, 'automatic-ui-history-changed-fields');
   await page.setViewportSize({width: 390, height: 844});
   await page.getByText('Complete documents and scope', {exact: true}).click();

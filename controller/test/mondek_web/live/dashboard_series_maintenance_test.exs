@@ -11,28 +11,28 @@ defmodule MondekWeb.DashboardSeriesMaintenanceTest do
     now = Monitoring.now()
     series = series(now, 3600, 26)
     ordinary(now)
-    {:ok, view, _} = live(build_conn(), "/resources/10000000-0000-4000-8000-000000000001")
+    {:ok, view, _} = live(build_conn(), "/executions/10000000-0000-4000-8000-000000000001")
 
-    assert length(elements(view, "#maintenance-summary-10000000-0000-4000-8000-000000000001 li")) ==
+    assert length(elements(view, "#execution-maintenance tr[data-maintenance-window]")) ==
              2
 
     assert length(elements(view, ".maintenance-series-link")) == 1
 
     assert has_element?(
              view,
-             "a[href='/maintenance/series/#{series["id"]}']",
+             "a[href^='/maintenance/series/#{series["id"]}']",
              "All dates in series"
            )
 
     assert has_element?(
              view,
-             "#maintenance-summary-10000000-0000-4000-8000-000000000001",
+             "#execution-maintenance",
              "next upcoming window"
            )
 
     assert has_element?(
              view,
-             "#maintenance-summary-10000000-0000-4000-8000-000000000001",
+             "#execution-maintenance",
              "Independent one-off work"
            )
 
@@ -43,23 +43,23 @@ defmodule MondekWeb.DashboardSeriesMaintenanceTest do
     now = Monitoring.now()
     series = series(now, -60, 3)
     [active | _] = series["occurrences"]
-    {:ok, view, _} = live(build_conn(), "/resources/10000000-0000-4000-8000-000000000001")
+    {:ok, view, _} = live(build_conn(), "/executions/10000000-0000-4000-8000-000000000001")
 
-    assert length(elements(view, "#maintenance-summary-10000000-0000-4000-8000-000000000001 li")) ==
+    assert length(elements(view, "#execution-maintenance tr[data-maintenance-window]")) ==
              1
 
     assert has_element?(
              view,
-             "#maintenance-summary-10000000-0000-4000-8000-000000000001 a[href='/maintenance/#{active["id"]}']"
+             "#execution-maintenance a[href^='/maintenance/#{active["id"]}']"
            )
 
     assert has_element?(
              view,
-             "#maintenance-summary-10000000-0000-4000-8000-000000000001",
+             "#execution-maintenance",
              "Active"
            )
 
-    assert has_element?(view, "a[href='/maintenance/series/#{series["id"]}']")
+    assert has_element?(view, "a[href^='/maintenance/series/#{series["id"]}']")
   end
 
   test "individually edited overlapping active windows are both shown" do
@@ -78,15 +78,15 @@ defmodule MondekWeb.DashboardSeriesMaintenanceTest do
 
     {:ok, preview} = Maintenance.preview(proposal, 1, created)
     {:ok, _} = Maintenance.apply(preview["review_token"], preview["proposal"], created)
-    {:ok, view, _} = live(build_conn(), "/resources/10000000-0000-4000-8000-000000000001")
+    {:ok, view, _} = live(build_conn(), "/executions/10000000-0000-4000-8000-000000000001")
 
-    assert length(elements(view, "#maintenance-summary-10000000-0000-4000-8000-000000000001 li")) ==
+    assert length(elements(view, "#execution-maintenance tr[data-maintenance-window]")) ==
              2
 
     for window <- [first, second] do
       assert has_element?(
                view,
-               "#maintenance-summary-10000000-0000-4000-8000-000000000001 a[href='/maintenance/#{window["id"]}']"
+               "#execution-maintenance a[href^='/maintenance/#{window["id"]}']"
              )
     end
   end
@@ -95,13 +95,13 @@ defmodule MondekWeb.DashboardSeriesMaintenanceTest do
     now = Monitoring.now()
     first = series(now, 3600, 3)
     second = series(now, 7200, 3)
-    {:ok, view, _} = live(build_conn(), "/resources/10000000-0000-4000-8000-000000000001")
+    {:ok, view, _} = live(build_conn(), "/executions/10000000-0000-4000-8000-000000000001")
 
-    assert length(elements(view, "#maintenance-summary-10000000-0000-4000-8000-000000000001 li")) ==
+    assert length(elements(view, "#execution-maintenance tr[data-maintenance-window]")) ==
              2
 
     for series <- [first, second] do
-      assert has_element?(view, "a[href='/maintenance/series/#{series["id"]}']")
+      assert has_element?(view, "a[href^='/maintenance/series/#{series["id"]}']")
     end
   end
 
@@ -123,18 +123,18 @@ defmodule MondekWeb.DashboardSeriesMaintenanceTest do
 
     {:ok, preview} = Maintenance.preview(proposal, 1, now)
     {:ok, ordinary} = Maintenance.apply(preview["review_token"], preview["proposal"], now)
-    {:ok, view, _} = live(build_conn(), "/resources/10000000-0000-4000-8000-000000000001")
+    {:ok, view, _} = live(build_conn(), "/executions/10000000-0000-4000-8000-000000000001")
 
-    assert length(elements(view, "#maintenance-summary-10000000-0000-4000-8000-000000000001 li")) ==
+    assert length(elements(view, "#execution-maintenance tr[data-maintenance-window]")) ==
              3
 
     assert has_element?(
              view,
-             "#maintenance-summary-10000000-0000-4000-8000-000000000001 a[href='/maintenance/#{ordinary["id"]}']"
+             "#execution-maintenance a[href^='/maintenance/#{ordinary["id"]}']"
            )
 
     for series <- [first, second] do
-      assert has_element?(view, "a[href='/maintenance/series/#{series["id"]}']")
+      assert has_element?(view, "a[href^='/maintenance/series/#{series["id"]}']")
     end
   end
 

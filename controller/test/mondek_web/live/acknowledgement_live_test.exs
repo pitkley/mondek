@@ -5,86 +5,61 @@ defmodule MondekWeb.AcknowledgementLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Mondek.Control
-
   @endpoint MondekWeb.Endpoint
+  @form "#preview-incident-ack-form"
 
-  test "default acknowledgement has no invented expiry and remains visible throughout inspection" do
+  test "default acknowledgement lasts until incident ends and retains its audit when recovery closes it" do
     incident = open_incident()
     {:ok, view, _} = live(build_conn(), incident_path(incident))
-    assert has_element?(view, "#ack-mode option[value='until_incident_ends'][selected]")
-    refute has_element?(view, "#ack-duration")
-
-    view
-    |> form("#acknowledgement-form", note: "Waiting for replacement storage")
-    |> render_submit()
-
+    assert has_element?(view, @form <> " input[value=until_incident_ends][checked]")
+    refute has_element?(view, @form <> " input[name=amount]")
+    view |> form(@form, note: "Waiting for replacement storage") |> render_submit()
     saved = Repo.get!(Incident, incident.id)
     assert saved.acknowledgement_mode == "until_incident_ends"
     assert saved.acknowledged_until == nil
     assert saved.acknowledgement_ceiling == "CRIT"
-    assert has_element?(view, "#active-acknowledgement", "Waiting for replacement storage")
-    assert has_element?(view, "#acknowledgement-lifetime", "no scheduled expiry")
-    assert has_element?(view, "#active-acknowledgement", "Local operator")
-    assert has_element?(view, "#active-acknowledgement", "Critical severity and below")
-    assert has_element?(view, "#incident-delivery-summary", "no scheduled expiry")
+    assert has_element?(view, "table[aria-label='Active acknowledgement']", "Incident ends")
+
+    assert has_element?(
+             view,
+             "table[aria-label='Active acknowledgement']",
+             "Waiting for replacement storage"
+           )
+
+    assert has_element?(view, "details", "Local operator")
     refute render(view) =~ "until —"
-    {:ok, listing, _} = live(build_conn(), "/incidents")
-
-    assert has_element?(
-             listing,
-             "#incident-row-#{incident.id}.incident-acknowledged .badge.acknowledged",
-             "Acknowledged"
-           )
-
-    assert has_element?(listing, "#incident-row-#{incident.id} .badge.crit", "Critical")
-    assert has_element?(listing, "#incident-row-#{incident.id} .badge.open", "Open")
-
-    assert has_element?(
-             listing,
-             "#incident-row-#{incident.id}",
-             "Failure notifications held"
-           )
-
-    assert has_element?(
-             listing,
-             "#incident-navigation[aria-label='Incidents · 0 unacknowledged open incidents']",
-             "0"
-           )
-
-    {:ok, resource, _} = live(build_conn(), "/resources/10000000-0000-4000-8000-000000000001")
-    assert has_element?(resource, "#check-control-history", "until this incident ends")
-
+    {:ok, execution, _} = live(build_conn(), "/executions/#{incident.assignment_id}")
+    assert has_element?(execution, "#execution-controls", "until this incident ends")
+    assert has_element?(execution, "#execution-controls", "Waiting for replacement storage")
     recovered_at = Monitoring.now()
     recovered_time = DateTime.to_iso8601(recovered_at)
 
     recovered =
-      measurement("OK", 2, %{
-        "started_at" => recovered_time,
-        "evaluated_at" => recovered_time
-      })
-      |> update_in(["results"], fn results ->
-        Enum.map(results, &Map.put(&1, "source_at", recovered_time))
-      end)
+      measurement("OK", 2, %{"started_at" => recovered_time, "evaluated_at" => recovered_time})
+      |> update_in(
+        ["results"],
+        &Enum.map(&1, fn row -> Map.put(row, "source_at", recovered_time) end)
+      )
 
-    assert disposition(ingest(recovered, recovered_at)) == "current"
+    ingest(recovered, recovered_at)
     send(view.pid, :tick)
-    refute has_element?(view, "#active-acknowledgement")
-    refute has_element?(view, "#acknowledgement-form")
-    assert has_element?(view, "#incident-acknowledgement", "This incident has ended")
-    assert has_element?(view, "#incident-control-history", "Waiting for replacement storage")
+    refute has_element?(view, "table[aria-label='Active acknowledgement']")
+    refute has_element?(view, @form)
+    assert render(view) =~ "This incident has ended"
+    assert render(view) =~ "Waiting for replacement storage"
   end
 
-  test "live incident ordering and navigation count follow acknowledgement and ending" do
+  test "incident priority reorders on acknowledgement and ending without changing severity" do
     critical = open_incident()
 
-    warning_report =
+    report =
       measurement("WARN", 1, %{"assignment_id" => "10000000-0000-4000-8000-000000000002"})
       |> update_in(
         ["results"],
         &Enum.map(&1, fn result -> Map.put(result, "key", "readiness") end)
       )
 
-    assert disposition(ingest(warning_report)) == "current"
+    assert disposition(ingest(report)) == "current"
 
     warning =
       Repo.one!(
@@ -93,7 +68,6 @@ defmodule MondekWeb.AcknowledgementLiveTest do
 
     {:ok, listing, _} = live(build_conn(), "/incidents")
     assert incident_rows(listing) == [critical.id, warning.id]
-    assert has_element?(listing, "#incident-attention-count", "2")
 
     assert {:ok, _} =
              reviewed_acknowledgement_fixture(
@@ -104,197 +78,154 @@ defmodule MondekWeb.AcknowledgementLiveTest do
 
     send(listing.pid, :tick)
     assert incident_rows(listing) == [warning.id, critical.id]
-    assert has_element?(listing, "#incident-attention-count", "1")
-    assert has_element?(listing, "#incident-row-#{critical.id}.incident-acknowledged")
-    assert has_element?(listing, ".page-heading", "2 open · 1 acknowledged")
-
-    {:ok, reconnected, _} = live(build_conn(), "/incidents")
-    assert incident_rows(reconnected) == [warning.id, critical.id]
-    assert has_element?(reconnected, "#incident-attention-count", "1")
-
-    acknowledged = Repo.get!(Incident, critical.id)
+    assert has_element?(listing, "#preview-incident-health-#{critical.id}", "Acknowledged")
+    assert has_element?(listing, "#preview-incident-health-#{critical.id}", "Critical")
+    {:ok, reopened, _} = live(build_conn(), "/incidents")
+    assert incident_rows(reopened) == [warning.id, critical.id]
+    current = Repo.get!(Incident, critical.id)
 
     assert {:ok, _} =
              reviewed_acknowledgement_fixture(
                critical.id,
-               Map.put(options(acknowledged), "mode", "end"),
+               Map.put(options(current), "mode", "end"),
                "Resume attention"
              )
 
     send(listing.pid, :tick)
     assert incident_rows(listing) == [critical.id, warning.id]
-    assert has_element?(listing, "#incident-attention-count", "2")
-    refute has_element?(listing, "#incident-row-#{critical.id}.incident-acknowledged")
+    refute has_element?(listing, "#preview-incident-health-#{critical.id}", "Acknowledged")
   end
 
-  test "week and custom durations support long acknowledgement with an honest UTC expiry" do
+  test "day durations accept a week and reject excessive durations without losing the draft" do
     incident = open_incident()
     {:ok, view, _} = live(build_conn(), incident_path(incident))
-    view |> form("#acknowledgement-form", mode: "duration") |> render_change()
+    view |> form(@form, mode: "duration") |> render_change()
     before = Monitoring.now()
 
     view
-    |> form("#acknowledgement-form", seconds: "604800", note: "Replacement arrives next week")
+    |> form(@form, amount: "7", unit: "days", note: "Replacement next week")
     |> render_submit()
 
     saved = Repo.get!(Incident, incident.id)
     assert saved.acknowledgement_mode == "until"
     assert DateTime.diff(saved.acknowledged_until, before) in 604_800..604_805
-    assert has_element?(view, "#acknowledgement-lifetime", "UTC")
-
-    view |> form("#acknowledgement-form", mode: "duration") |> render_change()
-    view |> form("#acknowledgement-form", seconds: "custom") |> render_change()
+    view |> element("button", "Replace acknowledgement") |> render_click()
+    view |> form(@form, mode: "duration") |> render_change()
 
     view
-    |> form("#acknowledgement-form", days: "999999999", hours: "3", note: "Procurement lead time")
+    |> form(@form, amount: "999999999", unit: "days", note: "Procurement lead time")
     |> render_submit()
 
-    assert has_element?(view, "#ack-error", "Choose a shorter duration")
-    assert has_element?(view, "#ack-days[value='999999999']")
-    assert has_element?(view, "#ack-note", "Procurement lead time")
-
-    assert Repo.get!(Incident, incident.id).acknowledgement_note ==
-             "Replacement arrives next week"
-
+    assert has_element?(view, "[role=alert]")
+    assert has_element?(view, "input[name=amount][value='999999999']")
+    assert has_element?(view, "textarea[name=note]", "Procurement lead time")
+    assert Repo.get!(Incident, incident.id).acknowledgement_note == "Replacement next week"
     before = Monitoring.now()
 
     view
-    |> form("#acknowledgement-form", days: "14", hours: "3", note: "Procurement lead time")
+    |> form(@form, amount: "339", unit: "hours", note: "Procurement lead time")
     |> render_submit()
 
-    saved = Repo.get!(Incident, incident.id)
-    assert DateTime.diff(saved.acknowledged_until, before) in 1_220_400..1_220_405
-    assert saved.acknowledgement_note == "Procurement lead time"
+    assert DateTime.diff(Repo.get!(Incident, incident.id).acknowledged_until, before) in 1_220_400..1_220_405
   end
 
-  test "specific UTC expiry is exact and past times preserve the proposed values" do
+  test "specific UTC expiry is exact and invalid or past times preserve proposed values" do
     incident = open_incident()
     {:ok, view, _} = live(build_conn(), incident_path(incident))
-    view |> form("#acknowledgement-form", mode: "until") |> render_change()
+    view |> form(@form, mode: "until") |> render_change()
 
     view
-    |> form("#acknowledgement-form",
-      expires_at: "2003-01-02T15:04:00",
-      note: "Maintenance coordination"
-    )
+    |> form(@form, expires_at: "2003-01-02T15:04:00", note: "Maintenance coordination")
     |> render_submit()
 
-    assert has_element?(view, "#ack-error", "Choose a future expiry date and time in UTC.")
-    refute render(view) =~ "ISO8601"
-    assert has_element?(view, "#ack-expires-at[value='2003-01-02T15:04:00']")
-    assert has_element?(view, "#ack-note", "Maintenance coordination")
+    assert has_element?(view, "[role=alert]")
+    assert has_element?(view, "input[name=expires_at][value='2003-01-02T15:04:00']")
+    assert has_element?(view, "textarea[name=note]", "Maintenance coordination")
     assert Repo.get!(Incident, incident.id).acknowledgement_mode == nil
-
-    view |> form("#acknowledgement-form", expires_at: "10000-01-01T00:00:00") |> render_submit()
-    assert has_element?(view, "#ack-error", "Enter a valid UTC date and time through year 9999.")
-    assert has_element?(view, "#ack-note", "Maintenance coordination")
-    assert Repo.get!(Incident, incident.id).acknowledgement_mode == nil
-
+    view |> form(@form, expires_at: "10000-01-01T00:00:00") |> render_submit()
+    assert has_element?(view, "[role=alert]")
     expiry = Monitoring.now() |> DateTime.add(3 * 86_400) |> DateTime.truncate(:second)
-    local = Calendar.strftime(expiry, "%Y-%m-%dT%H:%M:%S")
-    view |> form("#acknowledgement-form", expires_at: local) |> render_submit()
+
+    view
+    |> form(@form, expires_at: Calendar.strftime(expiry, "%Y-%m-%dT%H:%M:%S"))
+    |> render_submit()
+
     assert DateTime.compare(Repo.get!(Incident, incident.id).acknowledged_until, expiry) == :eq
-    assert has_element?(view, "#ack-expiry-help", "Enter UTC")
-    assert has_element?(view, "#acknowledgement-lifetime", Calendar.strftime(expiry, "%Y"))
+    assert has_element?(view, "table[aria-label='Active acknowledgement']", "UTC")
   end
 
-  test "custom draft and reviewed revision survive ticks and reconnect without recording a control" do
+  test "duration draft and original review recover through signed stack recovery without recording a control" do
     incident = open_incident()
     path = incident_path(incident)
     {:ok, view, _} = live(build_conn(), path)
-    view |> form("#acknowledgement-form", mode: "duration") |> render_change()
-    view |> form("#acknowledgement-form", seconds: "custom") |> render_change()
+    view |> form(@form, mode: "duration") |> render_change()
 
     view
-    |> form("#acknowledgement-form", days: "30", hours: "6", note: "Waiting for reviewed change")
+    |> form(@form, amount: "30", unit: "days", note: "Waiting for reviewed change")
     |> render_change()
 
-    captured =
-      recovery(view, %{
-        "mode" => "duration",
-        "seconds" => "custom",
-        "days" => "30",
-        "hours" => "6",
-        "note" => "Waiting for reviewed change"
-      })
-
+    snapshot = hidden(view, "#investigation-stack-recovery input[name=snapshot]")
+    revision = hidden(view, @form <> " input[name=_revision]")
     send(view.pid, :tick)
-    assert has_element?(view, "#ack-days[value='30']")
-    assert has_element?(view, "#ack-hours[value='6']")
+    assert has_element?(view, "input[name=amount][value='30']")
     assert Repo.aggregate(Control, :count) == 0
     {:ok, recovered, _} = live(build_conn(), path)
-    recovered |> render_change("edit_acknowledgement", captured)
+
+    recovered
+    |> with_target("#investigation-stack")
+    |> render_hook("recover_investigation", %{"snapshot" => snapshot})
+
     send(recovered.pid, :tick)
-    assert has_element?(recovered, "#ack-days[value='30']")
-    assert has_element?(recovered, "#ack-note", "Waiting for reviewed change")
-    assert hidden(recovered, "_revision") == hidden(view, "_revision")
+    assert has_element?(recovered, "input[name=amount][value='30']")
+    assert has_element?(recovered, "textarea[name=note]", "Waiting for reviewed change")
+    assert hidden(recovered, @form <> " input[name=_revision]") == revision
     assert Repo.aggregate(Control, :count) == 0
-    recovered |> form("#acknowledgement-form") |> render_submit()
+    recovered |> form(@form) |> render_submit()
     assert Repo.get!(Incident, incident.id).acknowledgement_note == "Waiting for reviewed change"
   end
 
-  test "a concurrent control cannot be overwritten or cancelled through a stale draft" do
+  test "a concurrent control cannot be replaced or ended using an earlier review" do
     incident = open_incident()
-    path = incident_path(incident)
-    {:ok, old_view, _} = live(build_conn(), path)
-
-    old_view
-    |> form("#acknowledgement-form", note: "My proposed investigation")
-    |> render_change()
-
-    captured =
-      recovery(old_view, %{"mode" => "until_incident_ends", "note" => "My proposed investigation"})
+    {:ok, view, _} = live(build_conn(), incident_path(incident))
+    view |> form(@form, note: "My proposed investigation") |> render_change()
 
     assert {:ok, _} =
              reviewed_acknowledgement_fixture(incident.id, options(incident), "Newer control")
 
-    old_view |> render_submit("acknowledge", captured)
+    view |> form(@form) |> render_submit()
     assert Repo.get!(Incident, incident.id).acknowledgement_note == "Newer control"
-    assert has_element?(old_view, "#ack-note", "My proposed investigation")
-    assert has_element?(old_view, "#review-acknowledgement")
+    assert has_element?(view, "[role=alert]", "The incident changed")
 
-    old_view
-    |> render_click("end_acknowledgement", %{
-      "id" => incident.id,
-      "revision" => captured["_revision"],
-      "attention_revision" => captured["_attention_revision"]
-    })
+    view
+    |> with_target("#investigation-stack")
+    |> render_hook("end_acknowledgement", %{"entity" => "health:#{incident.id}"})
 
     assert Monitoring.acknowledgement_active?(Repo.get!(Incident, incident.id))
-    assert has_element?(old_view, "#end-acknowledgement[disabled]")
-
-    {:ok, recovered, _} = live(build_conn(), path)
-    recovered |> render_change("edit_acknowledgement", captured)
-    assert has_element?(recovered, "#review-acknowledgement")
-    recovered |> element("#review-acknowledgement") |> render_click()
-    assert has_element?(recovered, "#ack-note", "My proposed investigation")
-    refute has_element?(recovered, "#end-acknowledgement[disabled]")
-    recovered |> form("#acknowledgement-form") |> render_submit()
-    assert Repo.get!(Incident, incident.id).acknowledgement_note == "My proposed investigation"
-    recovered |> element("#end-acknowledgement") |> render_click()
+    view |> element("button", "Replace acknowledgement") |> render_click()
+    view |> element("button", "Review current incident") |> render_click()
+    view |> form(@form, note: "My reviewed investigation") |> render_submit()
+    assert Repo.get!(Incident, incident.id).acknowledgement_note == "My reviewed investigation"
+    view |> element("button", "End acknowledgement") |> render_click()
     refute Monitoring.acknowledgement_active?(Repo.get!(Incident, incident.id))
-    assert has_element?(recovered, "#ack-mode option[value='until_incident_ends'][selected]")
   end
 
-  test "a severity change requires explicit review while a current acknowledgement keeps its original ceiling" do
+  test "severity changes require renewed review and acknowledgements keep their original ceiling" do
     incident = open_incident("WARN")
     {:ok, view, _} = live(build_conn(), incident_path(incident))
-    captured = recovery(view, %{"mode" => "until_incident_ends", "note" => "Reviewing warning"})
     ingest(measurement("CRIT", 2))
-    view |> render_submit("acknowledge", captured)
+    view |> form(@form, note: "Reviewing warning") |> render_submit()
     assert Repo.get!(Incident, incident.id).acknowledgement_mode == nil
-    assert has_element?(view, "#review-acknowledgement")
-    view |> element("#review-acknowledgement") |> render_click()
-    assert has_element?(view, "#ack-reviewed-severity", "Critical")
-    view |> form("#acknowledgement-form") |> render_submit()
+    assert has_element?(view, "[role=alert]", "The incident changed")
+    view |> element("button", "Review current incident") |> render_click()
+    view |> form(@form) |> render_submit()
+    assert Repo.get!(Incident, incident.id).acknowledgement_ceiling == "CRIT"
     ingest(measurement("WARN", 3))
     ingest(measurement("CRIT", 4))
     send(view.pid, :tick)
-    assert has_element?(view, "#active-acknowledgement", "Critical severity and below")
     assert Monitoring.acknowledgement_active?(Repo.get!(Incident, incident.id))
   end
 
-  test "old acknowledgement history does not invent an unavailable severity ceiling" do
+  test "historical controls without a recorded severity ceiling never invent one" do
     incident = open_incident()
     reviewed_acknowledgement_fixture(incident.id, 900, "Historical timed control")
 
@@ -313,15 +244,15 @@ defmodule MondekWeb.AcknowledgementLiveTest do
     Repo.one!(Incident)
   end
 
-  defp incident_path(incident), do: "/incidents/" <> incident.id
+  defp incident_path(incident), do: "/incidents/health/" <> incident.id <> "/full"
 
   defp incident_rows(view) do
     view
     |> render()
     |> LazyHTML.from_document()
-    |> LazyHTML.query("#incident-list tbody tr")
+    |> LazyHTML.query("tr[id^=preview-incident-health-]")
     |> LazyHTML.attribute("id")
-    |> Enum.map(&String.replace_prefix(&1, "incident-row-", ""))
+    |> Enum.map(&String.replace_prefix(&1, "preview-incident-health-", ""))
   end
 
   defp options(incident),
@@ -331,19 +262,12 @@ defmodule MondekWeb.AcknowledgementLiveTest do
       "attention_revision" => incident.attention_revision
     }
 
-  defp hidden(view, name),
+  defp hidden(view, selector),
     do:
       view
       |> render()
       |> LazyHTML.from_document()
-      |> LazyHTML.query("#acknowledgement-form input[name='#{name}']")
+      |> LazyHTML.query(selector)
       |> LazyHTML.attribute("value")
       |> hd()
-
-  defp recovery(view, values),
-    do:
-      Map.merge(
-        Map.new(~w(_id _revision _attention_revision _health), &{&1, hidden(view, &1)}),
-        values
-      )
 end

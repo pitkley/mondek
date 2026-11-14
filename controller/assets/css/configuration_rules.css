@@ -1,0 +1,39 @@
+/*! Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com> */
+/*! SPDX-License-Identifier: Apache-2.0 */
+.rules-workspace > .preview-detail-card { margin-inline:0; margin-block:12px; }
+.rules-workspace .rules-feedback { padding:10px var(--preview-content-inset); border-top:1px solid var(--preview-line); display:grid; gap:8px; }
+.rules-workspace .rules-feedback [role=alert] { color:#9b2433; }
+.rules-workspace .rules-help { margin:8px 12px 12px; border:1px solid var(--preview-line); border-radius:6px; }
+.rules-workspace .rules-help > p { padding:8px var(--preview-content-inset); font-size:13px; }
+.rules-workspace .rules-fieldset { border:0; margin:0; padding:10px 0; min-width:0; }
+.rules-workspace .rules-fieldset + .rules-fieldset { border-top:1px solid var(--preview-line); }
+.rules-workspace .rules-fieldset > legend { font-size:14px; font-weight:600; padding:0; margin-bottom:8px; }
+.rules-workspace .rules-name-fields { grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr); }
+.rules-workspace .rules-fieldset > .footnote { margin-bottom:8px; }
+.rules-workspace .rules-list-table > thead th:nth-child(1) { width:30%; }
+.rules-workspace .rules-list-table > thead th:nth-child(2) { width:20%; }
+.rules-workspace .rules-list-table > thead th:nth-child(4) { width:7rem; }
+.rules-workspace .rules-group-table > thead th:nth-child(1) { width:28%; }
+.rules-workspace .rules-group-table > thead th:nth-child(3) { width:23%; }
+.rules-workspace .rules-preview-table > thead th:nth-child(1) { width:28%; }
+.rules-workspace .rules-preview-table > thead th:nth-child(4) { width:21%; }
+.rules-workspace .rules-parameter-values { font-size:12px; }
+.rules-workspace .rules-parameter-values th { width:1%; white-space:nowrap; }
+.rules-workspace .rules-parameter-values :is(th,td) { padding:4px 7px; }
+.rules-workspace .rules-schema-table > thead th:last-child { width:12rem; }
+.rules-workspace .rules-schema-table button { white-space:normal; }
+@media(max-width:700px) {
+  .rules-workspace .rules-name-fields { grid-template-columns:1fr; }
+  .rules-workspace .preview-incident-fact-table { table-layout:fixed; width:100%; }
+  .rules-workspace .preview-incident-fact-table :is(th,td) { padding-inline:8px; }
+  .rules-workspace .preview-incident-fact-table th { width:35%; }
+  .rules-workspace .preview-incident-nested-facts > table > tbody > tr > th { width:60%; white-space:normal; overflow-wrap:anywhere; }
+  /* Inventory rows stack on narrow screens; embedded parameter facts remain tables. */
+  .rules-workspace .rules-parameter-values { display:table; }
+  .rules-workspace .rules-parameter-values tbody { display:table-row-group; width:auto; }
+  .rules-workspace .rules-parameter-values tr { display:table-row; width:auto; }
+  .rules-workspace .rules-parameter-values :is(th,td) { display:table-cell; }
+  .rules-workspace .rules-parameter-values td { width:auto; }
+  .rules-workspace .rules-parameter-values td::before { content:none; }
+  .rules-workspace .rules-parameter-values th { width:45%; white-space:normal; }
+}
