@@ -3,6 +3,7 @@
 import {Socket} from "phoenix";
 import {LiveSocket} from "phoenix_live_view";
 import {PanelStack} from "./panel_stack.mjs";
+import {SelectableRows} from "./selectable_rows.mjs";
 import {PreviewFilterPicker} from "./filter_picker.mjs";
 import {CopyPrompt, InventoryNavigation, InventoryTargetScroll} from "./workflow_hooks.mjs";
 
@@ -54,7 +55,7 @@ const MaintenancePanel = {
 
 const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute("content");
 const liveSocket = new LiveSocket("/live", Socket, {
-  params: {_csrf_token: csrfToken}, hooks: {OverviewPanel, MaintenancePanel, PreviewFilterPicker, CopyPrompt, InventoryNavigation, InventoryTargetScroll}
+  params: {_csrf_token: csrfToken}, hooks: {OverviewPanel, MaintenancePanel, PreviewFilterPicker, SelectableRows, CopyPrompt, InventoryNavigation, InventoryTargetScroll}
 });
 liveSocket.connect();
 window.liveSocket = liveSocket;

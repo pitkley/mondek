@@ -98,6 +98,9 @@ export const PanelStack = {
     this.syncPanelSnapshots();
   },
   beforeUpdate() {
+    // Release only our temporary modal changes before LiveView applies the next
+    // server-owned attributes; an old inert snapshot must not override that patch.
+    this.restoreBackground();
     this.previousStack = this.measureStack();
     this.searchFocused = document.activeElement?.id === "preview-search";
     this.relatedOpen = this.el.querySelector("#preview-related-results")?.open;
@@ -120,9 +123,17 @@ export const PanelStack = {
       this.focusPanel();
       this.restorePanelPosition();
     }
-    else if (this.el.querySelector("#incident-page")) this.el.querySelector("#incident-heading")?.focus();
-    else if (document.activeElement?.id !== "preview-search") (document.getElementById(this.trigger) || document.getElementById(this.el.dataset.panelHeading || "overview-heading"))?.focus({preventScroll: true});
+    else this.focusBackground();
     this.animateStackChange();
+  },
+  focusBackground() {
+    if (document.activeElement?.id === "preview-search") return;
+    const visible = element => element && !element.closest('[hidden], [inert]') && element.getClientRects().length > 0;
+    const trigger = document.getElementById(this.trigger);
+    const pageHeading = this.el.querySelector('.preview-incident-page:not([inert]) h1[tabindex]');
+    const fallback = document.getElementById(this.el.dataset.panelHeading || "overview-heading");
+    const target = [trigger, pageHeading, fallback].find(visible);
+    target?.focus({preventScroll: true});
   },
   syncOverlay() {
     const panel = this.el.querySelector("#overview-panel");

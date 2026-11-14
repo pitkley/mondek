@@ -134,3 +134,45 @@ test('a return starts from the existing rear card, with its previous inset', (t)
   assert.equal(rear.frames[1].insetBlockStart, '8px');
   assert.equal(hook.departing, departing);
 });
+
+test('promotion skips the hidden editor opener and focuses the active full page', t => {
+  const focused = [];
+  const element = (name, hidden = false) => ({closest: () => hidden ? {} : null, getClientRects: () => hidden ? [] : [1], focus: () => focused.push(name)});
+  const trigger = element('hidden editor', true);
+  const heading = element('full result');
+  globals(t, {document: {activeElement: {}, getElementById: id => id === 'opener' ? trigger : heading}});
+  const hook = {...PanelStack, trigger: 'opener', el: {dataset: {panelHeading: 'full-result-heading'}, querySelector: () => heading}};
+  hook.focusBackground();
+  assert.deepEqual(focused, ['full result']);
+});
+
+test('closing evidence restores a visible opener and keeps search focus when already there', t => {
+  const focused = [];
+  const trigger = {closest: () => null, getClientRects: () => [1], focus: () => focused.push('opener')};
+  globals(t, {document: {activeElement: {}, getElementById: () => trigger}});
+  const hook = {...PanelStack, trigger: 'opener', el: {dataset: {}, querySelector: () => null}};
+  hook.focusBackground();
+  assert.deepEqual(focused, ['opener']);
+  document.activeElement = {id: 'preview-search'};
+  hook.focusBackground();
+  assert.deepEqual(focused, ['opener']);
+});
+
+
+test('a server patch owns inert after temporary modal background changes are released', t => {
+  const owner = {inert: true};
+  globals(t, {document: {activeElement: {id: ''}}});
+  const hook = {
+    ...PanelStack,
+    modalBackground: new Map([[owner, true]]),
+    measureStack: () => null,
+    el: {querySelector: () => null, dataset: {}},
+    narrow: {matches: true},
+  };
+  hook.beforeUpdate();
+  assert.equal(hook.modalBackground.size, 0);
+  // The server removes its own inactive-owner attribute when the trail closes.
+  owner.inert = false;
+  hook.syncOverlay();
+  assert.equal(owner.inert, false);
+});

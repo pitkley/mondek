@@ -52,6 +52,16 @@ defmodule MondekWeb.PreviewFiltersTest do
              1
   end
 
+  test "empty text does not render a blank search chip or its remove control" do
+    for search <- [nil, ""] do
+      doc = LazyHTML.from_document(picker(search: search))
+      assert Enum.empty?(LazyHTML.query(doc, ".preview-search-token"))
+      assert Enum.empty?(LazyHTML.query(doc, "[aria-label='Clear search text']"))
+    end
+
+    assert picker(search: "disk") =~ "Clear search text"
+  end
+
   defp picker(overrides) do
     assigns = [
       picker: nil,
