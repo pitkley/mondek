@@ -4,48 +4,11 @@ import {Socket} from "phoenix";
 import {LiveSocket} from "phoenix_live_view";
 import {PanelStack} from "./panel_stack.mjs";
 import {PreviewFilterPicker} from "./filter_picker.mjs";
-
-const themeKey = "mondek-preview-theme";
-const themeNames = new Set(["pearl", "clear", "mist", "linen", "original"]);
-const validTheme = value => themeNames.has(value) ? value : "pearl";
-const syncThemeControls = () => {
-  const theme = validTheme(document.documentElement.dataset.previewTheme);
-  document.querySelectorAll("[data-preview-theme-choice]").forEach(input => { input.checked = input.value === theme; });
-};
-const applyTheme = value => {
-  document.documentElement.dataset.previewTheme = validTheme(value);
-  syncThemeControls();
-};
-let initialTheme = "pearl";
-try { initialTheme = localStorage.getItem(themeKey); } catch { /* Browser storage may be disabled. */ }
-applyTheme(initialTheme);
-document.addEventListener("change", event => {
-  if (!event.target.matches("[data-preview-theme-choice]")) return;
-  const theme = validTheme(event.target.value);
-  applyTheme(theme);
-  try { localStorage.setItem(themeKey, theme); } catch { /* The current tab still switches. */ }
-  const picker = document.querySelector("#preview-theme-picker");
-  picker?.removeAttribute("open");
-  picker?.querySelector("summary")?.focus({preventScroll: true});
-});
-document.addEventListener("click", event => {
-  if (!event.target.closest(".preview-theme-picker")) document.querySelector("#preview-theme-picker")?.removeAttribute("open");
-});
-document.addEventListener("keydown", event => {
-  const picker = document.querySelector("#preview-theme-picker[open]");
-  if (picker && event.key === "Escape") {
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    picker.removeAttribute("open");
-    picker.querySelector("summary")?.focus();
-  }
-});
-window.addEventListener("storage", event => { if (event.key === themeKey) applyTheme(event.newValue); });
+import {CopyPrompt, InventoryNavigation, InventoryTargetScroll} from "./workflow_hooks.mjs";
 
 const OverviewPanel = {
   ...PanelStack,
   mounted() {
-    syncThemeControls();
     PanelStack.mounted.call(this);
   }
 };
@@ -91,7 +54,14 @@ const MaintenancePanel = {
 
 const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute("content");
 const liveSocket = new LiveSocket("/live", Socket, {
-  params: {_csrf_token: csrfToken}, hooks: {OverviewPanel, MaintenancePanel, PreviewFilterPicker}
+  params: {_csrf_token: csrfToken}, hooks: {OverviewPanel, MaintenancePanel, PreviewFilterPicker, CopyPrompt, InventoryNavigation, InventoryTargetScroll}
 });
 liveSocket.connect();
 window.liveSocket = liveSocket;
+
+// A new page receives focus; patches retain filter, form and panel intent.
+window.addEventListener("phx:navigate", event => {
+  if (event.detail.patch || event.detail.pop) return;
+  if (document.querySelector("#overview-panel")) return;
+  document.getElementById("main-content")?.focus({preventScroll: true});
+});

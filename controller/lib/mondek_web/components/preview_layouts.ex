@@ -6,12 +6,12 @@ defmodule MondekWeb.PreviewLayouts do
   def root(assigns) do
     ~H"""
     <!DOCTYPE html>
-    <html lang="en">
+    <html lang="en" data-preview-theme="pearl">
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={Plug.CSRFProtection.get_csrf_token()} />
-        <.live_title suffix=" · Mondek">Overview preview</.live_title>
+        <.live_title suffix=" · Mondek">{assigns[:page_title] || "Mondek"}</.live_title>
         <link rel="stylesheet" href={MondekWeb.Endpoint.static_path("/assets/preview.css")} />
         <script defer type="module" src={MondekWeb.Endpoint.static_path("/assets/preview.js")}>
         </script>
@@ -29,34 +29,8 @@ defmodule MondekWeb.PreviewLayouts do
     <a class="preview-skip pf-v6-c-button pf-m-link" href="#main-content">Skip to content</a>
     <header class="preview-masthead">
       <.link href="/next" class="preview-brand">mondek</.link>
-      <span class="preview-caption">UI preview</span>
-      <details id="preview-theme-picker" class="preview-theme-picker" phx-update="ignore">
-        <summary class="pf-v6-c-button pf-m-plain" aria-label="Choose theme">
-          <span aria-hidden="true">◐</span><span class="preview-theme-title">Theme</span>
-        </summary>
-        <fieldset class="preview-theme-menu">
-          <legend>Light themes</legend>
-          <label :for={
-            {value, name, description} <- [
-              {"pearl", "Pearl", "Near-white canvas · white surfaces"},
-              {"clear", "Clear", "White canvas · blue accents"},
-              {"mist", "Mist", "Cool canvas · white surfaces"},
-              {"linen", "Linen", "Warm canvas · teal accents"},
-              {"original", "Original", "Previous gray palette"}
-            ]
-          }>
-            <input
-              type="radio"
-              name="preview-theme"
-              value={value}
-              checked={value == "pearl"}
-              data-preview-theme-choice
-            />
-            <span><strong>{name}</strong><span class="preview-caption">{description}</span></span>
-          </label>
-        </fieldset>
-      </details>
-      <a class="pf-v6-c-button pf-m-link" href="/">Open existing UI</a>
+      <span class="preview-caption">Monitoring</span>
+      <.link href="/guide" class="pf-v6-c-button pf-m-link">Help &amp; setup</.link>
     </header>
     <aside class="preview-sidebar">
       <.link href="/next" class="preview-sidebar-brand"><span
@@ -71,7 +45,6 @@ defmodule MondekWeb.PreviewLayouts do
                 {:overview, "Overview", @overview_path, "grid"},
                 {:incidents, "Incidents", "/next/incidents", "pulse"},
                 {:checks, "Checks", "/next/checks", "check"},
-                {:coverage, "Coverage", "/next/coverage", "shield"},
                 {:maintenance, "Maintenance", "/next/maintenance", "clock"}
               ]
             }
@@ -84,24 +57,68 @@ defmodule MondekWeb.PreviewLayouts do
             ><MondekWeb.Layouts.icon name={icon} size={18} /><span>{label}</span></.link>
           </li>
         </ul>
-        <h2 class="preview-nav-heading">Existing pages</h2>
+        <h2 class="preview-nav-heading">Manage</h2>
         <ul class="pf-v6-c-nav__list">
           <li
             :for={
-              {label, href, icon} <- [
-                {"Configuration", "/configuration", "sliders"},
-                {"Runners", "/runners", "server"},
-                {"Notifications", "/notifications", "send"}
+              {page, label, href, icon} <- [
+                {:configuration, "Configuration", "/configuration", "sliders"},
+                {:runners, "Runners", "/runners", "server"},
+                {:notifications, "Notifications", "/notifications", "send"},
+                {:coverage, "Coverage", "/next/coverage", "shield"}
               ]
             }
             class="pf-v6-c-nav__item"
           >
-            <a href={href} class="pf-v6-c-nav__link"><MondekWeb.Layouts.icon name={icon} size={18} /><span>{label}</span></a>
+            <a
+              href={href}
+              class={["pf-v6-c-nav__link", @active == page && "pf-m-current"]}
+              aria-current={if @active == page, do: "page"}
+            ><MondekWeb.Layouts.icon name={icon} size={18} /><span>{label}</span></a>
           </li>
         </ul>
       </nav>
       <a href="/licenses" class="preview-credits">Licenses and credits</a>
     </aside>
+    """
+  end
+
+  attr :active, :atom, required: true
+  attr :page_title, :string, required: true
+  attr :flash, :map, default: %{}
+  attr :main_class, :string, default: ""
+  slot :inner_block, required: true
+
+  def app(assigns) do
+    ~H"""
+    <div class="preview-shell">
+      <.navigation active={@active} />
+      <main
+        id="main-content"
+        class={["preview-main", @main_class]}
+        tabindex="-1"
+        aria-label={@page_title}
+      >
+        <div
+          :for={key <- [:info, :error]}
+          :if={Phoenix.Flash.get(@flash, key)}
+          class={["ui-feedback", key == :error && "ui-error"]}
+          role={if key == :error, do: "alert", else: "status"}
+        >
+          <span>{Phoenix.Flash.get(@flash, key)}</span>
+          <button
+            type="button"
+            phx-click="lv:clear-flash"
+            phx-value-key={key}
+            aria-label="Dismiss message"
+          >×</button>
+        </div>
+        {render_slot(@inner_block)}
+        <div class="preview-connection" role="status">
+          Connection interrupted. Displayed evidence may be out of date. Reconnecting…
+        </div>
+      </main>
+    </div>
     """
   end
 end
