@@ -1489,6 +1489,11 @@ defmodule Mondek.Inspection do
         where: is_nil(g.id) or g.status == "closed" or i.status == "open"
 
     query =
+      if present?(f["source_id"]),
+        do: from([i, a] in query, where: a.source_id == ^f["source_id"]),
+        else: query
+
+    query =
       case f["grouping"] do
         "shared" -> from([i] in query, where: not is_nil(i.condition_incident_id))
         "standalone" -> from([i] in query, where: is_nil(i.condition_incident_id))

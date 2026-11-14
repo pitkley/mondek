@@ -27,6 +27,7 @@ Issues = "https://github.com/pitkley/mondek/issues"
 [project.scripts]
 mondek-runner = "mondek_runner.__main__:main"
 mondek-policy = "mondek_runner.policy:main"
+mondek-mcp = "mondek_runner.mcp:main"
 
 [build-system]
 requires = ["uv_build==0.12.5"]

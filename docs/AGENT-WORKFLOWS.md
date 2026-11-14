@@ -1,5 +1,7 @@
 # Working with a coding agent
 
+For live investigation without copying UI context, connect the [read-only MCP integration](AGENT-INTEGRATION.md). Its evidence tools complement these workflows; source editing still happens in the agent's consumer checkout.
+
 Follow [the human getting-started path](GETTING-STARTED.md) and [SDK guide](SDK.md) as the underlying instructions. These prompts help an agent carry out the same tasks; they do not define a separate installation method. Reusable [agent skills](../skills/README.md) provide separate server, runner/deployment and check-authoring workflows. Copying a prompt does not install a skill.
 
 ## Before the UI is running

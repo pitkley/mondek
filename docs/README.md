@@ -2,6 +2,8 @@
 
 These guides are for people using and developing Mondek. Coding agents use the same SDK and protocol references; [agent workflows](AGENT-WORKFLOWS.md) provide task-specific entry points. Start with the path that matches your task; there is no need to read every guide before trying the experimental alpha.
 
+For live read-only access from ChatGPT, Claude or another MCP client, see [agent integration](AGENT-INTEGRATION.md).
+
 ## Get started
 
 Read [how Mondek fits together](CONCEPTS.md), then follow [your first monitoring project](GETTING-STARTED.md): start an empty server, create a separate Python project, connect a runner and observe failure/recovery. The [repository README](../README.md) has the short startup commands; [source installation](DISTRIBUTION.md) explains fixed revisions and portable SDK artifacts. Read the [preview scope](RELEASE-NOTES.md) and [access boundary](CONTROLLER-AUTH.md) before hosting an installation.

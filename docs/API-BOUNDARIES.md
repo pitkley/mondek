@@ -4,6 +4,8 @@ This caller inventory describes the current implementation; it is not a new vers
 
 ## Classification and ownership
 
+The supported read-only `/mcp` integration has its own explicit [agent investigation contract](AGENT-INTEGRATION.md). It uses internal inspection contexts without promoting their full maps or existing HTTP endpoints to public DTOs. `mondek-mcp` is a thin local stdio adapter for this same endpoint. Neither transport adds authentication or mutation authority.
+
 - **Supported:** an intentional consumer boundary used by the shipped runner, operator CLI, documented integration or check-authoring interface. Preserve its documented behavior and actual callers when changing it. This is an experimental release; neither its version nor `/api/v1` establishes an indefinite frozen schema or arbitrary old/new release interoperability.
 - **Internal:** an application inspection/projection or implementation boundary with repository-owned callers. This is not permission to break those callers: update them and their tests together. An inspection map returned from an Ecto context is not automatically a public DTO. Do not infer a field stability promise from its visibility over HTTP.
 - **Legacy:** retained compatibility behavior with current callers or persisted state. Keep it until a specific migration proves preservation of identities, settings, buffered evidence and history. Legacy does not mean unused or safe to delete.
