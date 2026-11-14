@@ -19,7 +19,7 @@ defmodule Mondek.MaintenanceSelection do
   @page_size 25
 
   @doc "Bounded named filter suggestions; choices never define saved maintenance scope."
-  def filter_choices do
+  def filter_choices(search \\ "") do
     assignments =
       from a in Assignment,
         where: is_nil(a.retired_at) and not is_nil(a.environment),
@@ -45,6 +45,8 @@ defmodule Mondek.MaintenanceSelection do
     environments =
       Repo.all(
         from e in subquery(environments),
+          where:
+            fragment("strpos(lower(concat_ws(' ', ?, ?)), lower(?)) > 0", e.id, e.label, ^search),
           distinct: e.id,
           order_by: [e.id, e.priority, e.label],
           limit: 101,
@@ -54,6 +56,13 @@ defmodule Mondek.MaintenanceSelection do
     runners =
       Repo.all(
         from r in Runner,
+          where:
+            fragment(
+              "strpos(lower(concat_ws(' ', ?::text, ?)), lower(?)) > 0",
+              r.id,
+              r.label,
+              ^search
+            ),
           order_by: [r.label, r.id],
           limit: 101,
           select: %{"id" => r.id, "label" => r.label}
@@ -62,7 +71,9 @@ defmodule Mondek.MaintenanceSelection do
     sources =
       Repo.all(
         from a in Assignment,
-          where: is_nil(a.retired_at) and not is_nil(a.source_id),
+          where:
+            is_nil(a.retired_at) and not is_nil(a.source_id) and
+              fragment("strpos(lower(?), lower(?)) > 0", a.source_id, ^search),
           distinct: a.source_id,
           order_by: a.source_id,
           limit: 101,

@@ -31,13 +31,72 @@ defmodule Mondek.ConfigurationRules do
     :ok
   end
 
-  def list(page \\ 1) do
-    rules = Repo.all(from(r in ConfigurationRule, order_by: [asc: r.name, asc: r.id]))
+  def list(page \\ 1)
 
-    page_result(rules, page, "rules")
+  def list(filters) when is_map(filters) do
+    base = from(r in ConfigurationRule, order_by: [asc: r.name, asc: r.id])
+
+    query =
+      case filters["enabled"] do
+        "enabled" -> from r in base, where: r.enabled
+        "disabled" -> from r in base, where: not r.enabled
+        _ -> base
+      end
+
+    query =
+      case filters["ownership"] do
+        "operator" -> from r in query, where: is_nil(r.managed_project)
+        "project" -> from r in query, where: not is_nil(r.managed_project)
+        _ -> query
+      end
+
+    query =
+      case bounded_filter(filters["source_id"]) do
+        "" -> query
+        source -> from r in query, where: r.source_id == ^source
+      end
+
+    query =
+      case bounded_filter(filters["search"]) do
+        "" ->
+          query
+
+        search ->
+          from r in query,
+            where:
+              fragment(
+                "strpos(lower(concat_ws(' ', ?, ?, ?, ?, ?, ?, ?)), lower(?)) > 0",
+                r.name,
+                r.source_id,
+                r.parameter_contract,
+                r.environment,
+                r.target_kind,
+                r.target_key,
+                r.managed_project,
+                ^search
+              )
+      end
+
+    rules = Repo.all(query)
+
+    sources =
+      Repo.all(
+        from r in ConfigurationRule, distinct: true, order_by: r.source_id, select: r.source_id
+      )
+
+    page_result(rules, filters["page"], "rules")
     |> Map.update!("rules", &Enum.map(&1, fn rule -> public_rule(rule, true) end))
     |> Map.put("diagnostics", diagnostics())
+    |> Map.put("sources", sources)
   end
+
+  def list(page), do: list(%{"page" => page})
+
+  defp bounded_filter(value) when is_binary(value) and byte_size(value) <= 800 do
+    if String.valid?(value), do: String.slice(String.replace(value, <<0>>, ""), 0, 200), else: ""
+  end
+
+  defp bounded_filter(_), do: ""
 
   @doc "Discover source-declared compatible parameter groups without changing their scope."
   def groups(search \\ "", requested_page \\ 1) do

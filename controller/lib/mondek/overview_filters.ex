@@ -49,8 +49,13 @@ defmodule Mondek.OverviewFilters do
       from(d in CoverageDeclaration,
         join: p in SourceInventory,
         on: p.id == d.source_inventory_id,
-        where: d.scope_resolved and is_nil(p.retired_at) and is_nil(p.resume_after_revision)
+        where: is_nil(p.retired_at) and is_nil(p.resume_after_revision)
       )
+
+    declarations =
+      if mode == :coverage,
+        do: declarations,
+        else: from(d in declarations, where: d.scope_resolved)
 
     {streams, declarations} =
       case field do

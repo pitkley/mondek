@@ -67,6 +67,20 @@ defmodule Mondek.RunnerFleet do
     end
   end
 
+  @doc "Bounded source suggestions across all retained runner publications."
+  def source_options(query \\ "") do
+    term = "%" <> escape_like(input_text(query, 200)) <> "%"
+
+    Repo.all(
+      from p in SourceInventory,
+        where: ilike(p.source_id, ^term),
+        distinct: p.source_id,
+        order_by: p.source_id,
+        select: p.source_id,
+        limit: 50
+    )
+  end
+
   def normalize(filters) do
     filters = if is_map(filters), do: filters, else: %{}
     filters = Map.new(filters, fn {key, value} -> {to_string(key), value} end)
@@ -307,12 +321,14 @@ defmodule Mondek.RunnerFleet do
         order_by: [asc: p.runner_id, asc: ranked.position],
         select:
           map(p, [
+            :id,
             :runner_id,
             :source_id,
             :revision,
             :source_revision,
             :received_at,
             :retired_at,
+            :resume_after_revision,
             :coverage_context,
             :coverage_confirmed,
             :coverage_received_at
