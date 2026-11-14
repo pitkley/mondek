@@ -130,9 +130,7 @@ def verify_sdk(directory: Path, contract: dict[str, str]) -> dict[str, str]:
         or metadata["Requires-Python"] != ">=3.13"
         or metadata["Description-Content-Type"] != "text/markdown"
     ):
-        raise ValueError(
-            "SDK metadata does not describe the selected typed Python alpha"
-        )
+        raise ValueError("SDK metadata does not describe the selected typed Python SDK")
     return hashes
 
 

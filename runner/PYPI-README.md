@@ -5,7 +5,7 @@ Mondek is an experimental monitoring tool with code-defined Python checks and a 
 Python 3.13 or newer is required. With uv installed, create a monitoring project:
 
 ```sh
-uv tool install mondek==0.0.1a3
+uv tool install mondek==0.0.1
 mondek-runner init my-monitoring
 cd my-monitoring
 uv sync
@@ -21,7 +21,7 @@ uv run --locked mondek-runner --consumer monitoring.app:app \
   --controller http://127.0.0.1:4000 --state-dir .mondek-state
 ```
 
-The generated example measures a local backlog file; its README explains failure/recovery, data access and deployment. Keep each runner's state directory across restarts and use an absolute path for a service. Store secrets outside source control and use an authentication gateway for externally accessible controllers; this alpha has no built-in authentication.
+The generated example measures a local backlog file; its README explains failure/recovery, data access and deployment. Keep each runner's state directory across restarts and use an absolute path for a service. Store secrets outside source control and use an authentication gateway for externally accessible controllers; Mondek has no built-in authentication.
 
 See [getting started](https://github.com/pitkley/mondek/blob/main/docs/GETTING-STARTED.md), the [SDK guide](https://github.com/pitkley/mondek/blob/main/docs/SDK.md) and [runner deployment](https://github.com/pitkley/mondek/blob/main/docs/RUNNER-DEPLOYMENT.md). Use matching controller/SDK releases; experimental does not promise arbitrary mixed-version compatibility.
 

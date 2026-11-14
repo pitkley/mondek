@@ -26,6 +26,7 @@ class ReleaseVersionTest(unittest.TestCase):
 
     def test_matching_stable_and_prerelease_versions(self):
         for sdk, controller in [
+            ("0.0.1", "0.0.1"),
             ("1.2.3", "1.2.3"),
             ("0.0.1a1", "0.0.1-alpha.1"),
             ("1.2.3b2", "1.2.3-beta.2"),
