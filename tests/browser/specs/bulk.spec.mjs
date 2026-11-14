@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
 import {
-  checkpoint, connected, fixtureURL, keyboardFill, keyboardSubmit, mode, snapshot, streams,
+  checkpoint, connected, fixtureURL, keyboardFill, keyboardSubmit, mode, snapshot, streams, setFilter,
 } from '../support/helpers.mjs';
 
 async function configurations(request) {
@@ -31,7 +31,7 @@ async function selectAll(page) {
   await expect(page.locator('#bulk-selection-count')).toContainText('1 selected');
   await page.getByRole('button', { name: 'Add all compatible matches', exact: true }).click();
   await expect(page.locator('#bulk-selection-count')).toContainText('500 selected');
-  await page.getByRole('button', { name: 'Review selected checks', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit selected checks', exact: true }).click();
   await expect(page.locator('#bulk-editor')).toBeVisible();
 }
 
@@ -62,14 +62,14 @@ test('500 delegated checks can be reviewed and saved together without concealing
   await page.goto('/configuration');
   await expect(page.locator('[id^="configuration-row-"]')).toHaveCount(50);
   await page.locator('#new-shared-rule').click();
-  await expect(page.locator('.configuration-group')).toHaveCount(1);
-  await expect(page.locator('.configuration-group')).toContainText('500 scheduled checks');
-  await page.getByRole('link', { name: 'Use these settings', exact: true }).click();
+  await expect(page.locator('table[aria-label="Compatible parameter groups"] > tbody > tr')).toHaveCount(1);
+  await expect(page.locator('table[aria-label="Compatible parameter groups"] > tbody > tr')).toContainText('500 scheduled checks');
+  await page.getByRole('link', { name: /^Use settings from / }).click();
   await expect(page.locator('#rule-environment-scope')).toHaveValue('all');
   await expect(page.locator('#rule-target-scope')).toHaveValue('all');
   await page.getByRole('button', { name: 'Preview rule', exact: true }).click();
   await expect(page.locator('#rule-preview-summary')).toContainText('500 checks reviewed');
-  await expect(page.locator('#rule-preview tbody tr')).toHaveCount(25);
+  await expect(page.locator('#rule-preview > table[aria-label="Reviewed configuration changes"] > tbody > tr')).toHaveCount(25);
   await checkpoint(page, testInfo, 'shared-rule-discovery-reviews-500-existing-checks');
   await page.goto('/configuration');
   await connected(page);
@@ -85,7 +85,7 @@ test('500 delegated checks can be reviewed and saved together without concealing
   await page.getByRole('button', { name: 'Add all compatible matches', exact: true }).click();
   await expect(page.locator('#bulk-selection-count')).toContainText('500 selected');
   await checkpoint(page, testInfo, 'bulk-fixed-selection-across-pages');
-  await page.getByRole('button', { name: 'Review selected checks', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit selected checks', exact: true }).click();
   const critical = page.locator('#bulk-param-critical_min_bytes');
   const warning = page.locator('#bulk-param-warn_min_bytes');
   await critical.fill('15');
@@ -113,7 +113,7 @@ test('500 delegated checks can be reviewed and saved together without concealing
   await expect(page.locator('[id^="bulk-review-"]')).toHaveCount(25);
   await activeStepBeforeInventory(page, '#bulk-preview');
   const firstReview = await page.locator('[id^="bulk-review-"]').evaluateAll((rows) => rows.map((row) => row.id));
-  await page.getByRole('button', { name: 'Next review page', exact: true }).click();
+  await page.getByRole('navigation', {name:'Configuration review pages'}).getByRole('button', {name:'Next',exact:true}).click();
   await expect.poll(async () => {
     const secondReview = await page.locator('[id^="bulk-review-"]').evaluateAll((rows) => rows.map((row) => row.id));
     return secondReview.length === 25 && secondReview.every((id) => !firstReview.includes(id));
@@ -159,12 +159,12 @@ test('500 delegated checks can be reviewed and saved together without concealing
     // stage filter must still expose all waiting desired configurations.
     await returning.goto('/configuration');
     await connected(returning);
-    await returning.getByLabel('Configuration adoption', { exact: true }).selectOption('saved');
+    await setFilter(returning, 'configuration_stage', 'saved');
     await expect(returning).toHaveURL(/configuration_stage=saved/);
     await expect(returning.locator('#configuration-adoption-summary strong')).toHaveText('500 matching');
     await returning.reload();
     await connected(returning);
-    await expect(returning.getByLabel('Configuration adoption', { exact: true })).toHaveValue('saved');
+    await expect(returning.getByRole('button', {name:/Edit Adoption filter:/})).toContainText('Saved');
     await expect(returning.locator('[id^="configuration-row-"]')).toHaveCount(50);
     await expect(returning.locator('#configuration-adoption-summary strong')).toHaveText('500 matching');
     await checkpoint(returning, testInfo, 'bulk-return-to-waiting-configurations-320');
@@ -173,7 +173,7 @@ test('500 delegated checks can be reviewed and saved together without concealing
   }
   await expect(page.locator('#bulk-progress')).toContainText('500 measured', { timeout: 240_000 });
   await expect(returning.locator('#configuration-adoption-summary strong')).toHaveText('0 matching');
-  await returning.getByLabel('Configuration adoption', { exact: true }).selectOption('measured');
+  await setFilter(returning, 'configuration_stage', 'measured');
   await expect(returning).toHaveURL(/configuration_stage=measured/);
   await expect(returning.locator('#configuration-adoption-summary strong')).toHaveText('500 matching');
   await expect(returning.locator('[id^="configuration-row-"]')).toHaveCount(50);
@@ -238,8 +238,8 @@ test('500 delegated checks can be reviewed and saved together without concealing
     expect((await streams(request, { health: 'OK', freshness: 'fresh' })).total).toBe(470);
     expect(configurationIdentity((await configurations(request)).filter((row) => !batchIDs.has(row.id))))
       .toEqual(configurationIdentity(untouched));
-    await page.goto(`/checks/${failed[0].id}`);
-    await expect(page.locator('[id^="active-incident-"]')).toHaveCount(1);
+    await page.goto(`/results/${failed[0].id}/full`);
+    await expect(page.getByRole('link', {name:'View incident',exact:true})).toHaveCount(1);
     await checkpoint(page, testInfo, 'bulk-parameters-cause-thirty-real-file-warnings');
 
     await expect.poll(async () => {
@@ -261,19 +261,19 @@ test('500 delegated checks can be reviewed and saved together without concealing
     });
 
     await page.goto('/notifications');
-    await expect(page.getByLabel('Delivery status', { exact: true })).toHaveValue('unresolved');
-    await expect(page.locator('#notifications > .panel-heading')).toContainText('30 outstanding');
-    const cards = page.locator('#notifications .notifications-table tr[id^="notification-row-"]');
+    await expect(page.getByRole('button', {name:/Edit Status filter: Outstanding/})).toBeVisible();
+    await expect(page.locator('section[aria-labelledby=notifications-heading] > .preview-heading')).toContainText('30 outstanding');
+    const cards = page.locator('table[aria-label="Notifications"] > tbody > tr[id^="notification-row-"]');
     await expect(cards).toHaveCount(25);
-    await expect(page.locator('#notification-pagination')).toContainText('Page 1 of 2');
-    await expect(page.locator('#notification-pagination')).toContainText('30 matching notifications');
+    await expect(page.getByRole('navigation', {name:'Notification pages'}).locator('[aria-current=page]')).toHaveText('1');
+    await expect(page.getByRole('navigation', {name:'Notification pages'})).toContainText('of 30');
     await checkpoint(page, testInfo, 'delivery-outstanding-first-page-320');
-    await page.getByLabel('Delivery status', { exact: true }).selectOption('exhausted');
+    await setFilter(page, 'notification_status', 'exhausted');
     await expect(page).toHaveURL(/notification_status=exhausted/);
     const firstPage = await cards.evaluateAll((rows) => rows.map((row) => row.id.replace('notification-row-', '')));
-    await page.getByRole('link', { name: 'Next notifications', exact: true }).click();
+    await page.getByRole('navigation',{name:'Notification pages'}).getByRole('link', {name:'Next',exact:true}).click();
     await expect(cards).toHaveCount(5);
-    await expect(page.locator('#notification-pagination')).toContainText('Page 2 of 2');
+    await expect(page.getByRole('navigation', {name:'Notification pages'}).locator('[aria-current=page]')).toHaveText('2');
     const secondPage = await cards.evaluateAll((rows) => rows.map((row) => row.id.replace('notification-row-', '')));
     expect(new Set([...firstPage, ...secondPage]).size).toBe(30);
     expect([...firstPage, ...secondPage].sort()).toEqual(firing.map((item) => item.id).sort());
@@ -281,21 +281,22 @@ test('500 delegated checks can be reviewed and saved together without concealing
     await expect(page.locator('[data-phx-main]')).not.toHaveClass(/phx-connected/);
     await page.evaluate(() => window.liveSocket.connect());
     await connected(page);
-    await expect(page.locator('#notification-pagination')).toContainText('Page 2 of 2');
+    await expect(page.getByRole('navigation', {name:'Notification pages'}).locator('[aria-current=page]')).toHaveText('2');
     expect(await cards.evaluateAll((rows) => rows.map((row) => row.id.replace('notification-row-', '')))).toEqual(secondPage);
     await checkpoint(page, testInfo, 'delivery-exhausted-second-page-five-notifications-320');
 
     const original = firing.find((item) => item.id === secondPage[0]);
     retriedID = original.id;
     await page.locator(`#notification-row-${original.id}`).getByRole('link').first().click();
-    await expect(page).toHaveURL(new RegExp(`/notifications/${original.id}(?:\\?|$)`));
-    const notification = page.locator(`#notification-${original.id}`);
-    await notification.getByText('Notification identity and immutable payload', { exact: true }).click();
-    expect(JSON.parse(await notification.locator('pre').textContent())).toEqual(original.payload);
-    await expect(notification).toContainText(original.destination);
+    await expect(page).toHaveURL(url => url.pathname === '/notifications' && url.searchParams.get('inspect') === `notification:${original.id}`);
+    const notification = page.locator('#overview-panel');
+    await notification.getByText('Original notification payload', {exact:true}).click();
+    const {webhook_delivery: _privateDelivery, ...publicPayload} = original.payload;
+    expect(JSON.parse(await notification.locator('[id$="notification-payload"] pre').textContent())).toEqual(publicPayload);
+    await expect(notification).not.toContainText(original.destination);
     await mode(request, { webhook: 'ok' });
-    const retryForm = notification.locator(`#retry-notification-${original.id}`);
-    await keyboardFill(page, retryForm.getByLabel('Retry reason', { exact: true }), 'Local receiver repaired; retry the original notification from page two');
+    const retryForm = notification.locator('form[phx-submit=retry_notification]');
+    await keyboardFill(page, retryForm.getByLabel('Reason for retry', { exact: true }), 'Local receiver repaired; retry the original notification from page two');
     await keyboardSubmit(page, retryForm.getByRole('button', { name: 'Retry notification', exact: true }));
     await expect.poll(async () => (await snapshot(request)).occurrences.find((item) => item.id === original.id)?.status,
       { timeout: 45_000 }).toBe('delivered');
@@ -316,15 +317,16 @@ test('500 delegated checks can be reviewed and saved together without concealing
     await testInfo.attach('original-notification-accepted-by-local-receiver', {
       body: JSON.stringify({ original, accepted, receipt: received[0] }, null, 2), contentType: 'application/json',
     });
-    await page.getByRole('link', { name: 'Back to notifications' }).click();
+    await page.locator('#overview-panel [data-overview-close]').click();
     await expect(cards).toHaveCount(4);
-    await expect(page.locator('#notification-pagination')).toContainText('29 matching notifications');
-    await page.getByLabel('Delivery status', { exact: true }).selectOption('delivered');
+    await expect(page.getByRole('navigation', {name:'Notification pages'})).toContainText('of 29');
+    await setFilter(page, 'notification_status', 'delivered');
     await expect(page).toHaveURL(/notification_status=delivered/);
     await expect(cards).toHaveCount(1);
     await expect(page.locator(`#notification-row-${original.id}`)).toContainText('Receiver accepted');
-    await expect(page.locator('#notifications > .panel-heading')).toContainText('29 outstanding');
-    await expect(page.locator('#notification-pagination')).toContainText('1 matching notification');
+    await expect(page.locator('section[aria-labelledby=notifications-heading] > .preview-heading')).toContainText('29 outstanding');
+    await expect(page.locator('.notification-matching-count')).toContainText('1 matching notification');
+    await expect(page.getByRole('navigation', {name:'Notification pages'})).toHaveCount(0);
     await checkpoint(page, testInfo, 'delivery-original-page-two-notification-accepted-320');
   } finally {
     await mode(request, { webhook: 'ok' });
@@ -349,8 +351,8 @@ test('500 delegated checks can be reviewed and saved together without concealing
     expect(ended.payload).toEqual(original.payload);
     expect(ended.status).toBe(original.id === retriedID ? 'delivered' : 'superseded');
   }
-  await page.goto(`/checks/${failed[0].id}`);
-  await expect(page.locator('[id^="active-incident-"]')).toHaveCount(0);
+  await page.goto(`/results/${failed[0].id}/full`);
+  await expect(page.getByRole('link', {name:'View incident',exact:true})).toHaveCount(0);
   const selectedResponse = await request.get(`/api/v1/checks/${failed[0].id}`);
   expect(selectedResponse.ok()).toBeTruthy();
   const selected = (await selectedResponse.json()).stream;

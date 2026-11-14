@@ -1,7 +1,7 @@
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
-import { checkpoint, connected, fixtureURL, keyboardFill, keyboardSubmit, measured, mode, snapshot } from '../support/helpers.mjs';
+import { checkpoint, connected, fixtureURL, keyboardFill, keyboardSubmit, measured, mode, reconnect, searchFilters, setFilter, snapshot } from '../support/helpers.mjs';
 import { demoAssignments } from '../support/helpers.mjs';
 
 let filesystemId, httpId, consumerId;
@@ -35,19 +35,14 @@ async function maintenanceJSON(request, path, data) {
 }
 
 async function currentSeries(page, request) {
-  await expect(page).toHaveURL(/\/maintenance\/series\/[0-9a-f-]{36}(?:\?.*)?$/);
-  const id = new URL(page.url()).pathname.split('/').at(-1);
+  await expect(page).toHaveURL(/\/maintenance\/series\/[0-9a-f-]{36}(?:\/full)?(?:\?.*)?$/);
+  const id = new URL(page.url()).pathname.split('/').filter(part => part && part !== 'full').at(-1);
   return maintenanceJSON(request, `/api/v1/maintenance-series/${id}`);
 }
 
 async function disconnect(page) {
   await page.evaluate(() => window.liveSocket.disconnect());
   await expect(page.locator('[data-phx-main]')).not.toHaveClass(/phx-connected/);
-}
-
-async function reconnect(page) {
-  await page.evaluate(() => window.liveSocket.connect());
-  await connected(page);
 }
 
 async function formFits(page, selector = '#maintenance-form') {
@@ -71,8 +66,8 @@ async function formFits(page, selector = '#maintenance-form') {
 }
 
 async function currentWindow(page, request) {
-  await expect(page).toHaveURL(/\/maintenance\/[0-9a-f-]{36}$/);
-  const id = new URL(page.url()).pathname.split('/').at(-1);
+  await expect(page).toHaveURL(/\/maintenance\/[0-9a-f-]{36}(?:\/full)?(?:\?.*)?$/);
+  const id = new URL(page.url()).pathname.split('/').filter(part => part && part !== 'full').at(-1);
   const response = await request.get(`/api/v1/maintenance/${id}`);
   expect(response.ok(), await response.text()).toBe(true);
   return response.json();
@@ -84,8 +79,8 @@ async function cancelWindow(page, reason) {
   await page.locator('#maintenance-cancel-reason').fill(reason);
   await keyboardSubmit(page, page.locator('#maintenance-confirm-cancel'));
   await expect(page.locator('#maintenance-saved')).toContainText(active ? 'Ended early' : 'Cancelled');
-  await expect(page.locator('#maintenance-saved')).toContainText(active ? 'Ended early at' : 'Cancelled at');
-  await expect(page.locator('#maintenance-saved')).toContainText('Scheduled end');
+  await expect(page.locator('#maintenance-saved').getByRole('rowheader', {name: active ? 'Ended early' : 'Cancelled', exact: true})).toBeVisible();
+  await expect(page.locator('#maintenance-saved')).toContainText('Ends');
   await expect(page.locator('#maintenance-saved')).toContainText('Planned duration');
   await expect(page.locator('#maintenance-form')).toHaveCount(0);
   await expect(page.locator('#maintenance-history')).toContainText(reason);
@@ -99,12 +94,8 @@ test('schedule exact civil times, preserve drafts through reconnect and review c
   page.on('pageerror', (error) => errors.push(error.message));
   await mode(request, { ready: true, webhook: 'ok' });
   await measured(request, httpId);
-  await page.goto('/maintenance');
+  await page.goto(`/maintenance/new?check_id=${httpId}`);
   await connected(page);
-  await page.getByRole('link', { name: 'Schedule maintenance', exact: true }).click();
-  await page.locator('#maintenance-search').fill('Local HTTP');
-  await expect(page.locator('#maintenance-check-chooser').getByRole('link', { name: 'Schedule just this check', exact: true })).toHaveCount(1);
-  await page.locator('#maintenance-check-chooser').getByRole('link', { name: 'Schedule just this check', exact: true }).click();
   await expect(page.locator('#maintenance-form')).toBeVisible();
   await keyboardFill(page, page.locator('#maintenance-name'), 'Autumn deployment window');
   await page.locator('#maintenance-reason').fill('Deploy the service during the repeated local hour');
@@ -130,8 +121,7 @@ test('schedule exact civil times, preserve drafts through reconnect and review c
 
   await page.evaluate(() => window.liveSocket.disconnect());
   await expect(page.locator('[data-phx-main]')).not.toHaveClass(/phx-connected/);
-  await page.evaluate(() => window.liveSocket.connect());
-  await connected(page);
+  await reconnect(page, {alreadyDisconnected: true});
   await expect(page.locator('#maintenance-name')).toHaveValue('Autumn deployment window');
   await expect(page.locator('input[name="window[start_fold]"][value="earlier"]')).toBeChecked();
   await expect(page.locator('input[name="window[end_fold]"][value="later"]')).toBeChecked();
@@ -178,7 +168,7 @@ test('schedule exact civil times, preserve drafts through reconnect and review c
   await checkpoint(page, testInfo, 'cancelled-maintenance-history-desktop');
   await page.goto(`/maintenance?assignment_id=${httpId}&status=history`);
   await connected(page);
-  await expect(page.locator('#maintenance-list')).toContainText('Autumn deployment window');
+  await expect(page.getByRole('table', {name: 'Maintenance windows and series', exact: true})).toContainText('Autumn deployment window');
   expect(errors).toEqual([]);
 });
 
@@ -227,10 +217,10 @@ test('default immediate window previews, independent overlaps hold real delivery
   await page.goto(`/maintenance/${first.id}`);
   await connected(page);
   await cancelWindow(page, 'First independent activity completed');
-  await page.goto(`/incidents/${incident.id}`);
+  await page.goto(`/incidents/health/${incident.id}/full`);
   await connected(page);
-  await expect(page.locator('#incident-occurrences')).toContainText('Maintenance');
-  await expect(page.locator(`#maintenance-summary-${httpId}`)).toContainText('Independent overlapping work');
+  await expect(page.locator('section[aria-labelledby="preview-delivery-heading"]')).toContainText('Maintenance');
+  await expect(page.locator('section[aria-labelledby="preview-maintenance-heading"]')).toContainText('Independent overlapping work');
   const sequence = (await snapshot(request)).assignments.find((a) => a.id === httpId).last_sequence;
   await expect.poll(async () => (await snapshot(request)).assignments.find((a) => a.id === httpId).last_sequence).toBeGreaterThan(sequence + 1);
   const stillHeld = (await snapshot(request)).occurrences.find((item) => item.id === held.id);
@@ -254,11 +244,11 @@ test('default immediate window previews, independent overlaps hold real delivery
 async function selectedChoice(page, predicate) {
   let key;
   await expect.poll(async () => {
-    const values = await page.locator('.maintenance-picker-rows input[type="checkbox"]').evaluateAll((inputs) => inputs.map((input) => input.value));
+    const values = await page.locator('.preview-maintenance-choice-row input[name="selected_keys[]"]').evaluateAll((inputs) => inputs.map((input) => input.value));
     key = values.find((value) => predicate(JSON.parse(Buffer.from(value, 'base64url').toString())));
     return Boolean(key);
   }).toBe(true);
-  return page.locator(`.maintenance-picker-rows input[value="${key}"]`);
+  return page.locator(`.preview-maintenance-choice-row input[name="selected_keys[]"][value="${key}"]`);
 }
 
 test('one explicit selection survives unsent reconnect, reviews overlap drift and releases original held delivery', async ({ page, request }, testInfo) => {
@@ -274,34 +264,35 @@ test('one explicit selection survives unsent reconnect, reviews overlap drift an
   await page.goto('/maintenance/new');
   await connected(page);
   const observingRunner = initial.runners.find((item) => (item.id || item.installation_id) === httpCheck.runner_id);
-  await expect(page.locator(`#maintenance-runner-options option[value="${httpCheck.runner_id}"]`))
-    .toHaveText(observingRunner.label);
-  await expect(page.getByLabel('Observing runner', { exact: true })).toHaveAttribute('list', 'maintenance-runner-options');
-  await expect(page.getByLabel('Monitored environment', { exact: true })).toHaveAttribute('list', 'maintenance-environment-options');
-  await page.getByLabel('Observing runner', { exact: true }).fill(httpCheck.runner_id);
-  await expect.poll(async () => (await page.locator('.maintenance-picker-rows').innerText()).includes(httpCheck.label)).toBe(true);
-  await page.getByLabel('Observing runner', { exact: true }).fill('');
-  await expect(page.locator('#maintenance-settings')).toBeHidden();
+  await setFilter(page, 'runner_id', httpCheck.runner_id, {id: 'maintenance-choice-search'});
+  await expect(page.locator('#maintenance-choice-search-chip-runner_id')).toContainText(observingRunner.label);
+  await expect(page.getByRole('table', {name: 'Checks and targets'})).toContainText(httpCheck.label);
+  await setFilter(page, 'runner_id', null, {id: 'maintenance-choice-search'});
+  await expect(page.locator('#maintenance-settings')).toBeVisible();
+  await expect(page.locator('#maintenance-preview-button')).toBeDisabled();
   await (await selectedChoice(page, (item) => item.scope === 'check' && item.assignment_id === httpId)).check();
-  await expect(page.locator('#maintenance-selected-count')).toHaveText('1 selection');
+  await expect(page.locator('#maintenance-selected-count')).toHaveText('1 selected');
   await page.locator('#maintenance-name').fill('Selected service work');
   await page.locator('#maintenance-reason').fill('One shared window for service and storage');
   await (await selectedChoice(page, (item) => item.scope === 'check' && item.assignment_id === filesystemId)).check();
-  await expect(page.locator('#maintenance-selected-count')).toHaveText('2 selections');
-  await page.locator('#maintenance-review-selected').click();
-  await page.locator('.maintenance-picker-rows li').filter({ hasText: filesystem.label }).getByRole('button', { name: /^Remove / }).click();
-  await expect(page.locator('#maintenance-selected-count')).toHaveText('1 selection');
+  await expect(page.locator('#maintenance-selected-count')).toHaveText('2 selected');
+  await searchFilters(page, httpCheck.label, {id: 'maintenance-choice-search'});
+  const pinned = page.locator('.preview-maintenance-pinned tr').filter({hasText: filesystem.label});
+  await expect(pinned.getByRole('checkbox')).toBeChecked();
+  await pinned.getByRole('checkbox').uncheck();
+  await expect(page.locator('#maintenance-selected-count')).toHaveText('1 selected');
   await page.locator('#maintenance-clear-selection').click();
-  await expect(page.locator('#maintenance-selected-count')).toHaveText('0 selections');
-  await expect(page.locator('#maintenance-settings')).toBeHidden();
+  await expect(page.locator('#maintenance-selected-count')).toHaveText('0 selected');
+  await expect(page.locator('#maintenance-settings')).toBeVisible();
+  await expect(page.locator('#maintenance-preview-button')).toBeDisabled();
   await expect(page.locator('#maintenance-name')).toHaveValue('Selected service work');
-  await page.getByRole('button', { name: 'Available choices', exact: true }).click();
+  await searchFilters(page, '', {id: 'maintenance-choice-search'});
   await (await selectedChoice(page, (item) => item.scope === 'check' && item.assignment_id === httpId)).check();
   await (await selectedChoice(page, (item) => item.scope === 'check' && item.assignment_id === filesystemId)).check();
-  await page.locator('#maintenance-kind').selectOption('target');
+  await setFilter(page, 'kind', 'target', {id: 'maintenance-choice-search'});
   await (await selectedChoice(page, (item) => item.scope === 'target' && item.target_key === httpTarget.key && item.target_kind === httpTarget.kind)).check();
-  await expect(page.locator('#maintenance-selected-count')).toHaveText('3 selections');
-  await expect(page.locator('#maintenance-check-chooser')).toContainText('does not include separately named disks');
+  await expect(page.locator('#maintenance-selected-count')).toHaveText('3 selected');
+  await expect(page.locator('#maintenance-check-chooser')).toContainText('Select child targets separately');
   const unsentTarget = await selectedChoice(page, (item) => item.scope === 'target' && item.target_key === fileTarget.key && item.target_kind === fileTarget.kind);
   await page.setViewportSize({ width: 390, height: 844 });
   await formFits(page, '#maintenance-selection-form');
@@ -313,12 +304,11 @@ test('one explicit selection survives unsent reconnect, reviews overlap drift an
   await page.locator('#maintenance-name').fill('Unsent shared maintenance draft');
   await page.locator('#maintenance-reason').fill('Both forms changed while the live connection was down');
   await unsentTarget.check();
-  await page.evaluate(() => window.liveSocket.connect());
-  await connected(page);
-  await expect(page.locator('#maintenance-selected-count')).toHaveText('4 selections');
+  await reconnect(page, {alreadyDisconnected: true});
+  await expect(page.locator('#maintenance-selected-count')).toHaveText('4 selected');
   await expect(page.locator('#maintenance-name')).toHaveValue('Unsent shared maintenance draft');
   await expect(page.locator('#maintenance-reason')).toHaveValue('Both forms changed while the live connection was down');
-  await expect(page.locator('#maintenance-kind')).toHaveValue('target');
+  await expect(page.locator('#maintenance-choice-search-chip-kind')).toContainText('Monitored targets');
   const recovered = JSON.parse(await page.locator('#maintenance-form input[name="_proposal"]').inputValue());
   expect(recovered.selections.filter((item) => item.scope === 'check').map((item) => item.assignment_id).sort()).toEqual([filesystemId, httpId].sort());
   expect(recovered.selections.filter((item) => item.scope === 'target').map((item) => item.target_key).sort()).toEqual([httpTarget.key, fileTarget.key].sort());
@@ -351,7 +341,7 @@ test('one explicit selection survives unsent reconnect, reviews overlap drift an
   await page.locator('#maintenance-preview-button').click();
   await expect(page.locator('#maintenance-overlaps')).toContainText('Concurrent service hold');
   await expect(inspector).not.toHaveAttribute('open');
-  await expect(page.locator('#maintenance-preview-matches')).not.toHaveAttribute('open');
+  await expect(page.locator('#maintenance-preview-matches')).toHaveAttribute('open', '');
   await page.setViewportSize({ width: 320, height: 740 });
   expect((await inspector.boundingBox()).height).toBeLessThan(140);
   await formFits(page);
@@ -381,9 +371,9 @@ test('one explicit selection survives unsent reconnect, reviews overlap drift an
   const incident = failed.incidents.find((item) => item.assignment_id === httpId && item.status === 'open');
   const held = failed.occurrences.find((item) => item.incident_id === incident.id && item.kind === 'firing');
   expect(held.attempt_count).toBe(0);
-  await page.goto(`/incidents/${incident.id}`);
+  await page.goto(`/incidents/health/${incident.id}/full`);
   await connected(page);
-  await expect(page.locator(`#maintenance-summary-${httpId}`)).toContainText('Unsent shared maintenance draft');
+  await expect(page.locator('section[aria-labelledby="preview-maintenance-heading"]')).toContainText('Unsent shared maintenance draft');
   await page.goto(`/maintenance/${shared.id}`);
   await connected(page);
   await cancelWindow(page, 'The single selected maintenance activity is complete');
@@ -435,7 +425,7 @@ test('weekly civil dates reject later gaps, resolve later folds and retain cance
   await disconnect(page);
   await page.locator('#maintenance-reason').fill('Unsent plan includes the repeated autumn hour');
   await page.locator('#maintenance-repeat-until').fill(shiftDate(autumn, 14));
-  await reconnect(page);
+  await reconnect(page, {alreadyDisconnected: true});
   await expect(page.locator('#maintenance-reason')).toHaveValue('Unsent plan includes the repeated autumn hour');
   await expect(page.locator('#maintenance-repeat-ending')).toHaveValue('date');
   await expect(page.locator('#maintenance-repeat-until')).toHaveValue(shiftDate(autumn, 14));
@@ -457,7 +447,7 @@ test('weekly civil dates reject later gaps, resolve later folds and retain cance
   const canonical = JSON.parse(await page.locator('#maintenance-form input[name="_proposal"]').inputValue());
   expect(canonical.recurrence).toEqual({ frequency: 'weekly', interval: 1, end_mode: 'date', count: null, until_date: shiftDate(autumn, 14) });
   await disconnect(page);
-  await reconnect(page);
+  await reconnect(page, {alreadyDisconnected: true});
   await expect(page.locator('#maintenance-save')).toHaveCount(0);
   await expect(page.locator('#maintenance-form input[name="_review_token"]')).toHaveCount(0);
   await expect(page.locator('#maintenance-repeat-until')).toHaveValue(shiftDate(autumn, 14));
@@ -476,7 +466,7 @@ test('weekly civil dates reject later gaps, resolve later folds and retain cance
   expect(Date.parse(repeatedHour.ends_at)).toBe(Date.parse(`${autumn}T01:50:00Z`));
   await page.locator('#maintenance-series-windows [data-window-index="2"]').getByRole('link', { name: 'Inspect or change this window', exact: true }).click();
   await connected(page);
-  await expect(page.locator('#maintenance-series-membership')).toContainText('changes only this window');
+  await expect(page.locator('#maintenance-saved')).toContainText('changes only this date');
   await expect(page.locator('#maintenance-repeat')).toHaveCount(0);
   await page.locator('#maintenance-reason').fill('This one deployment has separate reviewed work');
   await page.locator('#maintenance-preview-button').click();
@@ -486,14 +476,14 @@ test('weekly civil dates reject later gaps, resolve later folds and retain cance
   expect(changedChild.starts_at).toBe(repeatedHour.starts_at);
   expect(changedChild.ends_at).toBe(repeatedHour.ends_at);
   expect(changedChild.exception).toBe(true);
-  await page.locator('#maintenance-series-membership').getByRole('link', { name: 'Inspect the series', exact: true }).click();
+  await page.locator('#maintenance-saved').getByRole('link', { name: 'Inspect the series', exact: true }).click();
   await connected(page);
   await expect(page.locator('#maintenance-series-windows [data-window-index="2"]')).toContainText('Changed from original');
   await page.locator('#maintenance-series-cancel').click();
   await page.locator('#maintenance-series-cancel-reason').fill('Draft cancellation reason');
   await disconnect(page);
   await page.locator('#maintenance-series-cancel-reason').fill('Unsent cancellation keeps historical evidence');
-  await reconnect(page);
+  await reconnect(page, {alreadyDisconnected: true});
   await expect(page.locator('#maintenance-series-cancel-reason')).toHaveValue('Unsent cancellation keeps historical evidence');
   await page.locator('#maintenance-series-cancel-confirm').click();
   await expect(page.locator('#maintenance-series-cancel-summary')).toContainText('Cancel 4 upcoming windows');
@@ -564,7 +554,7 @@ test('finite count schedules expose every reviewed date through bounded pages an
   expect(reviewedIndices).toEqual(Array.from({ length: 26 }, (_, index) => index + 1));
   await expect(page.locator('#maintenance-form input[name="_review_token"]')).toHaveValue(token);
   await disconnect(page);
-  await reconnect(page);
+  await reconnect(page, {alreadyDisconnected: true});
   await expect(page.locator('#maintenance-save')).toHaveCount(0);
   await expect(page.locator('#maintenance-form input[name="_review_token"]')).toHaveCount(0);
   await expect(page.locator('#maintenance-repeat-count')).toHaveValue('26');
@@ -614,8 +604,8 @@ test('finite count schedules expose every reviewed date through bounded pages an
   });
 });
 
-test('preview chooser and shared window editor retain selections, drafts and actions across surfaces', async ({ page, request }, testInfo) => {
-  await page.goto('/next/maintenance/new');
+test('chooser and shared window editor retain selections, drafts and actions across surfaces', async ({ page, request }, testInfo) => {
+  await page.goto('/maintenance/new');
   await connected(page);
   await expect(page.locator('#maintenance-choice-search-chip-kind')).toContainText('Scheduled checks');
   await expect(page.locator('#maintenance-name')).toBeVisible();
@@ -646,7 +636,7 @@ test('preview chooser and shared window editor retain selections, drafts and act
   await page.locator('#maintenance-preview-button').click();
   await expect(page.locator('#maintenance-preview-summary')).toBeVisible();
   await page.locator('#maintenance-save').click();
-  await expect(page).toHaveURL(/\/next\/maintenance\/[0-9a-f-]{36}\/full$/);
+  await expect(page).toHaveURL(/\/maintenance\/[0-9a-f-]{36}\/full$/);
   const fullURL = page.url();
   const id = new URL(fullURL).pathname.split('/').at(-2);
 
@@ -678,4 +668,69 @@ test('preview chooser and shared window editor retain selections, drafts and act
   const cancelled = await maintenanceJSON(request, `/api/v1/maintenance/${id}`);
   expect(cancelled.status).toBe('cancelled');
   expect(cancelled.cancellation_reason).toBe('Preview parity verification complete');
+});
+
+test('narrow maintenance evidence closes back to its real editor and restores keyboard access', async ({page, request}, testInfo) => {
+  await mode(request, {ready: true, webhook: 'ok'});
+  await measured(request, httpId);
+  await page.setViewportSize({width: 320, height: 740});
+  const seed = await maintenanceJSON(request, `/api/v1/maintenance/seed/${httpId}`);
+  const start = new Date(Date.now() + 2 * 86400_000);
+  const review = await maintenanceJSON(request, '/api/v1/maintenance/preview', {
+    proposal: {...seed.proposal, name: 'Narrow investigation owner', reason: 'Retain the editable owner behind evidence',
+      timezone: 'UTC', start_mode: 'scheduled', starts_local: start.toISOString().slice(0, 19),
+      ends_local: new Date(start.getTime() + 3600_000).toISOString().slice(0, 19)},
+  });
+  const saved = await maintenanceJSON(request, '/api/v1/maintenance/apply', {
+    proposal: review.proposal, review_token: review.review_token,
+  });
+
+  for (const surface of ['new', 'page', 'drawer']) {
+    const path = surface === 'new' ? `/maintenance/new?check_id=${httpId}`
+      : `/maintenance/${saved.id}${surface === 'page' ? '/full' : ''}`;
+    await page.goto(path);
+    await connected(page);
+    const draft = `Retained ${surface} draft`;
+    await page.locator('#maintenance-name').fill(draft);
+    await page.locator('#maintenance-reason').fill('The investigation must not replace this form');
+    if (surface === 'new') {
+      await page.locator('#maintenance-preview-button').click();
+      await expect(page.locator('#maintenance-preview-summary')).toContainText('1 result');
+    }
+    await expect.poll(async () => JSON.parse(await page.locator('#maintenance-form input[name="_proposal"]').inputValue()).name).toBe(draft);
+    const capture = await page.locator('#maintenance-form input[name="_proposal"]').inputValue();
+    const opener = page.locator(surface === 'new' ? '#maintenance-preview-matches a' : '#maintenance-saved-matches a').first();
+    await opener.click();
+    await expect(page.locator('#overview-panel')).toHaveCount(1);
+    await expect(page.locator('#overview-panel')).toHaveAttribute('aria-modal', 'true');
+    await expect(page.locator('#overview-panel .preview-result-measurement')).toContainText('Healthy');
+    await expect(page.locator('#maintenance-owner-body')).toHaveAttribute('inert', '');
+    await expect(page.locator('.preview-sidebar')).toHaveAttribute('inert', '');
+    await expect(page.locator('#maintenance-form input[name="_proposal"]')).toHaveValue(capture);
+    await checkpoint(page, testInfo, `maintenance-${surface}-evidence-modal-320`);
+
+    // Use the actual Close control; a different navigation link would not test
+    // the final-trail close URL or the modal hook's inert-state restoration.
+    const close = page.locator('#overview-panel [data-overview-close]');
+    await expect(close).toContainText('Close');
+    await close.click();
+    if (surface === 'drawer') {
+      await expect(page.locator('#overview-panel #maintenance-form')).toBeVisible();
+      expect(new URL(page.url()).pathname).toBe(`/maintenance/${saved.id}`);
+    } else {
+      await expect(page.locator('#overview-panel')).toHaveCount(0);
+      expect(new URL(page.url()).pathname).toBe(surface === 'new' ? '/maintenance/new' : `/maintenance/${saved.id}/full`);
+      await expect(page.locator('#maintenance-owner-body')).not.toHaveAttribute('inert', '');
+    }
+    if (surface === 'new') await page.getByRole('button', {name: 'Back to editing', exact: true}).click();
+    await expect(page.locator('#maintenance-name')).toHaveValue(draft);
+    await keyboardFill(page, page.locator('#maintenance-name'), `${draft}, keyboard restored`);
+    await expect(page.locator('#maintenance-name')).toHaveValue(`${draft}, keyboard restored`);
+    expect((await maintenanceJSON(request, `/api/v1/maintenance/${saved.id}`)).name).toBe(saved.name);
+    await formFits(page);
+    await checkpoint(page, testInfo, `maintenance-${surface}-closed-keyboard-320`);
+  }
+  await maintenanceJSON(request, `/api/v1/maintenance/${saved.id}/cancel`, {
+    revision: saved.revision, reason: 'Narrow investigation verification complete',
+  });
 });

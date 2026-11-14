@@ -12,6 +12,8 @@ A check can attach structured discovery evidence to a measured result. Its autho
 
 Selecting a choice does not accept a resource, create a check, acknowledge an incident or apply project policy. Unselected candidates remain unchanged. The controller provides no automatic “accept everything” operation. Existing scalar project policy can adjust parameters on declared checks; it cannot create their membership.
 
+The candidate table supports text search and Selection/Proposal chips. Filtering and pagination narrow the matching rows; selected resources outside that view remain in a separate table with the same checkboxes and editable proposals. They stay part of the reviewed selection until explicitly deselected. Opening current result evidence uses the shared investigation panel and preserves the proposal draft.
+
 ## Evidence and drafts
 
 Review requires fresh confirmed evidence from the current desired configuration. A collection failure preserves the last discovery for inspection but disables proposals, as do stale evidence and retired results. A new measurement without discovery replaces the old evidence rather than retaining obsolete candidates.

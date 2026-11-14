@@ -1,0 +1,36 @@
+/*! Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com> */
+/*! SPDX-License-Identifier: Apache-2.0 */
+#discovery-workflow .preview-detail-card { margin: 12px 0; }
+.discovery-intro { padding: 8px var(--preview-content-inset); font-size: 13px; }
+.discovery-evidence-action,.discovery-filter-toolbar { padding: 8px var(--preview-content-inset); }
+.discovery-notice { padding: 10px var(--preview-content-inset); border-top: 1px solid var(--preview-line); background: #fff9e8; font-size: 13px; }
+.discovery-error { color: #8a1725; background: #fff2f3; }
+.discovery-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 10px var(--preview-content-inset); border-top: 1px solid var(--preview-line); }
+.discovery-candidate-table { --preview-label-column: 3rem; }
+.discovery-candidate-table th:nth-child(2) { width: 42%; }
+.discovery-candidate-table :is(th,td):first-child { padding-inline: 12px; }
+.discovery-candidate-table input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--preview-accent); cursor: pointer; }
+.discovery-candidate-table tr[data-select-row] { cursor: pointer; }
+.discovery-candidate-title { font-weight: 600; cursor: pointer; }
+.discovery-candidate-details { font-weight: 400; margin-block: 2px; }
+.discovery-proposal-fields { min-width: 0; border: 0; padding: 5px 0; display: grid; gap: 6px; cursor: auto; }
+.discovery-proposal-fields .form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px 12px; }
+.discovery-proposal-fields .field { min-width: 0; display: grid; gap: 3px; }
+.discovery-proposal-fields .field label { font-size: 12px; font-weight: 600; }
+.discovery-proposal-fields :is(input,select) { font: inherit; min-width: 0; max-width: 100%; width: 100%; padding: 5px 8px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-surface); color: var(--preview-ink); }
+.discovery-proposal-fields :is(small,.footnote) { color: var(--preview-subtle); font-size: 12px; }
+.discovery-secondary { display: block; font-weight: 400; }
+.discovery-reviewed-facts { width: 100%; border-collapse: collapse; }
+.discovery-reviewed-facts :is(th,td) { border: 0 !important; padding: 3px 8px !important; font-size: 13px; }
+.discovery-reviewed-facts th { width: 1%; white-space: nowrap; }
+#discovery-workflow .agent-prompt { margin: 10px var(--preview-content-inset); }
+@media(max-width:900px) { .discovery-proposal-fields .form-grid { grid-template-columns: 1fr; } }
+@media(max-width:700px) {
+  .discovery-candidate-table,.discovery-candidate-table tbody,.discovery-candidate-table tr,.discovery-candidate-table td { display: block; width: 100%; }
+  .discovery-candidate-table thead { display: none; }
+  .discovery-candidate-table tr { display: grid; grid-template-columns: 2.5rem minmax(0,1fr); padding-block: 6px; }
+  .discovery-candidate-table td:first-child { grid-column: 1; grid-row: 1; }
+  .discovery-candidate-table td:nth-child(2) { grid-column: 2; }
+  .discovery-candidate-table td:nth-child(3) { grid-column: 2; }
+  #discovery-workflow .preview-incident-fact-table th { white-space: normal; }
+}

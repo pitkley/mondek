@@ -2,11 +2,15 @@
 
 ## Follow a configuration change
 
-Open a scheduled check from Configuration. The saved version's adoption status appears above its parameters: saved, prepared, active or measured. A measured version has produced complete fresh evidence at least once; inspect its results for current freshness and measured health. While adoption is pending, follow the result or runner links to investigate collection and connection problems.
+Configuration lists scheduled checks, not individual result streams. Use the chip search to filter by inventory state, adoption stage, monitored environment or observing runner, or type ordinary text. The default Active checks chip can be removed to include retained checks. Filtering applies before pagination. Installation-wide adoption counts remain complete; choosing a stage from that summary clears other filters and fills the corresponding chip.
 
-Edit the fields declared by your check code, review the complete values and scope, then confirm the save. Editing or reviewing alone changes no saved settings. Saving an individual edit creates an instance exception when parameters are delegated to the operator. The page explains whether the values come from a rule, an exception or source defaults. Detailed adoption stages and source information are available in disclosures. A draft is not a saved version; validation and concurrent-edit errors remain next to the form.
+Open a check to inspect its scope, saved version, complete parameter set, provenance and results. Saved, prepared, active and measured are different milestones. A measured version produced complete fresh evidence at least once; inspect its results for current freshness and health.
 
-The Configuration list's stage shortcuts cover the entire installation and clear other filters. Use the ordinary filters to narrow a stage to one runner or environment. To edit compatible checks together, select a check's checkbox; the bulk selection and review controls then appear. Clearing the selection and draft returns to the compact starting view.
+Edit delegated fields, review the complete proposed values and confirm the save. Individual edits create or replace an instance exception. The values are not merged field by field with rules or defaults. Removing an exception has its own review showing which complete values will replace it. Source-owned and retired checks remain inspectable without editable fields.
+
+Related results and runners open in the shared investigation stack while the configuration owner retains its draft and captured revision. Expanding evidence to a page and returning to the editor preserves that state. Reconnect recovers bounded draft values and the original revision, but requires a new review; a concurrent save still rejects stale authority.
+
+For a fixed bulk edit, select a check and add compatible instances. Clicking the row toggles its checkbox. Checks hidden by a new filter or inventory page remain selected and appear below the matches with their original captured revisions and removable checkboxes. Long retained selections have their own numbered pages. Editing all compatible matches captures today's membership; it does not add future checks. Review each complete parameter set and the exact effects before saving. Saved progress follows those exact versions through adoption, including superseded or retired checks. Use a shared configuration rule for settings that should also apply to future compatible checks.
 
 ## Investigate collection and delivery
 

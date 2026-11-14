@@ -1,0 +1,20 @@
+/*! Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com> */
+/*! SPDX-License-Identifier: Apache-2.0 */
+#discovery-config-workflow .preview-detail-card { margin: 12px 0; }
+.discovery-scope-picker { margin: 0; border: 0; padding: 0; min-width: 0; }
+.discovery-scope-picker > legend,.discovery-selection-values > h3 { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+.discovery-scope-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 8px; }
+.discovery-scope-choice { display: grid; align-content: start; gap: 5px; padding: 10px; border: 1px solid var(--preview-line); border-radius: 5px; cursor: pointer; background: var(--preview-surface); }
+.discovery-scope-choice > span { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.discovery-scope-choice small { color: var(--preview-subtle); font-size: 12px; }
+.discovery-scope-choice input { accent-color: var(--preview-accent); margin: 0; }
+.discovery-scope-selected { border-color: var(--preview-accent); background: var(--preview-selected); }
+.discovery-selection-values { display: grid; gap: 8px; border-top: 1px solid var(--preview-line); padding-top: 10px; }
+.discovery-resource-shortcut { display: grid; gap: 6px; justify-items: start; }
+.discovery-config-values .pf-v6-c-label { margin-inline-start: 6px; font-size: 11px; }
+.discovery-policy-table { --preview-label-column: 42%; }
+.discovery-receipt-member { border-top: 1px solid var(--preview-line); }
+.discovery-receipt-member .preview-section-heading { font-size: 14px; font-weight: 600; }
+#discovery-config-workflow .preview-incident-fact-table th { width: 28%; }
+@media(max-width:700px) { .discovery-scope-options { grid-template-columns: 1fr; } .discovery-policy-table,.discovery-policy-table tbody,.discovery-policy-table tr,.discovery-policy-table td { display: block; width: 100%; } .discovery-policy-table thead { display: none; } .discovery-policy-table td::before { content: attr(data-label); font-size: 12px; color: var(--preview-subtle); margin-right: 8px; } #discovery-config-workflow .preview-incident-fact-table th { width: 35%; white-space: normal; } }
+.discovery-member-explanation { margin-top: 4px; }

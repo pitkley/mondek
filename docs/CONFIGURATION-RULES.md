@@ -2,7 +2,7 @@
 
 The consumer project defines checks, targets, schemas and which complete parameter sets operators may edit. A **configuration rule** saves an operator's values independently of the runner that currently observes a target. It applies when a compatible check appears, remains saved while no checks match, and applies again after the target moves.
 
-Rules may be managed through the UI or explicitly applied from your monitoring project using [configuration as code](CONFIGURATION-AS-CODE.md). A project-managed rule shows its owner and is read-only in the UI. Source defaults remain sufficient when you do not need a rule; both management interfaces use the same contracts, precedence and adoption behavior.
+Rules may be managed through the UI or explicitly applied from your monitoring project using [configuration as code](CONFIGURATION-AS-CODE.md). A project-managed rule retains its project and rule-key provenance when edited through the UI or Git. Review and source-policy admission still govern accepted changes. Source defaults remain sufficient when you do not need a rule; both management interfaces use the same contracts, precedence and adoption behavior.
 
 ## Choose the right scope
 
@@ -68,3 +68,5 @@ devenv shell -- mondek rules-down
 ```
 
 The demo installs the same ordinary Python consumer on two node runners. A node-local file supplies actual monitored data; explicit membership identifies which node observes the logical volume. The acceptance command uses its own disposable Compose project, moves the stable target, exercises conflicts and reconnects, and retains evidence under `.local/acceptance/`. Normal demo shutdown retains its volumes.
+
+The rule inventory uses the shared chip search for status, project ownership and exact source, combined with free text. Filtering applies before pagination. Choosing settings for a new rule and finding a source schema use the same search interaction. Scope and parameter editors remain visible as three steps: name and precedence, monitored scope, then the complete parameter set. Preview tables distinguish current values, proposed values and conflicts; paging a preview keeps its original review token and expiry. Related runner evidence opens in the shared investigation stack without replacing the rule draft. Reconnect recovers values and their captured revision, then requires another preview.

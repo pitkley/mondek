@@ -1,0 +1,31 @@
+/*! Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com> */
+/*! SPDX-License-Identifier: Apache-2.0 */
+.repository-workspace > .preview-detail-card { margin-block:12px; }
+.repository-workspace .repository-identity { overflow-wrap:anywhere; }
+.repository-workspace .repository-history-table > thead th:first-child { width:52%; }
+.repository-workspace .repository-history-table > thead th:last-child { width:7rem; }
+.repository-workspace .repository-time { white-space:normal; }
+.repository-workspace .repository-change-link { color:var(--preview-accent); text-align:left; padding:0; background:none; border:0; cursor:pointer; font:inherit; font-weight:600; }
+.repository-workspace .repository-change-link:hover { text-decoration:underline; }
+.repository-workspace .repository-selected { background:var(--preview-selected); }
+.repository-workspace .repository-detail-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.repository-workspace .repository-document { border-top:1px solid var(--preview-line); }
+.repository-workspace .repository-document > h3 { background:var(--preview-hover); border-bottom:1px solid var(--preview-line); padding:9px var(--preview-content-inset); font-size:14px; }
+.repository-workspace .configuration-field-changes > thead th:first-child { width:24%; }
+.repository-workspace .configuration-field-changes > thead th:not(:first-child) { width:38%; }
+.repository-workspace .repository-documents { margin:10px var(--preview-content-inset); }
+.repository-workspace .repository-document-pair { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; padding:10px; }
+.repository-workspace .repository-document-pair h4 { font-size:13px; margin-bottom:6px; }
+.repository-workspace pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; padding:10px; border:1px solid var(--preview-line); border-radius:5px; background:var(--preview-hover); }
+@media(max-width:800px) {
+  .repository-workspace .repository-document-pair { grid-template-columns:1fr; }
+  .repository-workspace .repository-detail-toolbar { align-items:start; flex-direction:column; }
+}
+.repository-workspace .configuration-disclosure-body { padding:10px var(--preview-content-inset); display:grid; gap:10px; }
+
+.repository-workspace .inventory-table thead { background:var(--preview-hover); }
+@media(max-width:600px) {
+  .repository-workspace .repository-history-table .repository-time { white-space:normal; }
+  .repository-workspace .repository-history-table > thead th:first-child { width:38%; }
+  .repository-workspace .repository-history-table > thead th:last-child { width:4rem; }
+}

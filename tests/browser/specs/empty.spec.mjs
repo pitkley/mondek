@@ -44,14 +44,14 @@ test('empty installation explains source ownership and offers keyboard-accessibl
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/runners$/);
   await checkpoint(page, testInfo, 'empty-runner-inspection-320');
-  await page.goto('/configuration/new');
+  await page.goto('/configuration');
   await expect(page.getByRole('heading', { name: 'Configuration', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Add check', exact: true })).toHaveCount(0);
-  await checkpoint(page, testInfo, 'legacy-bookmark-shows-inventory');
+  await checkpoint(page, testInfo, 'empty-configuration-inventory');
   await page.goto('/checks');
-  await expect(page.locator('#check-inventory')).toContainText('0 matching');
+  await expect(page.locator('section[aria-labelledby=checks-results-heading] > .preview-section-heading')).toContainText('0 results');
   await checkpoint(page, testInfo, 'empty-result-inventory');
-  await page.getByRole('link', { name: 'Runner setup', exact: true }).click();
+  await page.getByRole('link', { name: 'Help & setup', exact: true }).click();
   await expect(page).toHaveURL(/\/guide$/);
   await expect(page.getByText('Set up a local Mondek server', { exact: true })).toHaveCount(0);
   await expect(page.locator('#runner-launch-example')).toContainText("--controller 'http://localhost:4000'");

@@ -24,8 +24,8 @@ defmodule MondekWeb.NextOverviewLiveTest do
       assert disposition(CoverageFixtures.sample(publication, health, 1, now)) == "current"
     end
 
-    {:ok, view, _} = live(build_conn(), "/next/checks")
-    assert has_element?(view, "a[aria-current='page'][href='/next/checks']")
+    {:ok, view, _} = live(build_conn(), "/checks")
+    assert has_element?(view, "a[aria-current='page'][href='/checks']")
     assert has_element?(view, "#preview-check-results", "Parcel queue")
     assert has_element?(view, "#preview-check-results", "Redis")
     assert has_element?(view, "#preview-check-results tbody tr:first-child", "Parcel queue")
@@ -33,18 +33,18 @@ defmodule MondekWeb.NextOverviewLiveTest do
     group = Mondek.ChecksFilters.options("group", "Logistics") |> hd()
     render_hook(view, "filter_open", %{"field" => "group"})
     render_hook(view, "filter_select", %{"key" => group.key, "kind" => group.kind})
-    assert_patch(view, "/next/checks?group=#{group.key}")
+    assert_patch(view, "/checks?group=#{group.key}")
     refute has_element?(view, "#preview-check-results", "Redis")
 
     render_hook(view, "filter_open", %{"field" => "health"})
     render_hook(view, "filter_select", %{"key" => "CRIT", "kind" => ""})
     query = "?group=#{group.key}&health=CRIT"
-    assert_patch(view, "/next/checks" <> query)
+    assert_patch(view, "/checks" <> query)
     [result] = Inspection.preview_checks(%{"group" => group.key, "health" => "CRIT"}, now).items
     id = result["id"]
 
     view |> element("#open-result-#{id}") |> render_click()
-    assert_patch(view, "/next/checks/#{id}" <> query)
+    assert_patch(view, "/checks/#{id}" <> query)
     assert has_element?(view, "#overview-panel", "Queue depth")
 
     assert has_element?(
@@ -54,11 +54,72 @@ defmodule MondekWeb.NextOverviewLiveTest do
            )
 
     view |> element("[data-overview-close]") |> render_click()
-    assert_patch(view, "/next/checks" <> query)
+    assert_patch(view, "/checks" <> query)
 
-    {:ok, full, _} = live(build_conn(), "/next/checks/#{id}/full" <> query)
+    {:ok, full, _} = live(build_conn(), "/checks/#{id}/full" <> query)
     assert has_element?(full, "h1", "Queue depth")
-    assert has_element?(full, "a[href='/next/checks#{query}']", "Back to checks")
+    assert has_element?(full, "a[href='/checks#{query}']", "Back to checks")
+  end
+
+  test "peer navigation selects the active result and its row closes the investigation" do
+    now = Monitoring.now()
+
+    candidate =
+      CoverageFixtures.candidate(
+        CoverageFixtures.check("Queue depth", "production", "Parcel queue")
+      )
+
+    first = CoverageFixtures.publication([candidate], %{"runner_label" => "Observer A"})
+    second = CoverageFixtures.publication([candidate], %{"runner_label" => "Observer B"})
+
+    for {publication, health} <- [{first, "CRIT"}, {second, "OK"}] do
+      assert {:ok, _} = Monitoring.inventory(publication, now)
+      assert {:ok, _} = CoverageFixtures.activate(publication, now)
+      assert disposition(CoverageFixtures.sample(publication, health, 1, now)) == "current"
+    end
+
+    [one] = Inspection.overview_results(%{}, now).attention.items
+    [two] = Inspection.overview_results(%{}, now).healthy.items
+
+    for prefix <- ["/results", "/checks"] do
+      {:ok, view, _} = live(build_conn(), prefix <> "/#{one["id"]}?search=Parcel")
+      assert has_element?(view, "#result-row-#{one["id"]}.preview-selected")
+      refute has_element?(view, "#result-row-#{two["id"]}.preview-selected")
+      view |> element("#preview-related-results a", "Observer B") |> render_click()
+      assert has_element?(view, "[data-active-entity='result:#{two["id"]}']")
+      assert has_element?(view, "#result-row-#{two["id"]}.preview-selected")
+      refute has_element?(view, "#result-row-#{one["id"]}.preview-selected")
+      send(view.pid, :tick)
+      assert has_element?(view, "#result-row-#{two["id"]}.preview-selected")
+      view |> element("#open-result-#{two["id"]}") |> render_click()
+
+      assert_patch(
+        view,
+        if(prefix == "/checks", do: "/checks?search=Parcel", else: "/?search=Parcel")
+      )
+
+      refute has_element?(view, "#overview-panel")
+      refute has_element?(view, "tr.preview-selected")
+
+      view |> element("#open-result-#{one["id"]}") |> render_click()
+
+      view
+      |> element("#overview-panel table[aria-label='Collection'] a", "Observer A")
+      |> render_click()
+
+      assert has_element?(view, "#overview-panel #runner-detail")
+      refute has_element?(view, "#result-row-#{one["id"]}.preview-selected")
+      refute has_element?(view, "#result-row-#{two["id"]}.preview-selected")
+      view |> element("[data-overview-close]") |> render_click()
+      assert has_element?(view, "#result-row-#{one["id"]}.preview-selected")
+      view |> element("#overview-panel a", "View incident") |> render_click()
+      assert has_element?(view, "#overview-panel", "Recorded failure")
+      refute has_element?(view, "#result-row-#{one["id"]}.preview-selected")
+      refute has_element?(view, "#result-row-#{two["id"]}.preview-selected")
+      view |> element("#open-result-#{one["id"]}") |> render_click()
+      assert has_element?(view, "#result-row-#{one["id"]}.preview-selected")
+      assert has_element?(view, "#overview-panel table[aria-label='Latest measurement']")
+    end
   end
 
   test "result fly-over shows four previous measurements and links to the longer history" do
@@ -82,9 +143,9 @@ defmodule MondekWeb.NextOverviewLiveTest do
     [result] = Inspection.overview_results(%{}, now).healthy.items
     id = result["id"]
     table = "table[aria-label='Previous measurements']"
-    full_path = "/next/results/#{id}/full"
+    full_path = "/results/#{id}/full"
 
-    {:ok, fly_over, _} = live(build_conn(), "/next/results/#{id}")
+    {:ok, fly_over, _} = live(build_conn(), "/results/#{id}")
     assert has_element?(fly_over, table <> " tr:nth-child(4)")
     refute has_element?(fly_over, table <> " tr:nth-child(5)")
     refute has_element?(fly_over, table, "Measured CRIT")
@@ -129,7 +190,7 @@ defmodule MondekWeb.NextOverviewLiveTest do
     assert overview.health.healthy == 1
     assert get_in(group, ["current", "knowledge"]) == "stale"
 
-    {:ok, view, html} = live(build_conn(), "/next?search=Parcel")
+    {:ok, view, html} = live(build_conn(), "/?search=Parcel")
     assert html =~ "/assets/preview.css"
     refute html =~ "/assets/app.css"
     assert has_element?(view, "#preview-attention", "Observer A")
@@ -138,7 +199,7 @@ defmodule MondekWeb.NextOverviewLiveTest do
     assert has_element?(view, "#preview-attention", "Measured CRIT")
 
     view |> element("#open-result-#{group["id"]}") |> render_click()
-    assert_patch(view, "/next/results/#{group["id"]}?search=Parcel")
+    assert_patch(view, "/results/#{group["id"]}?search=Parcel")
     assert has_element?(view, "#overview-panel", "Observer A")
     assert has_element?(view, "#overview-panel", "Observer B")
     assert has_element?(view, "#overview-panel", "Critical")
@@ -146,7 +207,7 @@ defmodule MondekWeb.NextOverviewLiveTest do
     assert has_element?(view, "#overview-panel .preview-evidence-state", "Critical")
     refute has_element?(view, "#overview-panel .preview-evidence-state", "Healthy")
     refute has_element?(view, "#preview-related-results[open]")
-    assert has_element?(view, "[data-overview-close][href='/next?search=Parcel']")
+    assert has_element?(view, "[data-overview-close][href='/?search=Parcel']")
 
     assert has_element?(
              view,
@@ -154,11 +215,11 @@ defmodule MondekWeb.NextOverviewLiveTest do
              "Open as page"
            )
 
-    {:ok, full, _} = live(build_conn(), "/next/results/#{group["id"]}/full?search=Parcel")
+    {:ok, full, _} = live(build_conn(), "/results/#{group["id"]}/full?search=Parcel")
     assert has_element?(full, "h1", "Queue depth")
     assert has_element?(full, "table[aria-label='Latest measurement']", "Critical")
     assert has_element?(full, "table[aria-label='Collection']", "Observer A")
-    assert has_element?(full, "a[href='/next?search=Parcel']", "Back to overview")
+    assert has_element?(full, "a[href='/?search=Parcel']", "Back to overview")
     refute has_element?(full, "#preview-overview-card")
 
     # A refresh must preserve the selected evidence and filtered return path.
@@ -167,13 +228,13 @@ defmodule MondekWeb.NextOverviewLiveTest do
     render_submit(element(view, "#overview-search"), %{"search" => "Parcel"})
     assert has_element?(view, "#overview-panel", "Observer A")
     view |> element("[data-overview-close]") |> render_click()
-    assert_patch(view, "/next?search=Parcel")
+    assert_patch(view, "/?search=Parcel")
     refute has_element?(view, "#overview-panel")
 
     [incident] = Monitoring.list_incidents(%{}, now).items
     id = incident["id"]
     assert has_element?(view, "#preview-open-incidents", "Unacknowledged")
-    overview_incident = MondekWeb.InvestigationTrail.path("/next?search=Parcel", [{"health", id}])
+    overview_incident = MondekWeb.InvestigationTrail.path("/?search=Parcel", [{"health", id}])
     view |> element("#overview-incident-health-#{id}") |> render_click()
     assert_patch(view, overview_incident)
     assert has_element?(view, "#preview-overview-card")
@@ -182,7 +243,7 @@ defmodule MondekWeb.NextOverviewLiveTest do
 
     assert_patch(
       view,
-      MondekWeb.InvestigationTrail.path("/next?search=Parcel", [
+      MondekWeb.InvestigationTrail.path("/?search=Parcel", [
         {"health", id},
         {"result", group["id"]}
       ])
@@ -192,19 +253,19 @@ defmodule MondekWeb.NextOverviewLiveTest do
     assert has_element?(view, "[data-panel-back-path='#{overview_incident}']")
     view |> element("[data-overview-close]") |> render_click()
     assert_patch(view, overview_incident)
-    {:ok, incidents, _} = live(build_conn(), "/next/incidents")
+    {:ok, incidents, _} = live(build_conn(), "/incidents")
 
     render_hook(incidents, "filter_open", %{"field" => "grouping"})
     render_hook(incidents, "filter_select", %{"key" => "standalone"})
-    assert_patch(incidents, "/next/incidents?grouping=standalone")
+    assert_patch(incidents, "/incidents?grouping=standalone")
     assert has_element?(incidents, "#preview-incident-health-#{id}")
-    render_patch(incidents, "/next/incidents")
+    render_patch(incidents, "/incidents")
 
     render_hook(incidents, "filter_open", %{"field" => "type"})
     render_hook(incidents, "filter_select", %{"key" => "health", "kind" => ""})
-    assert_patch(incidents, "/next/incidents?type=health")
+    assert_patch(incidents, "/incidents?type=health")
     render_click(element(incidents, "#preview-incident-health-#{id} a"))
-    assert_patch(incidents, "/next/incidents/health/#{id}?type=health")
+    assert_patch(incidents, "/incidents/health/#{id}?type=health")
     assert has_element?(incidents, "#incident-heading", "Queue depth")
     assert has_element?(incidents, "main", "Measured CRIT")
     assert has_element?(incidents, "main a", "View latest check result")
@@ -271,12 +332,12 @@ defmodule MondekWeb.NextOverviewLiveTest do
     assert {:ok, _} = Monitoring.inventory(CoverageFixtures.publication([candidate]), now)
     [scope] = Coverage.scopes(%{}, now)["items"]
 
-    {:ok, view, _} = live(build_conn(), "/next")
+    {:ok, view, _} = live(build_conn(), "/")
     refute has_element?(view, "#preview-onboarding")
     assert has_element?(view, "#preview-unobserved", "Branch node")
     assert has_element?(view, "#preview-unobserved", "No selected runner")
     view |> element("#open-expected-#{scope["id"]}") |> render_click()
-    assert_patch(view, "/next/expected/#{scope["id"]}")
+    assert_patch(view, "/expected/#{scope["id"]}")
     assert has_element?(view, "#overview-panel", "Observer lacks service-query capability")
     refute has_element?(view, "#overview-panel a[href^='/checks/']")
     refute has_element?(view, "#overview-panel", "Source and evidence identity")
@@ -300,7 +361,7 @@ defmodule MondekWeb.NextOverviewLiveTest do
     assert disposition(CoverageFixtures.sample(publication, "CRIT", 1, now)) == "current"
     [gap, reporting] = Coverage.scopes(%{}, now)["items"]
 
-    {:ok, view, _} = live(build_conn(), "/next/coverage")
+    {:ok, view, _} = live(build_conn(), "/coverage")
 
     assert has_element?(
              view,
@@ -316,18 +377,18 @@ defmodule MondekWeb.NextOverviewLiveTest do
 
     render_hook(view, "filter_open", %{"field" => "status"})
     render_hook(view, "filter_select", %{"key" => "attention", "kind" => ""})
-    assert_patch(view, "/next/coverage?status=attention")
+    assert_patch(view, "/coverage?status=attention")
     assert has_element?(view, "button[aria-label='Edit Coverage filter: Needs attention']")
     refute has_element?(view, "#open-coverage-#{reporting["id"]}")
     view |> element("a[aria-label='Remove Coverage filter']") |> render_click()
-    assert_patch(view, "/next/coverage")
+    assert_patch(view, "/coverage")
     assert has_element?(view, "#open-coverage-#{reporting["id"]}")
-    render_patch(view, "/next/coverage?status=attention")
+    render_patch(view, "/coverage?status=attention")
     view |> element("#open-coverage-#{gap["id"]}") |> render_click()
     assert has_element?(view, "#overview-panel", "Observer lacks service-query capability")
     refute has_element?(view, "#overview-panel a", "View check result")
 
-    base = "/next/coverage/#{reporting["id"]}"
+    base = "/coverage/#{reporting["id"]}"
     render_patch(view, base)
     result_link = element(view, "#overview-panel a", "View check result")
 
@@ -354,21 +415,28 @@ defmodule MondekWeb.NextOverviewLiveTest do
     return_to = URI.decode_query(URI.parse(configuration_href).query)["return_to"]
     assert return_to == opened_result_path
 
-    assert has_element?(view, "[data-panel-back-path='#{base}']")
+    scope_path = MondekWeb.InvestigationTrail.path(base, [{"coverage", reporting["id"]}])
+    assert has_element?(view, "[data-panel-back-path='#{scope_path}']")
     view |> element("[data-overview-close]") |> render_click()
-    assert_patch(view, base)
+    assert_patch(view, scope_path)
     assert has_element?(view, "#overview-panel", "Runner decisions")
 
+    page_path =
+      MondekWeb.InvestigationTrail.path(base, [{"coverage", reporting["id"]}], %{
+        "surface" => "page",
+        "page_entity" => "coverage:#{reporting["id"]}"
+      })
+
     view |> element("#overview-panel a", "Open as page") |> render_click()
-    assert_patch(view, base <> "/full")
+    assert_patch(view, page_path)
     assert has_element?(view, "#coverage-page-body table[aria-label='Runner decisions']")
     view |> element("#coverage-page-body a", "View check result") |> render_click()
     assert has_element?(view, "#overview-panel", "Critical")
     view |> element("#overview-panel [data-overview-close]") |> render_click()
-    assert_patch(view, base <> "/full")
+    assert_patch(view, page_path)
     refute has_element?(view, "#overview-panel")
 
-    for prefix <- ["/next/coverage", "/next/expected"],
+    for prefix <- ["/coverage", "/expected"],
         {suffix, root} <- [{"", "#overview-panel"}, {"/full", "#coverage-page-body"}] do
       {:ok, gap_view, _} = live(build_conn(), "#{prefix}/#{gap["id"]}" <> suffix)
 
@@ -394,14 +462,23 @@ defmodule MondekWeb.NextOverviewLiveTest do
     incident = Repo.get_by!(MonitoringIncident, scope_kind: "coverage", status: "open")
 
     for {suffix, root} <- [{"", "#overview-panel"}, {"/full", "#incident-page"}] do
-      {:ok, view, _} = live(build_conn(), "/next/incidents/loss/#{incident.id}" <> suffix)
-
-      assert has_element?(view, root <> " h3", "Affected results")
-      assert has_element?(view, root <> " h4", "Root disk")
+      {:ok, view, _} = live(build_conn(), "/incidents/loss/#{incident.id}" <> suffix)
 
       assert has_element?(
                view,
-               root <> " a[href^='/next/expected/']",
+               root <> if(root == "#incident-page", do: " h2", else: " h3"),
+               "Affected results"
+             )
+
+      assert has_element?(
+               view,
+               root <> if(root == "#incident-page", do: " h3", else: " h4"),
+               "Root disk"
+             )
+
+      assert has_element?(
+               view,
+               root <> " a[href*='coverage%3A']",
                "Review expected monitoring"
              )
 
@@ -427,7 +504,7 @@ defmodule MondekWeb.NextOverviewLiveTest do
 
     assert {:ok, _} = Monitoring.inventory(CoverageFixtures.publication([candidate]), now)
     [diagnostic] = Coverage.diagnostics(%{}, now)["items"]
-    base = "/next/coverage/diagnostics/#{diagnostic["id"]}"
+    base = "/coverage/diagnostics/#{diagnostic["id"]}"
 
     for {suffix, root} <- [{"", "#overview-panel"}, {"/full", "#coverage-page-body"}] do
       {:ok, view, _} = live(build_conn(), base <> suffix)
@@ -444,18 +521,18 @@ defmodule MondekWeb.NextOverviewLiveTest do
   end
 
   test "empty, unknown selections, and filtering never silently select another result" do
-    {:ok, empty, _} = live(build_conn(), "/next")
+    {:ok, empty, _} = live(build_conn(), "/")
     assert has_element?(empty, "#preview-onboarding")
     refute has_element?(empty, "#preview-unobserved")
-    {:ok, invalid, _} = live(build_conn(), "/next/results/not-a-result?search=queue")
+    {:ok, invalid, _} = live(build_conn(), "/results/not-a-result?search=queue")
     assert has_element?(invalid, "#overview-panel-title", "Result unavailable")
-    assert has_element?(invalid, "[data-overview-close][href='/next?search=queue']")
-    {:ok, missing, _} = live(build_conn(), "/next/expected/" <> String.duplicate("f", 64))
-    assert has_element?(missing, "#overview-panel-title", "Result unavailable")
+    assert has_element?(invalid, "[data-overview-close][href='/?search=queue']")
+    {:ok, missing, _} = live(build_conn(), "/expected/" <> String.duplicate("f", 64))
+    assert has_element?(missing, "#overview-panel-title", "Declaration unavailable")
   end
 
   test "filter picker rejects malformed events and values outside its suggestions" do
-    {:ok, view, _} = live(build_conn(), "/next")
+    {:ok, view, _} = live(build_conn(), "/")
     render_hook(view, "filter_open", %{"field" => "environment"})
     assert has_element?(view, "#preview-search[aria-label=Environment]")
 
@@ -518,11 +595,11 @@ defmodule MondekWeb.NextOverviewLiveTest do
     assert {:ok, _} = Monitoring.inventory(publication, now)
     assert {:ok, _} = CoverageFixtures.activate(publication, now)
     assert disposition(CoverageFixtures.sample(publication, "OK", 1, now)) == "current"
-    {:ok, view, _} = live(build_conn(), "/next")
+    {:ok, view, _} = live(build_conn(), "/")
     assert has_element?(view, "#preview-no-attention", "No results currently need attention")
     assert has_element?(view, "#preview-healthy-results", "Service target")
     render_submit(element(view, "#overview-search"), %{"search" => "absent-target"})
-    assert_patch(view, "/next?search=absent-target")
+    assert_patch(view, "/?search=absent-target")
     refute has_element?(view, "#preview-healthy-results")
     assert has_element?(view, "#preview-summary", "1 / 1")
   end

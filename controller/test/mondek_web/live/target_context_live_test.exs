@@ -5,10 +5,9 @@ defmodule MondekWeb.TargetContextLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Mondek.{Inventory, ResultStream}
-  alias MondekWeb.CheckInventory
   @endpoint MondekWeb.Endpoint
 
-  test "a filtered problem expands exact target observations and preserves its investigation" do
+  test "composed source environment and target chips keep exact observations independent" do
     first = Ecto.UUID.generate()
     second = Ecto.UUID.generate()
 
@@ -23,114 +22,55 @@ defmodule MondekWeb.TargetContextLiveTest do
     measured("failing", "CRIT")
     measured("healthy", "OK")
 
-    filters =
-      CheckInventory.normalize(%{
-        "search" => "failing",
-        "runner_id" => first,
-        "tab" => "critical",
-        "view" => "list",
-        "critical_view" => "list",
-        "page_size" => "10",
-        "page" => "1",
-        "target_page" => "2",
-        "return_to" => "/runners/" <> first
-      })
-
-    original = CheckInventory.path(filters)
-    {:ok, view, _} = live(build_conn(), original)
-    assert count(view, ".checks-result-link") == 1
-    view |> element(".target-context-link") |> render_click()
-    context = assert_patch(view)
-    assert has_element?(view, "#checks-target-context", "same source")
-    assert has_element?(view, "#checks-investigation-return[href='#{original}']")
-    assert count(view, ".checks-result-link") == 2
-    assert has_element?(view, ".badge.crit")
-    assert has_element?(view, ".badge.ok")
-    refute has_element?(view, ".checks-result-link", "other-env")
-    refute has_element?(view, ".checks-result-link", "other-kind")
-    refute has_element?(view, ".checks-result-link", "other-source")
-    {:ok, reloaded, _} = live(build_conn(), context)
-    assert has_element?(reloaded, "#checks-investigation-return[href='#{original}']")
-    detail_navigation = reloaded |> element(".checks-result-link", "failing") |> render_click()
-    {:ok, detail, _} = follow_redirect(detail_navigation, build_conn())
-    assert has_element?(detail, ".back[href='#{context}']")
-    assert has_element?(detail, "#result-target-context")
-
-    {:ok, reloaded, _} = live(build_conn(), context)
-
-    reloaded
-    |> element("button[phx-click='checks_view'][phx-value-view='targets']")
-    |> render_click()
-
-    assert has_element?(reloaded, "#checks-target-context")
-    assert count(reloaded, ".checks-result-link") == 2
-    reloaded |> element("#inventory-tab-critical") |> render_click()
-    assert count(reloaded, ".checks-result-link") == 1
-    assert has_element?(reloaded, "#checks-investigation-return[href='#{original}']")
-  end
-
-  test "empty and withdrawn target context never falls back to another target" do
-    runner = Ecto.UUID.generate()
-
-    publish(runner, "context.source", [
-      check("one"),
-      put_in(check("unrelated"), ["outputs", Access.at(0), "target", "key"], "other")
-    ])
-
-    group = Monitoring.list_grouped_streams(%{"search" => "one"})[:groups] |> hd()
-
     path =
-      CheckInventory.target_context_path(
-        group["id"],
-        CheckInventory.normalize(%{"search" => "one"})
-      )
+      "/checks?source_id=context.source&environment=production&target_kind=host&target_key=host-a"
 
     {:ok, view, _} = live(build_conn(), path)
-    view |> form("#inventory-filters", search: "not-found") |> render_change()
-    assert has_element?(view, "#checks-target-context", "Same label")
-    assert has_element?(view, "#checks-target-context", "Host ID host-a")
-    assert has_element?(view, "#check-inventory", "No matching results")
-    assert count(view, ".checks-result-link") == 0
-    view |> element("button[phx-click='clear_checks_all']") |> render_click()
-    assert count(view, ".checks-result-link") == 1
+    assert rows(view) == 2
+    assert has_element?(view, "#preview-check-results", "Critical")
+    assert has_element?(view, "#preview-check-results", "Healthy")
+    refute has_element?(view, "#preview-check-results", "other-source")
+    refute has_element?(view, "#preview-check-results", "other-env")
+    refute has_element?(view, "#preview-check-results", "other-kind")
+  end
 
-    publish(
-      runner,
-      "context.source",
-      [put_in(check("unrelated"), ["outputs", Access.at(0), "target", "key"], "other")],
-      2
-    )
+  test "empty or withdrawn scope never silently selects another result" do
+    runner = Ecto.UUID.generate()
+    publish(runner, "context.source", [check("removed")])
+    publish(Ecto.UUID.generate(), "other.source", [check("other")])
 
+    path =
+      "/checks?source_id=context.source&environment=production&target_kind=host&target_key=host-a"
+
+    {:ok, view, _} = live(build_conn(), path)
+    assert rows(view) == 1
+    publish(runner, "context.source", [], 2)
     send(view.pid, :tick)
-    assert has_element?(view, "#checks-target-context", "No results match")
-    assert count(view, ".checks-result-link") == 0
+    assert rows(view) == 0
+    assert has_element?(view, ".preview-empty", "No check results match")
+    refute has_element?(view, "#preview-check-results", "other")
   end
 
-  test "context return is bounded local and nonrecursive while malformed scope stays scoped" do
-    assert CheckInventory.investigation_return("https://evil.example/checks") == nil
-    assert CheckInventory.investigation_return("//evil.example/checks") == nil
-    assert CheckInventory.investigation_return("/checks?investigation_return=%2Fchecks") == nil
-    assert CheckInventory.investigation_return("/checks?target_scope=target-invalid") == nil
+  test "invalid compound target input is discarded rather than interpreted as another exact target" do
+    assert Mondek.ChecksFilters.params(%{"target_key" => "host-a"}) == %{}
+    assert Mondek.ChecksFilters.params(%{"target_kind" => "host"}) == %{}
 
-    assert CheckInventory.investigation_return("/checks?search=" <> String.duplicate("x", 4096)) ==
-             nil
+    assert Mondek.ChecksFilters.params(%{
+             "target_kind" => %{"x" => "host"},
+             "target_key" => "host-a"
+           }) == %{}
 
-    scope = String.duplicate("x", 300)
+    refute MondekWeb.BrowserNavigation.return_path("https://other.invalid/checks")
 
-    {:ok, view, _} =
-      live(
-        build_conn(),
-        "/checks?target_scope=" <>
-          scope <> "&investigation_return=https%3A%2F%2Fevil.example%2Fchecks"
-      )
+    path =
+      "/checks?source_id=context.source&target_kind=host&target_key=host-a&return_to=%2Fchecks"
 
-    assert has_element?(view, "#checks-target-context")
-    refute has_element?(view, "#checks-investigation-return")
-    assert count(view, ".checks-result-link") == 0
+    assert MondekWeb.BrowserNavigation.return_path(path) ==
+             "/checks?return_to=%2Fchecks&source_id=context.source&target_key=host-a&target_kind=host"
   end
 
-  test "detail outside inventory does not invent a filtered investigation origin" do
-    publish(Ecto.UUID.generate(), "context.source", [check("direct")])
+  test "an unscoped direct result does not invent a filtered origin" do
+    publish(Ecto.UUID.generate(), "context.source", [check("one")])
 
     stream =
       Repo.one!(
@@ -140,18 +80,19 @@ defmodule MondekWeb.TargetContextLiveTest do
           where: a.source_id == "context.source"
       )
 
-    {:ok, detail, _} = live(build_conn(), "/checks/#{stream.id}?return_to=%2F")
-    navigation = detail |> element("#result-target-context") |> render_click()
-    {:ok, context, _} = follow_redirect(navigation, build_conn())
-    assert has_element?(context, "#checks-target-context", "Same label")
-    refute has_element?(context, "#checks-investigation-return")
-    assert has_element?(context, "#checks-leave-target")
-    {:ok, unscoped, _} = live(build_conn(), "/checks?target_scope=")
-    refute has_element?(unscoped, "#checks-target-context")
+    {:ok, view, _} = live(build_conn(), "/results/#{stream.id}/full")
+    assert has_element?(view, "#full-result-heading", "one")
+    assert has_element?(view, "a[href='/']")
+    refute has_element?(view, ".preview-filter-chip")
   end
 
-  defp count(view, selector),
-    do: view |> render() |> LazyHTML.from_document() |> LazyHTML.query(selector) |> Enum.count()
+  defp rows(view),
+    do:
+      view
+      |> render()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("#preview-check-results tbody > tr")
+      |> Enum.count()
 
   defp measured(key, health) do
     assignment =

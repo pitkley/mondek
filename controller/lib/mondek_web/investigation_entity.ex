@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.InvestigationEntity do
   @moduledoc "Bounded evidence and retained control state for one investigation entity."
-  alias Mondek.{Maintenance, Monitoring, MonitoringLoss}
+  alias Mondek.{Maintenance, Monitoring, MonitoringLoss, RunnerFleet}
   alias MondekWeb.{PreviewIncidentControls, PreviewResult}
 
   def new(identity),
@@ -14,11 +14,51 @@ defmodule MondekWeb.InvestigationEntity do
       replacing: false,
       feedback: nil,
       delivery_feedback: nil,
-      retry_drafts: %{}
+      retry_drafts: %{},
+      view: %{}
     }
+
+  def refresh(%{identity: {"coverage", id}} = state, now, filters) do
+    requested = if filters["coverage_entity"] in [nil, id], do: filters["coverage_observer_page"]
+    page = requested || state.view["coverage_observer_page"]
+    data = MondekWeb.CoverageEvidence.load("coverage", id, now, page)
+
+    view =
+      if data,
+        do: %{
+          "coverage_entity" => id,
+          "coverage_observer_page" => to_string(data.observers["page"])
+        },
+        else: state.view
+
+    %{state | data: data, view: view}
+  end
+
+  def refresh(%{identity: {"diagnostic", id}} = state, now, _filters),
+    do: %{state | data: MondekWeb.CoverageEvidence.diagnostic(id, now)}
+
+  def refresh(%{identity: {"execution", id}} = state, now, _filters) do
+    inspection = Mondek.Inspection.execution_detail(id, now)
+
+    data =
+      if inspection,
+        do: %{
+          inspection: inspection,
+          runner: Mondek.RunnerFleet.detail(inspection["assignment"]["runner_id"], now),
+          windows: Maintenance.for_assignment(id, now)
+        }
+
+    %{state | data: data}
+  end
+
+  def refresh(%{identity: {"notification", id}} = state, now, _filters),
+    do: %{state | data: Mondek.Inspection.notification_detail(id, now)}
 
   def refresh(%{identity: {"result", id}} = state, now, _filters),
     do: %{state | data: PreviewResult.load(id, now)}
+
+  def refresh(%{identity: {"runner", id}} = state, now, _filters),
+    do: %{state | data: RunnerFleet.detail(id, now)}
 
   def refresh(%{identity: {kind, id}} = state, now, filters) when kind in ~w(health loss) do
     detail =
@@ -60,6 +100,29 @@ defmodule MondekWeb.InvestigationEntity do
     }
   end
 
+  def title(%{identity: {"coverage", _}, data: %{scope: scope}}),
+    do:
+      MondekWeb.EvidencePresentation.target_label(scope["target"]) <>
+        " · " <> MondekWeb.PreviewCoverage.title(scope)
+
+  def title(%{identity: {"coverage", _}}), do: "Declaration unavailable"
+
+  def title(%{identity: {"diagnostic", _}, data: %{item: item}}),
+    do: MondekWeb.PreviewCoverage.title(item)
+
+  def title(%{identity: {"diagnostic", _}}), do: "Diagnostic unavailable"
+
+  def title(%{identity: {"execution", _}, data: %{inspection: inspection}}),
+    do: inspection["assignment"]["label"] || "Scheduled execution"
+
+  def title(%{identity: {"execution", _}}), do: "Scheduled execution not found"
+
+  def title(%{identity: {"notification", _}, data: detail}),
+    do: MondekWeb.NotificationDetail.title(detail && detail["occurrence"])
+
+  def title(%{identity: {"runner", _}, data: runner}) when is_map(runner),
+    do: runner["label"] || "Unnamed runner"
+
   def title(%{identity: {"result", _}, data: %{selected: result}}),
     do: result["label"] || get_in(result, ["check", "label"]) || "Check result"
 
@@ -71,6 +134,11 @@ defmodule MondekWeb.InvestigationEntity do
 
   def title(_), do: "Evidence unavailable"
 
+  def kind(%{identity: {"coverage", _}}), do: "Declared result"
+  def kind(%{identity: {"diagnostic", _}}), do: "Runner diagnostic"
+  def kind(%{identity: {"execution", _}}), do: "Scheduled execution"
+  def kind(%{identity: {"notification", _}}), do: "Notification"
+  def kind(%{identity: {"runner", _}}), do: "Runner"
   def kind(%{identity: {"result", _}}), do: "Check result"
   def kind(%{identity: {"loss", _}}), do: "Monitoring loss"
   def kind(%{data: %{detail: %{"contributions" => _}}}), do: "Shared incident"

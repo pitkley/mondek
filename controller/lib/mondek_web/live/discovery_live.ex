@@ -3,12 +3,26 @@
 defmodule MondekWeb.DiscoveryLive do
   use MondekWeb, :live_view
 
-  alias Mondek.{Discovery, Inspection, Monitoring}
-  alias MondekWeb.{AgentPrompts, CheckInventory, InvestigationNavigation, Layouts, ParameterForm}
+  alias Mondek.{Discovery, Monitoring}
+
+  alias MondekWeb.{
+    AgentPrompts,
+    BrowserNavigation,
+    InvestigationStack,
+    InvestigationTrail,
+    ParameterForm,
+    PreviewDetail,
+    PreviewFilters,
+    PreviewLayouts,
+    ScalarFilterPicker
+  }
 
   @token_salt "discovery-review-v1"
   @max_token_bytes 262_144
   @max_form_bytes 131_072
+  @page_size 25
+  @unchosen_proposal "$unchosen"
+  @filter_fields [{"selection", "Selection", "check"}, {"proposal", "Proposal", "sliders"}]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -27,14 +41,53 @@ defmodule MondekWeb.DiscoveryLive do
        prompt: nil,
        error: nil,
        now: Monitoring.now(),
-       snapshot: %{}
+       filters: %{},
+       filter_picker: nil,
+       investigation_host: nil,
+       investigation_params: %{},
+       investigation_selection: "",
+       investigation_page: false,
+       investigation_active: false,
+       investigation_heading: "discovery-heading"
      )}
   end
 
   @impl true
-  def handle_params(params, _uri, socket) do
-    socket = assign(socket, stream_id: params["id"], return_to: safe_return(params["return_to"]))
-    {:noreply, socket |> refresh() |> adopt_current()}
+  def handle_params(params, uri, socket) do
+    same_entity = socket.assigns.stream_id == params["id"]
+    local = URI.parse(uri)
+    filters = filter_params(params)
+    promoted_page = not is_nil(InvestigationTrail.promoted(params))
+
+    socket =
+      assign(socket,
+        stream_id: params["id"],
+        return_to: safe_return(params["return_to"]),
+        filters: filters,
+        filter_picker: if(filters == socket.assigns.filters, do: socket.assigns.filter_picker),
+        investigation_host: local.path <> if(local.query, do: "?" <> local.query, else: ""),
+        investigation_params: params,
+        investigation_selection: InvestigationTrail.selection(params),
+        investigation_page: promoted_page,
+        investigation_active: InvestigationTrail.resolve(params) != [],
+        investigation_heading: InvestigationTrail.heading(params, "discovery-heading")
+      )
+
+    socket =
+      if same_entity,
+        do: socket,
+        else:
+          assign(socket,
+            frozen: nil,
+            snapshot_token: nil,
+            draft: %{},
+            reviewed: nil,
+            prompt: nil,
+            error: nil
+          )
+
+    socket = refresh(socket)
+    {:noreply, if(same_entity, do: socket, else: adopt_current(socket))}
   end
 
   @impl true
@@ -44,6 +97,9 @@ defmodule MondekWeb.DiscoveryLive do
   end
 
   @impl true
+  def handle_event(event, _params, %{assigns: %{investigation_active: true}} = socket)
+      when event != "recover", do: {:noreply, socket}
+
   def handle_event(event, form, socket) when event in ["edit", "recover"] do
     with true <- bounded_form?(form),
          {:ok, frozen} <- recover_snapshot(form["snapshot"], socket.assigns.stream_id) do
@@ -134,16 +190,107 @@ defmodule MondekWeb.DiscoveryLive do
     end
   end
 
+  def handle_event("search", %{"search" => value}, socket),
+    do: patch_filters(socket, %{"search" => ScalarFilterPicker.text(value)})
+
+  def handle_event("filter_open", %{"field" => field}, socket) do
+    case picker(socket.assigns, field, "") do
+      nil ->
+        {:noreply, socket}
+
+      draft ->
+        {:noreply,
+         assign(socket, filter_picker: %{draft | value: selected_label(socket.assigns, field)})}
+    end
+  end
+
+  def handle_event("filter_close", %{"reopen" => true}, socket), do: {:noreply, ready(socket)}
+  def handle_event("filter_close", _, socket), do: {:noreply, assign(socket, filter_picker: nil)}
+
+  def handle_event(
+        "filter_remove_edit",
+        _,
+        %{assigns: %{filter_picker: %{field: field}}} = socket
+      ),
+      do: patch_filters(ready(socket), %{field => ""})
+
+  def handle_event(
+        event,
+        %{"search" => value},
+        %{assigns: %{filter_picker: %{field: field}}} = socket
+      )
+      when event in ["filter_query", "filter_first"] do
+    draft = picker(socket.assigns, field, value)
+
+    case {event, draft.options} do
+      {"filter_first", [option | _]} -> patch_filters(ready(socket), %{field => option.key})
+      _ -> {:noreply, assign(socket, filter_picker: draft)}
+    end
+  end
+
+  def handle_event(
+        "filter_select",
+        %{"key" => key},
+        %{assigns: %{filter_picker: %{field: field, options: options}}} = socket
+      ) do
+    if Enum.any?(options, &(&1.key == key)),
+      do: patch_filters(ready(socket), %{field => key}),
+      else: {:noreply, socket}
+  end
+
+  def handle_event(_, _, socket), do: {:noreply, socket}
+
+  defp ready(socket),
+    do: socket |> assign(filter_picker: nil) |> push_event("preview-filter-ready", %{})
+
+  defp picker(assigns, field, value),
+    do: ScalarFilterPicker.draft(@filter_fields, &choices(assigns, &1), field, value, [nil, ""])
+
+  defp selected_label(assigns, field),
+    do: ScalarFilterPicker.label(choices(assigns, field), assigns.filters[field])
+
+  defp choices(_, "selection"), do: [{"selected", "Selected"}, {"unselected", "Not selected"}]
+
+  defp choices(assigns, "proposal"),
+    do: [
+      {@unchosen_proposal, "No proposal chosen"}
+      | Enum.map(
+          get_in(assigns.frozen || %{}, ["discovery", "choices"]) || [],
+          &{&1["key"], &1["label"]}
+        )
+    ]
+
+  defp filter_params(params) do
+    params
+    |> Map.take(~w(search selection proposal page))
+    |> Enum.filter(fn {_, value} ->
+      is_binary(value) && byte_size(value) <= 800 && String.valid?(value) &&
+        !String.contains?(value, <<0>>)
+    end)
+    |> Map.new()
+  end
+
+  defp patch_filters(socket, changes) do
+    filters =
+      socket.assigns.filters |> Map.merge(changes) |> Map.delete("page") |> filter_params()
+
+    {:noreply, push_patch(socket, to: list_path(socket.assigns, filters))}
+  end
+
+  defp list_path(assigns, filters) do
+    params =
+      if assigns.return_to, do: Map.put(filters, "return_to", assigns.return_to), else: filters
+
+    path = URI.parse(assigns.investigation_host).path
+    query = params |> Map.reject(fn {_, value} -> value in [nil, ""] end) |> URI.encode_query()
+    path <> if(query == "", do: "", else: "?" <> query)
+  end
+
   defp refresh(socket) do
     now = Monitoring.now()
     current = socket.assigns.stream_id && Discovery.inspect(socket.assigns.stream_id, now)
-
-    socket =
-      assign(socket, now: now, current: current, snapshot: Inspection.navigation_counts(now))
-
-    if ready?(socket.assigns),
-      do: socket,
-      else: assign(socket, reviewed: nil, prompt: nil)
+    socket = assign(socket, now: now, current: current)
+    if ready?(socket.assigns), do: socket, else: assign(socket, reviewed: nil, prompt: nil)
   end
 
   defp adopt_current(%{assigns: %{current: nil}} = socket), do: socket
@@ -310,39 +457,15 @@ defmodule MondekWeb.DiscoveryLive do
   def path(id, return_to \\ nil),
     do: with_return("/checks/" <> id <> "/discovery", safe_return(return_to))
 
-  defp incident_return?(path), do: is_binary(path) && String.starts_with?(path, "/incidents/")
+  defp result_path(id),
+    do: "/results/" <> URI.encode(id || "", &URI.char_unreserved?/1) <> "/full"
 
-  defp result_path(id, return_to), do: with_return("/checks/" <> id, return_to)
   defp with_return(path, nil), do: path
 
   defp with_return(path, return_to),
     do: path <> "?" <> URI.encode_query(%{"return_to" => return_to})
 
-  defp safe_return("/"), do: "/"
-
-  defp safe_return(value) when is_binary(value) and byte_size(value) <= 8192 do
-    uri = URI.parse(value)
-
-    if is_nil(uri.scheme) && is_nil(uri.host) && is_nil(uri.fragment) do
-      cond do
-        uri.path == "/checks" ->
-          (uri.query || "")
-          |> URI.decode_query()
-          |> CheckInventory.normalize()
-          |> CheckInventory.path()
-
-        is_binary(uri.path) && String.starts_with?(uri.path, "/incidents/") ->
-          InvestigationNavigation.safe_return_path(value)
-
-        true ->
-          nil
-      end
-    end
-  rescue
-    ArgumentError -> nil
-  end
-
-  defp safe_return(_), do: nil
+  defp safe_return(value), do: BrowserNavigation.return_path(value)
 
   @impl true
   def render(assigns) do
@@ -352,160 +475,344 @@ defmodule MondekWeb.DiscoveryLive do
       assign(assigns,
         ready: ready?(assigns),
         changed: changed,
-        evidence: if(changed, do: assigns.frozen, else: assigns.current || assigns.frozen)
+        evidence: if(changed, do: assigns.frozen, else: assigns.current || assigns.frozen),
+        filter_fields: @filter_fields,
+        selected_count: Enum.count(assigns.draft, fn {_, entry} -> entry["selected"] end),
+        filter_chips:
+          ScalarFilterPicker.chips(@filter_fields, assigns.filters, &choices(assigns, &1), [
+            nil,
+            ""
+          ])
       )
 
+    assigns = assign(assigns, candidate_page: candidate_page(assigns))
+
     ~H"""
-    <Layouts.app
-      active={:checks}
-      page_title={@page_title}
-      snapshot={@snapshot}
-      now={@now}
-      flash={@flash}
+    <div
+      id="discovery-shell"
+      phx-hook="OverviewPanel"
+      data-selection={@investigation_selection}
+      data-panel-heading={@investigation_heading}
+      data-panel-background=".preview-masthead,.preview-sidebar,#discovery-workflow,.preview-skip"
     >
-      <div class="discovery-page">
-        <.link
-          navigate={
-            if incident_return?(@return_to), do: @return_to, else: result_path(@stream_id, @return_to)
-          }
-          class="back"
-          id="discovery-back"
-        >← {if incident_return?(@return_to), do: "Back to incident", else: "Back to result"}</.link>
-        <div class="page-heading">
-          <div>
-            <div class="eyebrow">Source-owned monitoring</div><h1>Review discovered resources</h1>
-            <p>
-              Choose proposals to take back to your monitoring project. This review does not change monitoring or acknowledge an incident.
+      <PreviewLayouts.app
+        active={:checks}
+        page_title={@page_title}
+        flash={@flash}
+        main_class="discovery-page"
+      >
+        <div id="discovery-workflow" hidden={@investigation_page} inert={@investigation_active}>
+          <section class="preview-list" aria-labelledby="discovery-heading">
+            <header class="preview-heading">
+              <h1 id="discovery-heading" tabindex="-1" class="pf-v6-c-title pf-m-2xl">
+                Review discovered resources
+              </h1>
+              <.link
+                navigate={@return_to || result_path(@stream_id)}
+                id="discovery-back"
+                class="pf-v6-c-button pf-m-link"
+              >Back to investigation</.link>
+            </header>
+            <p class="discovery-intro">
+              Choose source changes to take back to your monitoring project. This review does not change monitoring or acknowledge an incident.
             </p>
-          </div>
-        </div>
-        <p :if={!@frozen} id="discovery-missing" class="notice">
-          No retained discovery is available for this result. Return to the result to inspect its latest evidence.
-        </p>
-        <div :if={@frozen}>
-          <section class="panel">
-            <div class="panel-heading">
-              <div>
-                <h2>{@frozen["discovery"]["title"]}</h2><p>{@frozen["discovery"]["instructions"]}</p>
-              </div>
+            <p :if={!@frozen} id="discovery-missing" class="preview-empty">
+              No retained discovery is available for this result. Open its current evidence to investigate.
+            </p>
+            <div class="discovery-evidence-action">
+              <.link
+                patch={InvestigationTrail.path(@investigation_host, [{"result", @stream_id}])}
+                data-overview-open
+                id="discovery-current-result"
+                class="pf-v6-c-button pf-m-secondary"
+              >View current result</.link>
             </div>
-            <div class="panel-body">
-              <dl class="discovery-evidence">
-                <div>
-                  <dt>Result</dt><dd>
+          </section>
+          <%= if @frozen do %>
+            <PreviewDetail.card
+              id="discovery-evidence"
+              title={@frozen["discovery"]["title"]}
+              level={2}
+            >
+              <p class="discovery-intro">{@frozen["discovery"]["instructions"]}</p>
+              <PreviewDetail.facts label="Discovery evidence">
+                <tr>
+                  <th scope="row">Result</th><td>
                     {@frozen["stream"]["label"] || @frozen["stream"]["result_key"]}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Observing runner</dt><dd>
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Observing runner</th><td>
                     {@frozen["stream"]["runner_label"] || @frozen["stream"]["runner_id"]}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Monitored environment</dt><dd>
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Monitored environment</th><td>
                     {@frozen["stream"]["environment_label"] || @frozen["stream"]["environment"] ||
                       "Not declared"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Discovery measured</dt><dd>
-                    <time datetime={@evidence["source_at"]}>{@evidence["source_at"] || "Not recorded"}</time>
-                  </dd>
-                </div>
-              </dl>
-              <p :if={@changed} id="discovery-changed" class="notice warn">
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Discovery measured</th><td>
+                    <time datetime={@evidence["source_at"]}>{MondekWeb.EvidencePresentation.time(
+                      @evidence["source_at"]
+                    )}</time>
+                  </td>
+                </tr>
+              </PreviewDetail.facts>
+              <p :if={@changed} id="discovery-changed" class="discovery-notice" role="status">
                 Discovery or its source configuration changed. Your previous selections are retained below for reference. Reload the latest discovery and choose again before reviewing.
               </p>
-              <p :if={!@changed && !@ready} id="discovery-unavailable" class="notice warn">
+              <p :if={!@changed && !@ready} id="discovery-unavailable" class="discovery-notice">
                 {(@current && @current["reason"]) ||
                   "Fresh, current discovery is required to review proposals."} Previous selections remain visible; retained evidence cannot authorize a proposal.
               </p>
-              <button
-                :if={@changed}
-                id="discovery-reload"
-                type="button"
-                class="button space-top"
-                phx-click="reload"
-                disabled={!@current}
-              >Reload latest discovery and clear selections</button>
+              <div :if={@changed} class="discovery-actions">
+                <button
+                  id="discovery-reload"
+                  type="button"
+                  class="pf-v6-c-button pf-m-secondary"
+                  phx-click="reload"
+                  disabled={!@current}
+                >Reload latest discovery and clear selections</button>
+              </div>
               <p
                 :if={(@frozen["discovery"]["omitted"] || 0) > 0}
                 id="discovery-omitted"
-                class="notice space-top"
+                class="discovery-intro"
               >
                 {@frozen["discovery"]["omitted"]} additional resources were omitted by the source. This review covers only the listed candidates.
               </p>
-              <p :if={@frozen["discovery"]["candidates"] == []} class="empty">
-                No resources are currently proposed for review.
+            </PreviewDetail.card>
+            <section
+              class="preview-list discovery-selection"
+              aria-labelledby="discovery-selection-heading"
+            >
+              <header class="preview-heading">
+                <h2 id="discovery-selection-heading" class="pf-v6-c-title pf-m-xl">
+                  Discovered resources
+                </h2><span class="pf-v6-c-badge pf-m-read">{Enum.count(@draft, fn {_, entry} ->
+                  entry["selected"]
+                end)} selected</span>
+              </header>
+              <div class="discovery-filter-toolbar">
+                <PreviewFilters.filter_picker
+                  picker={@filter_picker}
+                  chips={@filter_chips}
+                  fields={@filter_fields}
+                  search={@filters["search"]}
+                  remove={
+                    fn field ->
+                      list_path(assigns, @filters |> Map.delete(field) |> Map.delete("page"))
+                    end
+                  }
+                  clear_search={
+                    list_path(assigns, @filters |> Map.delete("search") |> Map.delete("page"))
+                  }
+                  form_label="Filter discovered resources"
+                  label="Search discovered resources"
+                  placeholder="Search or filter resources"
+                />
+              </div>
+              <p
+                :if={@error}
+                id="discovery-error"
+                class="discovery-notice discovery-error"
+                role="alert"
+              >
+                {@error}
               </p>
-              <p :if={@error} id="discovery-error" class="form-error" role="alert">{@error}</p>
               <form
                 id="discovery-review-form"
+                phx-hook="SelectableRows"
                 phx-change="edit"
                 phx-auto-recover="recover"
                 phx-submit="review"
               >
                 <input type="hidden" name="snapshot" value={@snapshot_token} />
-                <ul class="discovery-candidates">
-                  <.candidate
-                    :for={{candidate, index} <- Enum.with_index(@frozen["discovery"]["candidates"])}
-                    candidate={candidate}
-                    index={index}
+                <section class="preview-table-group" aria-labelledby="discovery-matches-heading">
+                  <h3 id="discovery-matches-heading" class="preview-section-heading">
+                    Matching resources
+                    <span class="pf-v6-c-badge pf-m-read">{@candidate_page.total}</span>
+                  </h3>
+                  <p :if={@candidate_page.items == []} class="preview-empty">
+                    No resources match these filters.
+                  </p>
+                  <.candidates
+                    :if={@candidate_page.items != []}
+                    items={@candidate_page.items}
                     choices={@frozen["discovery"]["choices"]}
-                    draft={@draft[to_string(index)]}
+                    draft={@draft}
                     ready={@ready}
+                    retained={false}
                   />
-                </ul>
-                <div class="form-actions">
-                  <button
+                  <MondekWeb.PreviewPagination.pagination
+                    page={@candidate_page.page}
+                    size={@candidate_page.size}
+                    total={@candidate_page.total}
+                    label="Discovered resource pages"
+                    url={
+                      fn page -> list_path(assigns, Map.put(@filters, "page", to_string(page))) end
+                    }
+                  />
+                </section>
+                <section
+                  :if={@candidate_page.retained != []}
+                  id="discovery-retained-selection"
+                  class="preview-table-group"
+                  aria-labelledby="discovery-retained-heading"
+                >
+                  <h3 id="discovery-retained-heading" class="preview-section-heading">
+                    Selected outside this view
+                    <span class="pf-v6-c-badge pf-m-read">{length(@candidate_page.retained)}</span>
+                  </h3>
+                  <p class="discovery-intro">
+                    These selections are on another page or do not match the current filters. They remain part of your proposal.
+                  </p>
+                  <.candidates
+                    items={@candidate_page.retained}
+                    choices={@frozen["discovery"]["choices"]}
+                    draft={@draft}
+                    ready={@ready}
+                    retained={true}
+                  />
+                </section>
+                <div class="discovery-actions">
+                  <span class="preview-caption">Selected resources need an explicit proposal. Unselected resources stay unchanged.</span><button
                     id="discovery-review"
                     type="submit"
-                    class="button primary"
-                    disabled={!@ready || @frozen["discovery"]["candidates"] == []}
+                    class="pf-v6-c-button pf-m-primary"
+                    disabled={!@ready || @selected_count == 0}
                   >Review proposed changes</button>
                 </div>
               </form>
-            </div>
-          </section>
-          <section
-            :if={@reviewed}
-            id="discovery-proposal-review"
-            class="panel space-top"
-            aria-labelledby="discovery-proposal-heading"
-          >
-            <div class="panel-heading">
-              <h2 id="discovery-proposal-heading">Proposed source changes</h2>
-            </div>
-            <div class="panel-body">
-              <p>
-                Review these explicit choices. Generating a prompt prepares instructions for a coding agent; nothing is saved to your monitoring project or controller.
+            </section>
+            <PreviewDetail.card
+              :if={@reviewed}
+              id="discovery-proposal-review"
+              title="Proposed source changes"
+              level={2}
+            >
+              <p class="discovery-intro">
+                Review the complete proposals. Generating a prompt prepares instructions for a coding agent; nothing is saved to your project or controller.
               </p>
-              <ul class="discovery-reviewed space-top">
+              <PreviewDetail.facts label="Reviewed proposals">
                 <.reviewed_choice
                   :for={selection <- @reviewed["selections"]}
                   selection={selection}
                   discovery={@frozen["discovery"]}
                 />
-              </ul>
-              <button
-                id="discovery-generate"
-                type="button"
-                phx-click="generate"
-                class="button primary space-top"
-                disabled={!@ready}
-              >Generate agent prompt</button>
+              </PreviewDetail.facts>
+              <div class="discovery-actions">
+                <button
+                  id="discovery-generate"
+                  type="button"
+                  phx-click="generate"
+                  class="pf-v6-c-button pf-m-primary"
+                  disabled={!@ready}
+                >Generate agent prompt</button>
+              </div>
               <AgentPrompts.supplied_prompt
                 :if={@prompt}
                 id="discovery-prompt"
                 title="Implement reviewed monitoring proposals"
                 text={@prompt}
-                notice="Review before sharing. This prompt includes the selected discovered identities, source-owned descriptions and your proposed parameter values. Check it for sensitive information before copying. Mondek does not send it."
+                notice="Review before sharing. This prompt includes selected resource identities, source-owned descriptions and your proposed values. Check it for sensitive information before copying. Mondek does not send it."
               />
-            </div>
-          </section>
+            </PreviewDetail.card>
+          <% end %>
         </div>
-      </div>
-    </Layouts.app>
+        <.live_component
+          module={InvestigationStack}
+          id="investigation-stack"
+          host={@investigation_host}
+          params={@investigation_params}
+          now={@now}
+          root={nil}
+          initial={[]}
+          context={"discovery:" <> @stream_id}
+          back={
+            InvestigationTrail.path(@investigation_host, [], %{"surface" => nil, "page_entity" => nil})
+          }
+        />
+      </PreviewLayouts.app>
+    </div>
+    """
+  end
+
+  defp candidate_page(assigns) do
+    all = Enum.with_index(get_in(assigns.frozen || %{}, ["discovery", "candidates"]) || [])
+    query = String.downcase(assigns.filters["search"] || "")
+
+    matched =
+      Enum.filter(all, fn {candidate, index} ->
+        entry = assigns.draft[to_string(index)]
+        selected = entry["selected"]
+        selection = assigns.filters["selection"]
+        proposal = assigns.filters["proposal"]
+
+        String.contains?(
+          String.downcase(
+            Enum.join([candidate["label"], candidate["key"], candidate["details"]], " ")
+          ),
+          query
+        ) &&
+          (selection in [nil, ""] || (selection == "selected" && selected) ||
+             (selection == "unselected" && !selected)) &&
+          (proposal in [nil, ""] || (proposal == @unchosen_proposal && entry["choice_key"] == "") ||
+             proposal == entry["choice_key"])
+      end)
+
+    requested =
+      case Integer.parse(assigns.filters["page"] || "1") do
+        {number, ""} when number > 0 -> number
+        _ -> 1
+      end
+
+    page = min(requested, max(1, ceil(length(matched) / @page_size)))
+    items = Enum.slice(matched, (page - 1) * @page_size, @page_size)
+    visible = MapSet.new(items, &elem(&1, 1))
+
+    retained =
+      Enum.filter(all, fn {_, index} ->
+        assigns.draft[to_string(index)]["selected"] && !MapSet.member?(visible, index)
+      end)
+
+    %{items: items, retained: retained, page: page, size: @page_size, total: length(matched)}
+  end
+
+  defp candidates(assigns) do
+    ~H"""
+    <table
+      class="pf-v6-c-table pf-m-compact preview-table discovery-candidate-table"
+      aria-label={
+        if @retained, do: "Selected resources outside this view", else: "Discovered resources"
+      }
+    >
+      <thead class="pf-v6-c-table__thead">
+        <tr>
+          <th scope="col" class="pf-v6-c-table__th">
+            <span class="pf-v6-screen-reader">Select</span>
+          </th><th scope="col" class="pf-v6-c-table__th">Resource</th><th
+            scope="col"
+            class="pf-v6-c-table__th"
+          >
+            Proposed configuration
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <.candidate
+          :for={{candidate, index} <- @items}
+          candidate={candidate}
+          index={index}
+          choices={@choices}
+          draft={@draft[to_string(index)]}
+          ready={@ready}
+          retained={@retained}
+        />
+      </tbody>
+    </table>
     """
   end
 
@@ -517,11 +824,12 @@ defmodule MondekWeb.DiscoveryLive do
       )
 
     ~H"""
-    <li
+    <tr
       id={"discovery-candidate-#{@index}"}
-      class={["discovery-candidate", @draft["selected"] && "discovery-candidate-selected"]}
+      class={[@draft["selected"] && "preview-selected", @retained && "discovery-retained-row"]}
+      data-select-row
     >
-      <label class="discovery-select" for={"discovery-select-#{@index}"}>
+      <td class="pf-v6-c-table__td" data-label="Selection">
         <input
           type="hidden"
           name={@prefix <> "[selected]"}
@@ -530,53 +838,61 @@ defmodule MondekWeb.DiscoveryLive do
         <input
           id={"discovery-select-#{@index}"}
           type="checkbox"
+          data-row-checkbox
           name={@prefix <> "[selected]"}
           value="true"
           checked={@draft["selected"]}
           disabled={!@ready}
+          aria-label={"Select " <> @candidate["label"]}
         />
-        <span>{@candidate["label"]}</span>
-      </label>
-      <p :if={@candidate["details"]} class="discovery-candidate-details">{@candidate["details"]}</p>
-      <p class="footnote">Resource identity: <code>{@candidate["key"]}</code></p>
-      <fieldset :if={@draft["selected"]} disabled={!@ready}>
-        <legend>Proposal for {@candidate["label"]}</legend>
-        <div class="field">
-          <label for={"discovery-choice-#{@index}"}>Proposed configuration</label>
-          <select id={"discovery-choice-#{@index}"} name={@prefix <> "[choice_key]"}>
-            <option value="" selected={@draft["choice_key"] == ""}>Choose a proposal</option>
-            <option
+      </td>
+      <td class="pf-v6-c-table__td" data-label="Resource">
+        <label for={"discovery-select-#{@index}"} class="discovery-candidate-title">{@candidate[
+          "label"
+        ]}</label><p :if={@candidate["details"]} class="preview-caption discovery-candidate-details">
+          {@candidate["details"]}
+        </p><span class="preview-caption">{@candidate["key"]}</span>
+      </td>
+      <td class="pf-v6-c-table__td" data-label="Proposal">
+        <span :if={!@draft["selected"]} class="preview-caption">Not selected</span>
+        <fieldset :if={@draft["selected"]} disabled={!@ready} class="discovery-proposal-fields">
+          <legend class="pf-v6-screen-reader">Proposal for {@candidate["label"]}</legend>
+          <div class="field">
+            <label for={"discovery-choice-#{@index}"}>Proposed configuration</label><select
+              id={"discovery-choice-#{@index}"}
+              name={@prefix <> "[choice_key]"}
+            ><option value="" selected={@draft["choice_key"] == ""}>Choose a proposal</option><option
               :for={choice <- @choices}
               value={choice["key"]}
               selected={@draft["choice_key"] == choice["key"]}
             >
               {choice["label"]}
-            </option>
-          </select>
-        </div>
-        <p :if={@choice} class="footnote space-top">{@choice["description"]}</p>
-        <ParameterForm.fields
-          :if={@choice}
-          id_prefix={"discovery-params-#{@index}"}
-          name_prefix={@prefix <> "[params]"}
-          schema={@choice["parameter_schema"]}
-          values={@draft["params"]}
-          fixed_hint="This value is fixed by the source-declared proposal."
+            </option></select>
+          </div>
+          <p :if={@choice} class="preview-caption">{@choice["description"]}</p>
+          <ParameterForm.fields
+            :if={@choice}
+            id_prefix={"discovery-params-#{@index}"}
+            name_prefix={@prefix <> "[params]"}
+            schema={@choice["parameter_schema"]}
+            values={@draft["params"]}
+            fixed_hint="Fixed by the source-declared proposal."
+          />
+        </fieldset>
+        <input
+          :if={!@ready && @draft["selected"]}
+          type="hidden"
+          name={@prefix <> "[choice_key]"}
+          value={@draft["choice_key"]}
         />
-      </fieldset>
-      <input
-        :if={!@ready && @draft["selected"]}
-        type="hidden"
-        name={@prefix <> "[choice_key]"}
-        value={@draft["choice_key"]}
-      />
-      <input
-        :for={{key, value} <- if(!@ready && @draft["selected"], do: @draft["params"], else: %{})}
-        type="hidden"
-        name={@prefix <> "[params][" <> key <> "]"}
-        value={ParameterForm.input_value(value)}
-      />
-    </li>
+        <input
+          :for={{key, value} <- if(!@ready && @draft["selected"], do: @draft["params"], else: %{})}
+          type="hidden"
+          name={@prefix <> "[params][" <> key <> "]"}
+          value={ParameterForm.input_value(value)}
+        />
+      </td>
+    </tr>
     """
   end
 
@@ -593,19 +909,25 @@ defmodule MondekWeb.DiscoveryLive do
       )
 
     ~H"""
-    <li>
-      <strong>{@candidate["label"]}</strong><p>{@choice["label"]}</p>
-      <dl>
-        <div :for={{key, value} <- Enum.sort(@selection["params"])}>
-          <dt>
-            {ParameterForm.field_label(@choice["parameter_schema"], key)}<span :if={
-              get_in(@choice, ["parameter_schema", "fields", key, "unit"])
-            }> ({get_in(@choice, ["parameter_schema", "fields", key, "unit"])})</span>
-          </dt>
-          <dd>{ParameterForm.input_value(value)}</dd>
-        </div>
-      </dl>
-    </li>
+    <tr>
+      <th scope="row">
+        {@candidate["label"]}<span class="preview-caption discovery-secondary">{@candidate["key"]}</span>
+      </th><td>
+        <table class="discovery-reviewed-facts" aria-label={"Proposal for " <> @candidate["label"]}>
+          <tbody>
+            <tr>
+              <th scope="row">Proposal</th><td>{@choice["label"]}</td>
+            </tr><tr :for={{key, value} <- Enum.sort(@selection["params"])}>
+              <th scope="row">
+                {ParameterForm.field_label(@choice["parameter_schema"], key)}<span :if={
+                  get_in(@choice, ["parameter_schema", "fields", key, "unit"])
+                }> ({get_in(@choice, ["parameter_schema", "fields", key, "unit"])})</span>
+              </th><td>{ParameterForm.input_value(value)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </td>
+    </tr>
     """
   end
 end

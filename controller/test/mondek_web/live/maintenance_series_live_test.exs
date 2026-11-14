@@ -38,8 +38,8 @@ defmodule MondekWeb.MaintenanceSeriesLiveTest do
     {:ok, index, _} = live(build_conn(), "/maintenance")
 
     for {saved, label, observer} <- series do
-      assert has_element?(index, "#maintenance-window-#{saved["id"]}", label)
-      assert has_element?(index, "#maintenance-window-#{saved["id"]}", observer)
+      assert has_element?(index, "tr:has(#open-window-#{saved["id"]})", label)
+      assert has_element?(index, "tr:has(#open-window-#{saved["id"]})", observer)
       {:ok, detail, _} = live(build_conn(), "/maintenance/series/" <> saved["id"])
       assert has_element?(detail, "#maintenance-series-saved", label)
       assert has_element?(detail, "#maintenance-series-saved", observer)
@@ -66,12 +66,10 @@ defmodule MondekWeb.MaintenanceSeriesLiveTest do
     assert {:ok, _} = Monitoring.inventory(publication)
     {:ok, view, _} = live(build_conn(), "/maintenance/new")
 
-    view
-    |> form("#maintenance-selection-form", filters: %{source_id: "coverage-test"})
-    |> render_change()
+    choose_filters(view, %{source_id: "coverage-test"})
 
     view |> element("#maintenance-select-matching") |> render_click()
-    assert has_element?(view, "#maintenance-selected-count", "26 selections")
+    assert has_element?(view, "#maintenance-selected-count", "26 selected")
     view |> form("#maintenance-form", repeat: "weekly") |> render_change()
 
     view
@@ -162,7 +160,7 @@ defmodule MondekWeb.MaintenanceSeriesLiveTest do
     assert has_element?(saved, "nav[aria-label='Series current result pages']", "Page 2 of 2")
     navigation = saved |> element("#maintenance-series-copy") |> render_click()
     {:ok, copied, _} = follow_redirect(navigation, build_conn())
-    assert has_element?(copied, "#maintenance-selected-count", "26 selections")
+    assert has_element?(copied, "#maintenance-selected-count", "26 selected")
     assert has_element?(copied, "#maintenance-repeat-count[value='26']")
   end
 
@@ -229,12 +227,12 @@ defmodule MondekWeb.MaintenanceSeriesLiveTest do
     end
 
     {:ok, index, _} = live(build_conn(), "/maintenance")
-    assert length(rows(index, "#maintenance-list article")) == 1
-    assert has_element?(index, "a[href='/maintenance/series/#{entry["id"]}']")
+    assert length(rows(index, "table[aria-label='Maintenance windows and series'] tbody tr")) == 1
+    assert has_element?(index, "a[href^='/maintenance/series/#{entry["id"]}']")
     {:ok, series} = MaintenanceSchedules.get(entry["id"])
     first = hd(series["occurrences"])
     {:ok, child, _} = live(build_conn(), "/maintenance/" <> first["id"])
-    assert has_element?(child, "#maintenance-series-membership", "changes only this window")
+    assert has_element?(child, "#maintenance-saved", "changes only this date")
     refute has_element?(child, "#maintenance-repeat")
 
     saved
@@ -324,7 +322,7 @@ defmodule MondekWeb.MaintenanceSeriesLiveTest do
 
   test "the preview series shares copy, occurrence and reviewed cancellation controls" do
     series = series(3)
-    base = "/next/maintenance/series/#{series["id"]}"
+    base = "/maintenance/series/#{series["id"]}"
     query = "?status=all"
     {:ok, view, _} = live(build_conn(), base <> query)
 
@@ -407,7 +405,7 @@ defmodule MondekWeb.MaintenanceSeriesLiveTest do
 
     assert has_element?(
              recovered,
-             "#maintenance-series-history a[href='/maintenance/#{child["id"]}']",
+             "#maintenance-series-history a[href='/maintenance/#{child["id"]}/full']",
              "Window 2"
            )
 
@@ -560,4 +558,19 @@ defmodule MondekWeb.MaintenanceSeriesLiveTest do
       |> LazyHTML.query("input[name='#{name}']")
       |> LazyHTML.attribute("value")
       |> hd()
+
+  defp choose_filters(view, values) do
+    for {field, value} <- values do
+      field = to_string(field)
+
+      if field == "search" do
+        render_submit(element(view, "#maintenance-choice-search"), %{"search" => value})
+      else
+        render_hook(view, "filter_open", %{"field" => field})
+        render_hook(view, "filter_select", %{"key" => value})
+      end
+    end
+
+    view
+  end
 end

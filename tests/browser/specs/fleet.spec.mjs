@@ -1,7 +1,7 @@
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
-import { checkpoint, connected, fixtureURL, mode, snapshot, streams } from '../support/helpers.mjs';
+import { checkpoint, connected, fixtureURL, mode, snapshot, streams, setFilter, searchFilters } from '../support/helpers.mjs';
 
 const fleetURL = process.env.MONDEK_FLEET_FIXTURE_URL || 'http://fleet-runner:8082';
 
@@ -46,13 +46,11 @@ async function activeFresh(request, indices, total = indices.length, previousSes
 }
 
 async function filter(page, values) {
-  const form = page.locator('#runner-filters');
-  for (const [name, value] of Object.entries(values)) {
-    const field = form.locator(`[name="${name}"]`);
-    if (await field.evaluate((node) => node.tagName) === 'SELECT') await field.selectOption(value);
-    else await field.fill(value);
+  for (const [field,value] of Object.entries(values)) {
+    if (field === 'search') await searchFilters(page,value);
+    else if (field === 'sort') await page.locator('#runner-sort').selectOption(value);
+    else await setFilter(page,field,value === 'all' ? null : value);
   }
-  await form.getByRole('button', { name: 'Apply filters', exact: true }).click();
   await connected(page);
 }
 
@@ -95,10 +93,11 @@ test('twelve live runners recover while fifty authentically measured fleet ident
     await checkpoint(page, testInfo, 'duplicate-labels-remain-distinct-390');
     const duplicateList = new URL(page.url());
     await page.locator('#runner-list tbody tr').first().getByRole('link').first().click();
-    await expect(page).toHaveURL(/\/runners\/[0-9a-f-]+(?:\?|$)/);
+    await expect(page).toHaveURL(url => url.pathname === '/runners'
+      && url.searchParams.get('inspect') === `runner:${duplicateIds[0].replace('runner-row-', '')}`);
     await expect(page.locator('#runner-detail')).toBeVisible();
     await expect(page.locator('#runner-measurements')).toContainText('1');
-    await page.locator('a.back').click();
+    await page.locator('#overview-panel [data-overview-close]').click();
     await expect(page).toHaveURL((url) => url.pathname === '/runners' && url.searchParams.get('search') === duplicateList.searchParams.get('search'));
 
     // Prove failure recovery and restart with the twelve real active observers.
@@ -119,7 +118,7 @@ test('twelve live runners recover while fifty authentically measured fleet ident
         && row.current.observation_id !== beforeRestartMeasurement.current.observation_id;
     }, { timeout: 90_000, message: 'Restarted runner must produce its own new measured evidence' }).toBe(true);
     expect((await result(request, 4)).id).toBe(disconnected.id);
-    await page.goto(`/runners/${disconnected.runner_id}`);
+    await page.goto(`/runners/${disconnected.runner_id}/full`);
     await expect(page.locator('#runner-contact')).toContainText('Recent contact');
     await page.setViewportSize({ width: 320, height: 740 });
     await checkpoint(page, testInfo, 'runner-restarted-same-identity-restored-320');
@@ -155,11 +154,11 @@ test('twelve live runners recover while fifty authentically measured fleet ident
     await page.goto('/runners?source_id=browser-fleet-checks');
     await filter(page, { sort: 'name' });
     await expect(page.locator('#runner-list tbody tr')).toHaveCount(25);
-    await expect(page.locator('#runner-pagination')).toContainText('Page 1 of 2');
+    await expect(page.getByRole('navigation', {name:'Runner pages'}).locator('[aria-current=page]')).toHaveText('1');
     await checkpoint(page, testInfo, 'fifty-real-runners-first-page');
     const first = await page.locator('#runner-list tbody tr').evaluateAll((rows) => rows.map((row) => row.id));
-    await page.locator('#runner-pagination').getByRole('link', { name: /Next/ }).click();
-    await expect(page.locator('#runner-pagination')).toContainText('Page 2 of 2');
+    await page.getByRole('navigation', {name:'Runner pages'}).getByRole('link', { name: /Next/ }).click();
+    await expect(page.getByRole('navigation', {name:'Runner pages'}).locator('[aria-current=page]')).toHaveText('2');
     await expect(page.locator('#runner-list tbody tr')).toHaveCount(25);
     const second = await page.locator('#runner-list tbody tr').evaluateAll((rows) => rows.map((row) => row.id));
     expect(new Set([...first, ...second]).size).toBe(50);
@@ -167,16 +166,16 @@ test('twelve live runners recover while fifty authentically measured fleet ident
     expect([...first, ...second]).toEqual(expectedOrder);
     await page.reload();
     await connected(page);
-    await expect(page.locator('#runner-pagination')).toContainText('Page 2 of 2');
+    await expect(page.getByRole('navigation', {name:'Runner pages'}).locator('[aria-current=page]')).toHaveText('2');
     await page.evaluate(() => window.liveSocket.disconnect());
     await expect(page.locator('[data-phx-main]')).not.toHaveClass(/phx-connected/);
     await page.evaluate(() => window.liveSocket.connect());
     await connected(page);
-    await expect(page.locator('#runner-pagination')).toContainText('Page 2 of 2');
+    await expect(page.getByRole('navigation', {name:'Runner pages'}).locator('[aria-current=page]')).toHaveText('2');
     await page.setViewportSize({ width: 320, height: 740 });
     await checkpoint(page, testInfo, 'fifty-runners-page-two-reconnected-320');
 
-    await page.goto(`/runners/${collection.runner_id}`);
+    await page.goto(`/runners/${collection.runner_id}/full`);
     await expect(page.locator('#runner-contact')).toContainText('Recent contact');
     await expect(page.locator('#runner-measurements')).toContainText('Unavailable');
     await expect(page.locator('#runner-last-report')).toContainText('Last reported execution & upload');
@@ -186,7 +185,7 @@ test('twelve live runners recover while fifty authentically measured fleet ident
     const allResults = page.locator('#runner-measurements a[href*="runner_id="]').first();
     await allResults.click();
     await expect(page).toHaveURL((url) => url.pathname === '/checks' && url.searchParams.get('runner_id') === collection.runner_id);
-    await expect(page.locator('[id^="result-"]')).toHaveCount(1);
+    await expect(page.locator('#preview-check-results > tbody > tr')).toHaveCount(1);
 
     await fleet(request, { samples: { 2: 'OK', 3: 'OK' } });
     await fresh(request, 2);
@@ -220,28 +219,29 @@ test('dedicated notification investigation retries a real rejected delivery with
     await expect(page.locator(`#notification-row-${original.id}`)).toContainText('Retries exhausted');
     await checkpoint(page, testInfo, 'dedicated-notifications-exhausted-desktop');
     await page.locator(`#notification-row-${original.id}`).getByRole('link').first().click();
-    await expect(page).toHaveURL(new RegExp(`/notifications/${original.id}(?:\\?|$)`));
-    const notification = page.locator(`#notification-${original.id}`);
+    await expect(page).toHaveURL(url => url.pathname === '/notifications' && url.searchParams.get('inspect') === `notification:${original.id}`);
+    const notification = page.locator('#overview-panel');
     await expect(notification).toContainText('HTTP 503');
-    await notification.getByText('Notification identity and immutable payload', { exact: true }).click();
-    expect(JSON.parse(await notification.locator('pre').textContent())).toEqual(original.payload);
-    // Delivery and incident investigation now have separate LiveView processes.
-    // Preserve the exact notification/list return context across that boundary.
+    await notification.getByText('Original notification payload', {exact:true}).click();
+    const {webhook_delivery: _privateDelivery, ...publicPayload}=original.payload;
+    expect(JSON.parse(await notification.locator('[id$="notification-payload"] pre').textContent())).toEqual(publicPayload);
+    await expect(notification).not.toContainText(original.destination);
+    // Related incident evidence opens another typed card without abandoning this owner.
     const detailURL = page.url();
-    await notification.locator('a[href^="/incidents/"]').first().click();
+    await notification.getByRole('link',{name:'View health incident',exact:true}).click();
     await connected(page);
-    await expect(page).toHaveURL(/\/incidents\//);
-    await page.getByRole('link', { name: 'Back to notification', exact: true }).click();
+    await expect(page.locator('#overview-panel')).toContainText('Recorded failure');
+    await page.locator('#overview-panel [data-overview-close]').click();
     await connected(page);
     await expect(page).toHaveURL(detailURL);
     await expect(notification).toContainText('HTTP 503');
-    const form = page.locator(`#retry-notification-${original.id}`);
-    await form.getByLabel('Retry reason', { exact: true }).fill('Local receiver repaired after fleet delivery investigation');
+    const form = notification.locator('form[phx-submit=retry_notification]');
+    await form.getByLabel('Reason for retry', { exact: true }).fill('Local receiver repaired after fleet delivery investigation');
     await page.evaluate(() => window.liveSocket.disconnect());
     await expect(page.locator('[data-phx-main]')).not.toHaveClass(/phx-connected/);
     await page.evaluate(() => window.liveSocket.connect());
     await connected(page);
-    await expect(form.getByLabel('Retry reason', { exact: true })).toHaveValue('Local receiver repaired after fleet delivery investigation');
+    await expect(form.getByLabel('Reason for retry', { exact: true })).toHaveValue('Local receiver repaired after fleet delivery investigation');
     await page.setViewportSize({ width: 320, height: 740 });
     await checkpoint(page, testInfo, 'notification-detail-retry-draft-reconnected-320');
     await mode(request, { webhook: 'ok' });
@@ -253,7 +253,7 @@ test('dedicated notification investigation retries a real rejected delivery with
     expect(delivered.destination).toBe(original.destination);
     const receipts = (await (await request.get(`${fixtureURL}/records`)).json()).records;
     expect(receipts.some((row) => row.payload.occurrence_id === original.id)).toBe(true);
-    await page.getByRole('link', { name: 'Back to notifications' }).click();
+    await page.locator('#overview-panel [data-overview-close]').click();
     await expect(page).toHaveURL((url) => url.pathname === '/notifications' && url.searchParams.get('notification_status') === 'exhausted');
     await expect(page.locator(`#notification-row-${original.id}`)).toHaveCount(0);
     await page.goto('/notifications?notification_status=delivered');

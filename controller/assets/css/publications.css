@@ -1,0 +1,45 @@
+/*! Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com> */
+/*! SPDX-License-Identifier: Apache-2.0 */
+.publication-workflow { min-width:0; }
+.publication-workflow > .preview-detail-card { margin:12px 0 0; background:var(--preview-surface); }
+.publication-intro > .preview-detail-card { margin:8px 12px; }
+.publication-message { padding:8px var(--preview-content-inset); font-size:13px; color:var(--preview-subtle); }
+.publication-error { color:#9b2433; background:color-mix(in srgb,#ffd9dc 30%,var(--preview-surface)); }
+.publication-secondary { display:block; font-weight:400; }
+.publication-links { display:flex; flex-wrap:wrap; gap:4px 12px; }
+.publication-disclosure { border-top:1px solid var(--preview-line); }
+.publication-workflow summary { padding:8px var(--preview-content-inset); cursor:pointer; font-size:13px; }
+.publication-workflow details > p { padding:8px var(--preview-content-inset); }
+.publication-workflow .preview-incident-fact-table th { width:19rem; }
+.publication-editor-fields { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,3fr); gap:12px; padding:10px var(--preview-content-inset); }
+.publication-field { display:grid; gap:4px; align-content:start; min-width:0; }
+.publication-field label { font-size:13px; font-weight:600; }
+.publication-field :is(input,select,textarea) { width:100%; min-width:0; padding:6px 8px; border:1px solid var(--preview-line); border-radius:4px; background:var(--preview-surface); color:var(--preview-ink); font:inherit; }
+.publication-search { padding:8px var(--preview-content-inset); }
+.publication-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px var(--preview-content-inset); border-top:1px solid var(--preview-line); }
+.publication-replacement,.publication-review { border-top:1px solid var(--preview-line); }
+.publication-filter-toolbar { padding:8px var(--preview-content-inset); }
+.publication-workflow .preview-table { --preview-label-column:35%; }
+.publication-inventory-table { --preview-label-column:28%; }
+.publication-inventory-table th:nth-child(2) { width:18%; }
+.publication-inventory-table th:nth-child(3) { width:20%; }
+.publication-inventory-table th:nth-child(4) { width:10%; }
+.publication-inventory-table th:nth-child(5) { width:24%; }
+.publication-workflow .preview-table td.publication-links { display:table-cell; }
+.publication-workflow .preview-table td.publication-links > a { display:block; margin:2px 0; }
+.publication-inventory-table td.publication-links { display:table-cell; }
+.publication-inventory-table td.publication-links > a { display:block; margin:2px 0; }
+.publication-history-table th:nth-child(3) { width:24%; }
+.publication-history-table th:nth-child(4) { width:18%; }
+@media(max-width:700px) {
+  .publication-editor-fields { grid-template-columns:1fr; }
+  .publication-workflow .preview-incident-fact-table th { width:38%; }
+  .publication-workflow .preview-incident-fact-table :is(th,td) { overflow-wrap:anywhere; }
+  :is(.publication-workflow,.publication-inventory) .preview-table,:is(.publication-workflow,.publication-inventory) .preview-table tbody,:is(.publication-workflow,.publication-inventory) .preview-table tr,:is(.publication-workflow,.publication-inventory) .preview-table td { display:block; width:100%; }
+  :is(.publication-workflow,.publication-inventory) .preview-table thead { display:none; }
+  :is(.publication-workflow,.publication-inventory) .preview-table td::before { content:attr(data-label); display:block; font-size:12px; font-weight:600; color:var(--preview-subtle); }
+  :is(.publication-workflow,.publication-inventory) .preview-table tr { border-bottom:1px solid var(--preview-line); padding:4px 0; }
+  :is(.publication-workflow,.publication-inventory) .preview-table td.publication-links { display:block; }
+}
+
+.publication-selected-successor { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px 12px; }

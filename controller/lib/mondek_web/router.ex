@@ -8,7 +8,7 @@ defmodule MondekWeb.Router do
     plug :accepts, ["html"]
     plug :fetch_session
     plug :fetch_live_flash
-    plug :put_root_layout, html: {MondekWeb.Layouts, :root}
+    plug :put_root_layout, html: {MondekWeb.PreviewLayouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
   end
@@ -16,10 +16,6 @@ defmodule MondekWeb.Router do
   pipeline :api do
     plug :accepts, ["json"]
     plug :require_json_write
-  end
-
-  pipeline :preview do
-    plug :put_root_layout, html: {MondekWeb.PreviewLayouts, :root}
   end
 
   # Browser forms can reach loopback services cross-origin. JSON writes require a
@@ -52,17 +48,24 @@ defmodule MondekWeb.Router do
        :receive_pack
 
   live_session :operator_ui do
-    scope "/next", MondekWeb do
-      pipe_through [:browser, :preview]
+    scope "/", MondekWeb do
+      pipe_through :browser
       live "/", NextOverviewLive, :index
+      live "/guide", GuideLive, :guide
+      live "/licenses", LicensesLive, :index
+      get "/licenses/notices", LicenseController, :notices
       live "/results/:id", NextOverviewLive, :result
       live "/results/:id/full", NextOverviewLive, :result_page
       live "/expected/:id", NextOverviewLive, :expected
       live "/expected/:id/full", NextOverviewLive, :expected
       live "/checks", NextOverviewLive, :checks
+      live "/checks/:id/discovery", DiscoveryLive, :show
       live "/checks/:id", NextOverviewLive, :checks_result
       live "/checks/:id/full", NextOverviewLive, :checks_result_page
+      live "/executions/:id", ExecutionLive, :show
       live "/coverage", NextOverviewLive, :coverage
+      live "/coverage/publishers", PublicationInventoryLive, :index
+      live "/coverage/publishers/:id", PublisherLive, :show
       live "/coverage/diagnostics/:id", NextOverviewLive, :coverage_diagnostic
       live "/coverage/diagnostics/:id/full", NextOverviewLive, :coverage_diagnostic
       live "/coverage/:id", NextOverviewLive, :coverage_result
@@ -78,51 +81,21 @@ defmodule MondekWeb.Router do
       live "/incidents/loss/:id", NextIncidentsLive, :loss
       live "/incidents/health/:id/full", NextIncidentsLive, :health
       live "/incidents/loss/:id/full", NextIncidentsLive, :loss
+      live "/notifications", NotificationsLive, :notifications
+      live "/notifications/:id/full", NotificationsLive, :notification
+      live "/notifications/:id", NotificationsLive, :notification
+      live "/configuration/history", ConfigurationRepositoryLive, :index
+      live "/configuration/rules", ConfigurationRulesLive, :index
+      live "/configuration/rules/new", ConfigurationRulesLive, :new
+      live "/configuration/rules/:id", ConfigurationRulesLive, :edit
+      live "/configuration/discovery/changes/:id", DiscoveryConfigurationLive, :receipt
+      live "/configuration/discovery/:id", DiscoveryConfigurationLive, :edit
+      live "/configuration", ConfigurationLive, :configuration
+      live "/configuration/:id", ConfigurationLive, :configuration_detail
+      live "/runners", RunnersLive, :index
+      live "/runners/:id/full", RunnersLive, :show
+      live "/runners/:id", RunnersLive, :show
     end
-
-    scope "/", MondekWeb do
-      pipe_through [:browser, :preview]
-      live "/guide", GuideLive, :guide
-      live "/licenses", LicensesLive, :index
-    end
-  end
-
-  scope "/", MondekWeb do
-    pipe_through :browser
-    get "/licenses/notices", LicenseController, :notices
-    live "/", OverviewLive, :overview
-    live "/checks", ChecksLive, :checks
-    live "/coverage", CoverageLive, :index
-    live "/coverage/publishers", CoverageLive, :publishers
-    live "/coverage/publishers/:id", PublisherLive, :show
-    live "/coverage/diagnostics", CoverageLive, :diagnostics
-    live "/coverage/:id", CoverageLive, :show
-    live "/checks/:id/diagnostics", ResultLive, :check_diagnostics
-    live "/resources/:id/diagnostics", ResultLive, :resource_diagnostics
-    live "/checks/:id/discovery", DiscoveryLive, :show
-    live "/checks/:id", ResultLive, :check
-    live "/resources/:id", ResultLive, :resource
-    live "/incidents", IncidentsLive, :incidents
-    live "/monitoring-incidents", MonitoringIncidentsLive, :index
-    live "/monitoring-incidents/:id", MonitoringIncidentsLive, :show
-    live "/maintenance", MaintenanceLive, :index
-    live "/maintenance/new", MaintenanceLive, :new
-    live "/maintenance/series/:id", MaintenanceLive, :series
-    live "/maintenance/:id", MaintenanceLive, :edit
-    live "/configuration", ConfigurationLive, :configuration
-    live "/configuration/history", ConfigurationRepositoryLive, :index
-    live "/configuration/rules", ConfigurationRulesLive, :index
-    live "/configuration/rules/new", ConfigurationRulesLive, :new
-    live "/configuration/rules/:id", ConfigurationRulesLive, :edit
-    live "/configuration/new", ConfigurationLive, :onboarding
-    live "/configuration/discovery/changes/:id", DiscoveryConfigurationLive, :receipt
-    live "/configuration/discovery/:id", DiscoveryConfigurationLive, :edit
-    live "/configuration/:id", ConfigurationLive, :configuration_detail
-    live "/incidents/:id", IncidentLive, :incident
-    live "/runners", RunnersLive, :index
-    live "/runners/:id", RunnersLive, :show
-    live "/notifications", NotificationsLive, :notifications
-    live "/notifications/:id", NotificationsLive, :notification
   end
 
   scope "/api/v1", MondekWeb do

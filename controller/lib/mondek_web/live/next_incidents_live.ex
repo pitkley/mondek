@@ -43,13 +43,14 @@ defmodule MondekWeb.NextIncidentsLive do
     {"type", "Type", "grid"},
     {"severity", "Severity", "pulse"},
     {"acknowledgement", "Acknowledgement", "shield"},
-    {"opened", "Opened", "clock"}
+    {"opened", "Opened", "clock"},
+    {"runner_id", "Runner", "terminal"}
   ]
 
   @impl true
   def mount(_, _, socket) do
     if connected?(socket), do: Process.send_after(self(), :tick, 2_000)
-    {:ok, assign(socket, page_title: "Incidents preview")}
+    {:ok, assign(socket, page_title: "Incidents")}
   end
 
   @impl true
@@ -67,7 +68,7 @@ defmodule MondekWeb.NextIncidentsLive do
      |> assign(
        filters: filters(params),
        filter_picker: nil,
-       full_page: direct_full || params["surface"] == "page",
+       full_page: direct_full || !is_nil(InvestigationTrail.promoted(params, initial)),
        incident_root: root,
        initial_trail: initial,
        investigation_params: params,
@@ -103,9 +104,17 @@ defmodule MondekWeb.NextIncidentsLive do
   end
 
   def handle_event("filter_open", %{"field" => field}, socket)
-      when field in ["type", "status", "severity", "acknowledgement", "opened", "grouping"] do
+      when field in [
+             "type",
+             "status",
+             "severity",
+             "acknowledgement",
+             "opened",
+             "grouping",
+             "runner_id"
+           ] do
     value = socket.assigns.filters[field]
-    label = if value == "all", do: "", else: option_label(field, value)
+    label = if value in [nil, "", "all"], do: "", else: option_label(field, value)
     {:noreply, assign(socket, filter_picker: %{picker(field, "") | value: label})}
   end
 
@@ -120,7 +129,10 @@ defmodule MondekWeb.NextIncidentsLive do
         _,
         %{assigns: %{filter_picker: %{field: field}}} = socket
       ),
-      do: patch_filters(filter_ready(socket), %{field => "all"})
+      do:
+        patch_filters(filter_ready(socket), %{
+          field => if(field == "runner_id", do: "", else: "all")
+        })
 
   def handle_event(
         event,
@@ -165,14 +177,20 @@ defmodule MondekWeb.NextIncidentsLive do
     query = value |> String.trim() |> String.downcase()
 
     options =
-      for {key, label} <- choices(field),
-          key != "all",
+      for {key, label} <- picker_choices(field, value),
+          key not in [nil, "", "all"],
           String.contains?(String.downcase(label), query),
           do: %{key: key, label: label, kind: ""}
 
     {^field, title, _} = List.keyfind(@filter_fields, field, 0)
     %{field: field, title: title, value: value, options: options}
   end
+
+  defp picker_choices("runner_id", query),
+    do: Enum.map(Mondek.ObserverFilters.options("runner_id", query), &{&1.key, &1.label})
+
+  defp picker_choices(field, _query), do: choices(field)
+  defp choices("runner_id"), do: picker_choices("runner_id", "")
 
   defp choices("type"), do: @types
   defp choices("grouping"), do: @groupings
@@ -181,12 +199,19 @@ defmodule MondekWeb.NextIncidentsLive do
   defp choices("acknowledgement"), do: @acknowledgements
   defp choices("opened"), do: @opened
 
+  defp option_label("runner_id", key) do
+    case Mondek.ObserverFilters.options("runner_id", "", {key, ""}) do
+      [option] -> option.label
+      [] -> key
+    end
+  end
+
   defp option_label(field, key), do: List.keyfind(choices(field), key, 0) |> elem(1)
 
   defp chips(filters) do
     for {field, name, _icon} <- @filter_fields,
         key = filters[field],
-        key != "all",
+        key not in [nil, "", "all"],
         do: %{field: field, name: name, label: option_label(field, key)}
   end
 
@@ -202,6 +227,8 @@ defmodule MondekWeb.NextIncidentsLive do
       "opened" => choice(params["opened"], @opened),
       "page" => number(params["page"])
     }
+    |> Map.merge(Map.take(Mondek.ObserverFilters.params(params), ["runner_id"]))
+    |> Map.put("return_to", MondekWeb.BrowserNavigation.return_path(params["return_to"]))
     |> then(fn filters -> if search, do: Map.put(filters, "search", search), else: filters end)
   end
 
@@ -220,7 +247,7 @@ defmodule MondekWeb.NextIncidentsLive do
 
   def path(kind, id, filters \\ %{}, full_page \\ false) when kind in ["health", "loss"] do
     with_query(
-      "/next/incidents/" <>
+      "/incidents/" <>
         kind <>
         "/" <>
         URI.encode(id, &URI.char_unreserved?/1) <>
@@ -229,25 +256,9 @@ defmodule MondekWeb.NextIncidentsLive do
     )
   end
 
-  def return_path(value) when is_binary(value) and byte_size(value) <= 8192 do
-    uri = URI.parse(value)
-    params = URI.decode_query(uri.query || "")
+  defdelegate return_path(value), to: MondekWeb.BrowserNavigation
 
-    if is_nil(uri.scheme) && is_nil(uri.host) && is_nil(uri.fragment) &&
-         is_binary(uri.path) &&
-         Regex.match?(
-           ~r"\A/next(?:/(?:incidents|checks|results|coverage|expected|maintenance)(?:/[a-zA-Z0-9_-]+)*)?\z",
-           uri.path
-         ) &&
-         InvestigationTrail.parse(params["inspect"]) != :error,
-       do: uri.path <> if(uri.query, do: "?" <> uri.query, else: "")
-  rescue
-    ArgumentError -> nil
-  end
-
-  def return_path(_), do: nil
-
-  defp list_path(filters), do: with_query("/next/incidents", filters)
+  defp list_path(filters), do: with_query("/incidents", filters)
 
   defp with_query(path, params) do
     query =
@@ -400,6 +411,21 @@ defmodule MondekWeb.NextIncidentsLive do
       <MondekWeb.PreviewLayouts.navigation active={:incidents} />
       <main id="main-content" class="preview-main" tabindex="-1">
         <.listing :if={!@full_page} {assigns} />
+        <section
+          :if={
+            @full_page && !@incident_root &&
+              !InvestigationTrail.promoted(@investigation_params, @initial_trail)
+          }
+          class="preview-list"
+        >
+          <header class="preview-heading">
+            <h1 id="incidents-heading" tabindex="-1">Incident unavailable</h1>
+          </header>
+          <p class="preview-empty">This incident identity is not available.</p>
+          <div class="preview-recorded-actions">
+            <.link navigate="/incidents">Browse incidents</.link>
+          </div>
+        </section>
         <.live_component
           module={InvestigationStack}
           id="investigation-stack"
@@ -424,6 +450,11 @@ defmodule MondekWeb.NextIncidentsLive do
     <section class="preview-list" aria-labelledby="incidents-heading">
       <header class="preview-heading">
         <h1 id="incidents-heading" class="pf-v6-c-title pf-m-2xl">Incidents</h1>
+        <.link
+          :if={@filters["return_to"]}
+          navigate={@filters["return_to"]}
+          class="pf-v6-c-button pf-m-link"
+        >Back to previous view</.link>
       </header>
       <div class="preview-incident-search">
         <MondekWeb.PreviewFilters.filter_picker
@@ -431,7 +462,16 @@ defmodule MondekWeb.NextIncidentsLive do
           chips={chips(@filters)}
           fields={@filter_fields}
           search={@filters["search"]}
-          remove={fn field -> list_path(Map.merge(@filters, %{field => "all", "page" => "1"})) end}
+          remove={
+            fn field ->
+              list_path(
+                Map.merge(@filters, %{
+                  field => if(field == "runner_id", do: "", else: "all"),
+                  "page" => "1"
+                })
+              )
+            end
+          }
           clear_search={list_path(@filters |> Map.delete("search") |> Map.put("page", "1"))}
           form_label="Filter incidents"
           label="Search incidents"

@@ -1,7 +1,7 @@
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
-import { checkpoint, connected, keyboardSubmit, mode, streams } from '../support/helpers.mjs';
+import { checkpoint, connected, keyboardSubmit, mode, streams, searchFilters, expectInvestigationReturn } from '../support/helpers.mjs';
 
 const source = 'elasticsearch-monitoring';
 const healthy = { available: true, used_percent: 40, sample_age_seconds: 0, writes_blocked: false };
@@ -85,8 +85,8 @@ test('reviewed replacement accepts independent Critical evidence and restores ne
   await connected(page);
   await expect(page.locator('#publisher-heading')).toContainText('Predecessor');
   await page.locator('#publisher-action').selectOption('replace');
-  await page.locator('#publisher-successor-search').fill('Successor');
-  await page.locator(`[data-successor-id="${b.id}"]`).getByRole('button', { name: 'Choose observer' }).click();
+  await searchFilters(page, 'Successor', {id: 'publisher-successor-filter'});
+  await page.locator(`[data-successor-id="${b.id}"]`).getByRole('button', { name: /^Choose observer / }).click();
   await expect(page.locator('#publisher-selected-successor')).toContainText('Successor');
   const reason = 'Move collection to the reviewed independent successor; keep the shared storage failure visible.';
   await page.evaluate(() => window.liveSocket.disconnect());
@@ -161,6 +161,7 @@ test('reviewed replacement accepts independent Critical evidence and restores ne
   const recovered = await observerResult(request, b.runner_id, 'OK', { after: Date.now() });
   expect(await api(request, `/api/v1/publishers/${a.id}/events/${saved.id}`)).toEqual(witness);
   await page.locator('#publisher-history .publisher-history-event').filter({ hasText: reason }).getByRole('link', { name: 'Inspect saved decision and evidence', exact: true }).click();
+  await expect(page.locator('#publisher-saved-decision-heading')).toBeFocused();
   await expect(page.locator('#publisher-saved-decision-heading')).toBeInViewport();
   await expect(page.locator('#publisher-saved-decision')).toContainText('Critical');
   await expect(page.locator('#publisher-saved-decision')).toContainText(reason);
@@ -176,6 +177,7 @@ test('reviewed replacement accepts independent Critical evidence and restores ne
   expect(report.id).not.toBe(recovered.current.observation_id);
   expect(evidence.configuration.generation).toBe(report.generation);
   await page.locator('#publisher-saved-decision').getByRole('link', { name: 'Inspect saved measurement', exact: true }).click();
+  await expect(page.locator('#publisher-saved-measurement-heading')).toBeFocused();
   await expect(page.locator('#publisher-saved-measurement-heading')).toBeInViewport();
   const measurement = page.locator('#publisher-saved-measurement');
   await expect(measurement).toHaveAttribute('data-observation-id', report.id);
@@ -186,7 +188,7 @@ test('reviewed replacement accepts independent Critical evidence and restores ne
   await expect(measurement).toContainText('Measured value: 96');
   await expect(measurement.locator(`time[datetime="${original.source_at}"]`)).toBeVisible();
   await expect(measurement.locator(`time[datetime="${report.evaluated_at}"]`)).toBeVisible();
-  await expect(measurement.locator('dl > div').filter({ has: page.getByText('Configuration version', { exact: true }) }).locator('dd')).toHaveText(String(report.generation));
+  await expect(measurement.getByRole('row').filter({has: page.getByRole('rowheader',{name:'Configuration version',exact:true})}).getByRole('cell')).toHaveText(String(report.generation));
   await page.locator('#publisher-saved-measurement-provenance summary').click();
   await expect(measurement).toContainText(report.session_id);
   expect(JSON.parse(await measurement.locator('pre').innerText())).toEqual(evidence.configuration.params);
@@ -198,10 +200,18 @@ test('reviewed replacement accepts independent Critical evidence and restores ne
   await expect(measurement).toContainText(original.summary);
   await expect(page.locator('#publisher-saved-measurement-missing')).not.toBeVisible();
   await checkpoint(page, testInfo, 'saved-replacement-witness-after-successor-recovery-320');
+  const archivedOwner = page.url();
   await page.locator('#publisher-saved-decision').getByRole('link', { name: 'Inspect replacement result', exact: true }).click();
   await connected(page);
-  await expect(page.locator('main')).toContainText('Elasticsearch storage is 40% used');
-  await page.goBack();
+  await expect(page.locator('#overview-panel .preview-result-measurement')).toContainText('Elasticsearch storage is 40% used');
+  await page.locator('#overview-panel').getByRole('link', {name: 'View check configuration', exact: true}).click();
+  await expect(page).toHaveURL(url => url.pathname === `/configuration/${successor.assignment_id}`);
+  await page.locator('a.back').click();
+  await expectInvestigationReturn(page, archivedOwner, `result:${successor.id}`);
+  await expect(page.locator('#overview-panel .preview-result-measurement')).toContainText('Elasticsearch storage is 40% used');
+  await page.locator('#overview-panel [data-overview-close]').click();
+  await expect(page.locator('#overview-panel')).toHaveCount(0);
+  await expectInvestigationReturn(page, archivedOwner, null);
   await connected(page);
   await expect(page.locator('#publisher-saved-measurement')).toHaveAttribute('data-observation-id', report.id);
   await expect(page.locator('#publisher-saved-measurement')).toContainText(original.summary);

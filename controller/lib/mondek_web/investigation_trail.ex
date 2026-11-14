@@ -2,9 +2,26 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.InvestigationTrail do
   @moduledoc "Typed, bounded entity navigation inside a LiveView-owned investigation."
-  @kinds ~w(result health loss)
+  @kinds ~w(result health loss runner notification execution)
   @limit 6
   @bytes 8192
+
+  def identity({"coverage", id}) when is_binary(id) and byte_size(id) == 64 do
+    if Regex.match?(~r/\A[a-f0-9]{64}\z/, id), do: {"coverage", id}
+  end
+
+  def identity({"diagnostic", id}) when is_integer(id),
+    do: identity({"diagnostic", to_string(id)})
+
+  def identity({"diagnostic", id}) when is_binary(id) and byte_size(id) <= 19 do
+    case Integer.parse(id) do
+      {number, ""} when number > 0 and number <= 9_223_372_036_854_775_807 ->
+        {"diagnostic", Integer.to_string(number)}
+
+      _ ->
+        nil
+    end
+  end
 
   def identity({kind, id}) when kind in @kinds do
     case Ecto.UUID.cast(id) do
@@ -86,7 +103,7 @@ defmodule MondekWeb.InvestigationTrail do
 
       uri.path <> "?" <> URI.encode_query(Enum.sort(params))
     else
-      "/next"
+      "/"
     end
   end
 
@@ -102,27 +119,63 @@ defmodule MondekWeb.InvestigationTrail do
     selected <> if(params["surface"] == "page", do: "|page:" <> page, else: "")
   end
 
-  def heading(params, fallback) do
-    if params["surface"] == "page" do
-      case from_token(params["page_entity"]) do
-        {"result", _} -> "full-result-heading"
-        _ -> "incident-heading"
-      end
-    else
-      fallback
+  def promoted(params, initial \\ []) do
+    identity = from_token(params["page_entity"])
+
+    if params["surface"] == "page" && identity && identity in resolve(params, initial),
+      do: identity
+  end
+
+  def heading(params, fallback, initial \\ []) do
+    case promoted(params, initial) do
+      {"result", _} -> "full-result-heading"
+      {"runner", _} -> "runner-heading"
+      {"notification", _} -> "notification-heading"
+      {"execution", _} -> "execution-heading"
+      {kind, _} when kind in ~w(coverage diagnostic) -> "coverage-page-heading"
+      {kind, _} when kind in ~w(health loss) -> "incident-heading"
+      _ -> fallback
     end
   end
 
   def initial(path) when is_binary(path) do
     case String.split(path, "/", trim: true) do
-      ["next", kind, id] when kind in ~w(results checks) -> List.wrap(identity({"result", id}))
-      ["next", "incidents", kind, id] -> List.wrap(identity({kind, id}))
-      _ -> []
+      [kind, id] when kind in ~w(results checks) ->
+        List.wrap(identity({"result", id}))
+
+      ["incidents", kind, id] ->
+        List.wrap(identity({kind, id}))
+
+      ["coverage", "diagnostics", id] ->
+        List.wrap(identity({"diagnostic", id}))
+
+      [kind, id] when kind in ~w(coverage expected) ->
+        List.wrap(identity({"coverage", id}))
+
+      ["runners", id] ->
+        List.wrap(identity({"runner", id}))
+
+      ["notifications", id] ->
+        List.wrap(identity({"notification", id}))
+
+      ["executions", id] ->
+        List.wrap(identity({"execution", id}))
+
+      _ ->
+        []
     end
   end
 
   def root(path) when is_binary(path) do
-    if String.ends_with?(path, "/full"),
-      do: path |> String.replace_suffix("/full", "") |> initial() |> List.first()
+    cond do
+      String.starts_with?(path, "/executions/") ->
+        path |> initial() |> List.first()
+
+      String.ends_with?(path, "/full") ->
+        path |> String.replace_suffix("/full", "") |> initial() |> List.first()
+
+      true ->
+        nil
+    end
   end
 end

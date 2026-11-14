@@ -42,52 +42,61 @@ defmodule MondekWeb.ConfigurationValues do
       aria-labelledby="configuration-value-heading"
     >
       <h3 id="configuration-value-heading">Defaults from code are overridden</h3>
-      <p>
-        This {if @exception?, do: "instance exception", else: "rule"} supplies the complete
-        parameter set. Changing defaults in Python will not replace these saved values.
+      <p class="configuration-values-note">
+        This {if @exception?, do: "instance exception", else: "rule"} supplies the complete parameter set. Changing defaults in Python will not replace these saved values.
       </p>
-      <p :if={@origin["managed_project"]} class="managed-policy-label">
-        Project: <strong>{@origin["managed_project"]}</strong>
-        <span :if={@origin["managed_key"]}> · {@origin["managed_key"]}</span>
-      </p>
-      <p :if={@exception? && @values["masked_origin"]} id="configuration-under-exception">
-        Without this exception: <.origin value={@values["masked_origin"]} />.
-        Review removal to start following those values.
-      </p>
-      <p
-        :if={@exception? && @values["masked_error"]}
-        class="notice warn"
-        id="configuration-hidden-conflict"
+      <MondekWeb.PreviewDetail.facts
+        :if={
+          @origin["managed_project"] || (@exception? && @values["masked_origin"]) ||
+            (@exception? && @values["masked_error"])
+        }
+        label="Saved policy scope"
       >
-        Removing this exception is currently blocked: {@values["masked_error"]}
-      </p>
-      <p :if={@keys == []} class="footnote">
+        <tr :if={@origin["managed_project"]}>
+          <th scope="row">Project</th><td class="managed-policy-label">
+            {@origin["managed_project"]}<span :if={@origin["managed_key"]}> · {@origin["managed_key"]}</span>
+          </td>
+        </tr>
+        <tr :if={@exception? && @values["masked_origin"]} id="configuration-under-exception">
+          <th scope="row">Without this exception</th><td>
+            <.origin value={@values["masked_origin"]} />. Review removal to start following those values.
+          </td>
+        </tr>
+        <tr :if={@exception? && @values["masked_error"]} id="configuration-hidden-conflict">
+          <th scope="row">Removal blocked</th><td>{@values["masked_error"]}</td>
+        </tr>
+      </MondekWeb.PreviewDetail.facts>
+      <p :if={@keys == []} class="configuration-values-note">
         The saved values currently equal the defaults from code. The override still takes precedence over future default changes.
       </p>
-      <div :if={@keys != []} class="configuration-differences">
-        <p class="footnote">
-          Differences below compare saved settings. Results retain the values used for their last measurement.
+      <%= if @keys != [] do %>
+        <p class="configuration-values-note">
+          Saved settings are compared here. Each result retains the values used for its last measurement.
         </p>
-        <section :for={key <- @keys} class="configuration-difference">
-          <h4>
-            {get_in(@assignment, ["parameter_schema", "fields", key, "label"]) || key}
-            <span :if={get_in(@assignment, ["parameter_schema", "fields", key, "unit"])}>
-              ({get_in(@assignment, ["parameter_schema", "fields", key, "unit"])})
-            </span>
-          </h4>
-          <dl>
-            <div>
-              <dt>Default from code</dt><dd>{value(@source[key])}</dd>
-            </div>
-            <div>
-              <dt>Saved value</dt><dd>{value(@current[key])}</dd>
-            </div>
-            <div :if={@exception? && is_map(@fallback)}>
-              <dt>Without exception</dt><dd>{value(@fallback[key])}</dd>
-            </div>
-          </dl>
-        </section>
-      </div>
+        <table class="configuration-values-table" aria-label="Saved values compared with defaults">
+          <thead>
+            <tr>
+              <th scope="col">Parameter</th><th scope="col">Default from code</th><th scope="col">
+                Saved value
+              </th><th :if={@exception? && is_map(@fallback)} scope="col">Without exception</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={key <- @keys} class="configuration-difference">
+              <th scope="row">
+                {get_in(@assignment, ["parameter_schema", "fields", key, "label"]) || key}<span :if={
+                  get_in(@assignment, ["parameter_schema", "fields", key, "unit"])
+                }> ({get_in(@assignment, ["parameter_schema", "fields", key, "unit"])})</span>
+              </th>
+              <td>{value(@source[key])}</td><td>{value(@current[key])}</td><td :if={
+                @exception? && is_map(@fallback)
+              }>
+                {value(@fallback[key])}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      <% end %>
     </section>
     """
   end
@@ -103,7 +112,7 @@ defmodule MondekWeb.ConfigurationValues do
           @value["rule_id"]}</a>
         <span :if={@value["managed_project"]}>(project {@value["managed_project"]})</span>
       <% else %>
-        defaults from code
+        {if @value["kind"] == "exception", do: "instance exception", else: "defaults from code"}
       <% end %>
     </span>
     """

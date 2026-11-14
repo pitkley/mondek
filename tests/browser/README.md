@@ -8,7 +8,7 @@ devenv shell -- python3 tests/browser/run.py --suite lifecycle
 devenv shell -- python3 tests/browser/run.py --help
 ```
 
-Use `mondek browser` for all seventeen harness suites; individual suites are usually enough for a focused change. The Linux pack's additional browser journey runs through `mondek linux-acceptance`; the reviewed resource-selection flow across two hosts and three observers runs through `mondek discovery-configuration-acceptance`. The first image build downloads pinned browser dependencies; no host browser installation is needed.
+Use `mondek browser` for all eighteen harness suites; individual suites are usually enough for a focused change. The Linux pack's additional browser journey runs through `mondek linux-acceptance`; the reviewed resource-selection flow across two hosts and three observers runs through `mondek discovery-configuration-acceptance`. The first image build downloads pinned browser dependencies; no host browser installation is needed.
 
 ## File map
 

@@ -4,49 +4,34 @@ defmodule MondekWeb.InvestigationNavigationTest do
   use ExUnit.Case, async: true
 
   alias MondekWeb.{
-    CheckNavigation,
-    CoverageNavigation,
+    BrowserNavigation,
     InvestigationNavigation,
-    MonitoringIncidentNavigation,
-    NotificationNavigation,
+    InvestigationTrail,
     RunnerNavigation
   }
 
   @id "11111111-1111-4111-8111-111111111111"
   @other "22222222-2222-4222-8222-222222222222"
 
-  defp nested(path, return_to), do: path <> "?" <> URI.encode_query(%{"return_to" => return_to})
-  defp params(path), do: URI.decode_query(URI.parse(path).query || "")
+  test "coverage return paths retain exact scope and validated nested destinations" do
+    scope = "/coverage/" <> String.duplicate("a", 64)
+    path = scope <> "?source_id=source&environment=production&page=2&return_to=%2Fincidents"
 
-  test "coverage return paths preserve incident scope but reject external and recursive destinations" do
-    incident = "/monitoring-incidents/" <> @id <> "?members_page=2&status=open"
-    scope = nested("/coverage/" <> String.duplicate("a", 64), incident)
-    assert CoverageNavigation.return_path(scope) == scope
-    assert InvestigationNavigation.safe_return_path(scope) == scope
-    assert RunnerNavigation.safe_return(scope) == scope
-    diagnostic = nested("/checks/disk/diagnostics", scope)
-    assert RunnerNavigation.safe_return(diagnostic) == diagnostic
-    assert CoverageNavigation.return_path("https://example.org/coverage") == nil
-    assert CoverageNavigation.return_path("/coverage/invalid") == nil
-    assert CoverageNavigation.return_path(nested("/coverage", scope)) == "/coverage"
+    assert BrowserNavigation.return_path(path) ==
+             scope <> "?environment=production&page=2&return_to=%2Fincidents&source_id=source"
 
-    assert CoverageNavigation.return_path(nested("/coverage", "https://example.org")) ==
-             "/coverage"
+    assert BrowserNavigation.return_path("https://example.org" <> scope) == nil
+    assert BrowserNavigation.return_path(scope <> "#fragment") == nil
   end
 
-  test "configuration returns to an exact result with bounded, local context" do
-    result = nested("/checks/" <> @id, "/checks?search=disk&tab=all&view=list")
-    assert InvestigationNavigation.safe_return_path(result) == result
-    assert InvestigationNavigation.return_label(result, "") == "Back to result"
-
-    assert InvestigationNavigation.safe_return_path(
-             nested("/checks/" <> @id, "https://example.org")
-           ) == "/checks/" <> @id
-
-    assert InvestigationNavigation.safe_return_path("https://example.org/checks/" <> @id) == nil
+  test "configuration returns retain typed result identity and reject external nested origins" do
+    path = InvestigationTrail.path("/configuration/#{@id}", [{"result", @other}])
+    assert BrowserNavigation.return_path(path) == path
+    assert InvestigationNavigation.return_label("/results/#{@id}/full", "") == "Back to result"
+    assert BrowserNavigation.return_path(path <> "&return_to=https%3A%2F%2Fexample.org") == path
   end
 
-  test "untrusted return destinations cannot escape the known local domains" do
+  test "untrusted or malformed return destinations cannot escape known browser routes" do
     for invalid <- [
           nil,
           %{},
@@ -55,193 +40,118 @@ defmodule MondekWeb.InvestigationNavigationTest do
           "/checks#fragment",
           "/unknown",
           "/checks/../runners",
-          "/incidents/not-a-uuid",
-          String.duplicate("x", 8193)
+          String.duplicate("x", 8193),
+          "/api/v1/checks",
+          "/configuration.git/info/refs",
+          "/licenses/notices"
         ] do
-      assert InvestigationNavigation.safe_return_path(invalid) == nil, inspect(invalid)
-    end
-
-    for navigation <- [RunnerNavigation, MonitoringIncidentNavigation, NotificationNavigation] do
-      assert navigation.return_path("https://example.org/runners/" <> @id) == nil
-      assert navigation.return_path("//example.org/runners/" <> @id) == nil
-      assert navigation.return_path("/runners/" <> @id <> "#fragment") == nil
+      assert BrowserNavigation.return_path(invalid) == nil, inspect(invalid)
     end
   end
 
-  test "canonical return destinations remain stable across refresh and repeated navigation" do
-    paths = [
-      "/?ignored=discard",
-      "/checks?tab=critical&view=list&critical_view=targets&group_search=db&group_limit=240",
-      "/configuration?search=disk&configuration_stage=active&page=2&unknown=discard",
-      "/incidents?status=closed&page=5",
-      "/runners?search=node&collection=issues&page_size=50",
-      "/notifications?notification_status=retrying&notification_page=3",
-      "/coverage?environment=production&lifecycle=active&page=2",
-      nested("/runners/" <> @id, "/runners?contact=overdue"),
-      nested("/notifications/" <> @id, "/notifications?notification_status=exhausted"),
-      nested("/incidents/" <> @id, "/checks?tab=critical&view=list"),
-      nested("/resources/check-id/diagnostics", "/incidents/" <> @id)
-    ]
-
-    for path <- paths do
-      canonical = InvestigationNavigation.safe_return_path(path)
-      assert is_binary(canonical), path
-      assert InvestigationNavigation.safe_return_path(canonical) == canonical, path
+  test "canonical list destinations remain stable after repeated normalization" do
+    for path <- [
+          "/?ignored=discard",
+          "/checks?health=CRIT&search=disk&page=3",
+          "/configuration?configuration_stage=active&page=2",
+          "/incidents?grouping=all&status=closed&page=5",
+          "/runners?search=node&collection=issues&page_size=50",
+          "/notifications?notification_status=retrying&notification_page=3",
+          "/coverage?environment=production&page=2"
+        ] do
+      canonical = BrowserNavigation.return_path(path)
+      assert is_binary(canonical)
+      assert BrowserNavigation.return_path(canonical) == canonical
     end
   end
 
-  test "result diagnostics preserve one shared incident and its inventory but drop deeper incidents" do
-    inventory = "/checks?tab=critical&view=list&search=disk&page=3&page_size=25&unknown=drop"
-    incident = nested("/incidents/" <> @id, inventory)
-    diagnostics = nested("/checks/disk/diagnostics", incident)
-    actual = InvestigationNavigation.safe_return_path(diagnostics)
-    returned_incident = params(actual)["return_to"]
-    returned_inventory = params(returned_incident)["return_to"]
-    assert URI.parse(returned_incident).path == "/incidents/" <> @id
+  test "result incident and runner navigation uses typed identities rather than recursive return URLs" do
+    trail = [{"result", @id}, {"health", @other}, {"runner", @id}]
+    path = InvestigationTrail.path("/checks?health=CRIT&page=2", trail)
 
-    assert params(returned_inventory) == %{
-             "tab" => "critical",
-             "view" => "list",
-             "health" => "CRIT",
-             "search" => "disk",
-             "page" => "3",
-             "page_size" => "25"
-           }
+    assert {:ok, ^trail} =
+             InvestigationTrail.parse(URI.decode_query(URI.parse(path).query)["inspect"])
 
-    extra = nested("/incidents/" <> @other, inventory)
-    result = InvestigationNavigation.safe_return_path(nested("/incidents/" <> @id, extra))
-    assert result == "/incidents/" <> @id
-
-    assert InvestigationNavigation.safe_return_path(
-             nested("/checks/disk/diagnostics", diagnostics)
-           ) == "/checks/disk/diagnostics"
+    assert BrowserNavigation.return_path(path) == path
+    assert {:ok, [{"result", @id}]} = InvestigationTrail.open(trail, {"result", @id})
+    assert {:ok, []} = InvestigationTrail.open(trail, {"result", @id}, {"result", @id})
   end
 
-  test "runner return destinations retain fleet filters but not recursively nested runners" do
-    fleet = "/runners?search=node&contact=overdue&page=2&unknown=discard"
-    runner = RunnerNavigation.return_path(nested("/runners/" <> @id, fleet))
-    assert params(params(runner)["return_to"])["search"] == "node"
-    refute Map.has_key?(params(params(runner)["return_to"]), "unknown")
-
-    assert RunnerNavigation.return_path(nested("/runners/" <> @other, runner)) ==
-             "/runners/" <> @other
-
+  test "runner URLs retain real scalar source and search values" do
     assert RunnerNavigation.path(%{}) == "/runners"
+    path = RunnerNavigation.path(%{"source_id" => "all", "search" => "all", "page" => "2"})
+    query = URI.decode_query(URI.parse(path).query)
+    assert query["source_id"] == "all"
+    assert query["search"] == "all"
     assert RunnerNavigation.detail_path("invalid") == "/runners/not-found"
   end
 
-  test "runner investigation may return to a result and inventory without creating a runner loop" do
-    runner = "/runners/" <> @id
-    # Build the query once: the source URL may already carry inventory filters.
-    inventory = "/checks?" <> URI.encode_query(%{"tab" => "all", "return_to" => runner})
-    path = RunnerNavigation.safe_return(nested("/checks/disk/diagnostics", inventory))
-    assert URI.parse(path).path == "/checks/disk/diagnostics"
-    refute Map.has_key?(params(params(path)["return_to"]), "return_to")
-    assert RunnerNavigation.safe_return("/checks") == nil
+  test "direct entity pages participate in root identity and dedup" do
+    for {path, identity} <- [
+          {"/results/#{@id}/full", {"result", @id}},
+          {"/incidents/health/#{@id}/full", {"health", @id}},
+          {"/incidents/loss/#{@id}/full", {"loss", @id}},
+          {"/runners/#{@id}/full", {"runner", @id}},
+          {"/executions/#{@id}", {"execution", @id}}
+        ] do
+      assert InvestigationTrail.root(path) == identity
+      assert {:ok, []} = InvestigationTrail.open([{"result", @other}], identity, identity)
+    end
   end
 
-  test "exact target investigation retains origin and never silently accepts a malformed target" do
-    origin =
-      CheckNavigation.normalize(%{
-        "tab" => "critical",
-        "view" => "list",
-        "search" => "disk",
+  test "exact target chips require both key and kind while retaining source and environment" do
+    filters =
+      Mondek.ChecksFilters.params(%{
+        "source_id" => "source",
+        "environment" => "production",
+        "target_kind" => "host",
+        "target_key" => "host-a",
         "page" => "4"
       })
 
-    target = "target-" <> String.duplicate("a", 64)
-
-    scoped =
-      CheckNavigation.target_context_path(target, origin)
-      |> params()
-      |> CheckNavigation.normalize()
-
-    assert scoped["target_scope"] == target
-    assert scoped["tab"] == "all"
-    assert scoped["view"] == "list"
-    assert scoped["investigation_return"] == CheckNavigation.path(origin)
-    refute Map.has_key?(scoped, "search")
-
-    assert CheckNavigation.normalize(%{"target_scope" => "bad"})["target_scope"] ==
-             "invalid-target"
-
-    assert CheckNavigation.investigation_return(CheckNavigation.path(scoped)) == nil
-    assert CheckNavigation.investigation_return("/checks?investigation_return=%2Fchecks") == nil
-    assert CheckNavigation.normalize(%{"group_limit" => "99999"})["group_limit"] == "1000"
+    assert filters["target_key"] == "host-a"
+    assert filters["target_kind"] == "host"
+    assert filters["source_id"] == "source"
+    assert Mondek.ChecksFilters.params(%{"target_key" => "host-a"}) == %{}
+    assert Mondek.ChecksFilters.params(%{"target_kind" => "host"}) == %{}
   end
 
-  test "monitoring incident returns retain bounded status and runner or notification origin" do
-    notification =
-      NotificationNavigation.detail_path(@other, "/notifications?notification_status=exhausted")
-
+  test "monitoring loss and notifications retain independent page parameters in typed trails" do
     path =
-      "/monitoring-incidents/" <>
-        @id <>
-        "?" <>
-        URI.encode_query(%{
-          "status" => "open",
-          "members_page" => "3",
-          "return_to" => notification,
-          "unknown" => "discard"
-        })
+      InvestigationTrail.path("/incidents?type=loss&member_page=3&notification_page=2", [
+        {"loss", @id},
+        {"notification", @other}
+      ])
 
-    result = MonitoringIncidentNavigation.return_path(path)
-
-    assert params(result) == %{
-             "status" => "open",
-             "members_page" => "3",
-             "return_to" => notification
-           }
-
-    assert MonitoringIncidentNavigation.return_path("/monitoring-incidents") == nil
-    assert InvestigationNavigation.safe_return_path(path) == result
-
-    assert MonitoringIncidentNavigation.normalize_filters(%{
-             "status" => String.duplicate("x", 201),
-             "page" => 2
-           }) == %{}
+    canonical = BrowserNavigation.return_path(path)
+    query = URI.decode_query(URI.parse(canonical).query)
+    assert query["member_page"] == "3"
+    assert query["notification_page"] == "2"
+    assert query["type"] == "loss"
   end
 
-  test "coverage preserves valid bounded filters and exact scope identity" do
-    id = String.duplicate("a", 64)
-
-    path =
-      InvestigationNavigation.safe_return_path(
-        "/coverage/" <> id <> "?source_id=source&status=missing&page=2&unknown=discard"
-      )
-
-    assert URI.parse(path).path == "/coverage/" <> id
-    assert params(path) == %{"source_id" => "source", "status" => "missing", "page" => "2"}
-    assert InvestigationNavigation.safe_return_path("/coverage/not-valid") == nil
-
-    assert CoverageNavigation.filters(%{"search" => "bad\ntext", "page" => 2, "unknown" => "x"}) ==
-             %{"page" => 2}
+  test "coverage identity and malformed investigation admission stay bounded" do
+    hash = String.duplicate("a", 64)
+    assert InvestigationTrail.initial("/coverage/" <> hash) == [{"coverage", hash}]
+    assert InvestigationTrail.initial("/coverage/diagnostics/12") == [{"diagnostic", "12"}]
+    assert InvestigationTrail.identity({"coverage", "not-valid"}) == nil
+    assert InvestigationTrail.identity({"diagnostic", "-1"}) == nil
+    assert BrowserNavigation.return_path("/coverage?inspect=not-valid") == nil
+    assert BrowserNavigation.return_path("/checks?search[x]=bad") == nil
   end
 
-  test "incident notification links reset delivery page while retaining the investigation origin" do
-    incident = %{"id" => @id}
+  test "human return labels describe the actual destination without prototype vocabulary" do
+    for {path, expected} <- [
+          {"/", "overview"},
+          {"/checks", "checks"},
+          {"/incidents/health/#{@id}/full", "incident"},
+          {"/executions/#{@id}", "scheduled execution"},
+          {"/runners/#{@id}/full", "runner"},
+          {"/coverage/" <> String.duplicate("a", 64), "coverage"}
+        ] do
+      assert InvestigationNavigation.return_label(path, "fallback") == "Back to " <> expected
+    end
 
-    return_to =
-      "/incidents/" <>
-        @id <>
-        "?" <>
-        URI.encode_query(%{
-          "notification_page" => "8",
-          "notification_id" => @other,
-          "state" => "active",
-          "return_to" => "/incidents?status=open"
-        })
-
-    result = InvestigationNavigation.parent_notification_path(incident, return_to)
-    assert URI.parse(result).fragment == "incident-occurrences"
-
-    assert params(result) == %{
-             "notification_status" => "all",
-             "state" => "active",
-             "return_to" => "/incidents?status=open"
-           }
-
-    assert InvestigationNavigation.return_label(result, "fallback") == "Back to incident"
     assert InvestigationNavigation.return_label(nil, "fallback") == "fallback"
   end
 end

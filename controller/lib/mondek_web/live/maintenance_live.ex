@@ -7,6 +7,8 @@ defmodule MondekWeb.MaintenanceLive do
   import MondekWeb.MaintenancePresentation
 
   alias MondekWeb.{
+    InvestigationStack,
+    InvestigationTrail,
     PreviewDetail,
     PreviewMaintenanceChooser,
     PreviewMaintenanceEditor,
@@ -48,6 +50,12 @@ defmodule MondekWeb.MaintenanceLive do
 
     {:ok,
      assign(socket,
+       investigation_params: %{},
+       investigation_host: "/maintenance",
+       investigation_context: "maintenance",
+       investigation_owner: nil,
+       investigation_active: false,
+       investigation_promoted: false,
        navigation_counts: Mondek.Inspection.navigation_counts(now),
        now: now,
        page_title: "Maintenance",
@@ -81,24 +89,41 @@ defmodule MondekWeb.MaintenanceLive do
 
   @impl true
   def handle_params(params, uri, socket) do
-    preview_ui = String.starts_with?(URI.parse(uri).path, "/next/maintenance")
+    uri = URI.parse(uri)
+
+    owner =
+      {socket.assigns.live_action, owner_identity(params["id"]),
+       owner_identity(params["check_id"]), owner_identity(params["stream_id"]),
+       owner_identity(params["copy_series"]),
+       not is_nil(MondekWeb.BrowserNavigation.return_path(params["return_to"]))}
+
+    same_owner = owner == socket.assigns.investigation_owner
+    trail = InvestigationTrail.resolve(params)
+    host = uri.path <> if(uri.query, do: "?" <> uri.query, else: "")
 
     socket =
       assign(socket,
-        preview_ui: preview_ui,
+        investigation_params: params,
+        investigation_host: host,
+        investigation_context:
+          "maintenance:" <> Base.url_encode64(:erlang.term_to_binary(owner), padding: false),
+        investigation_owner: owner,
+        investigation_active: trail != [],
+        investigation_promoted: not is_nil(InvestigationTrail.promoted(params)),
+        same_maintenance_owner: same_owner
+      )
+
+    socket =
+      assign(socket,
         preview_drawer:
-          preview_ui && socket.assigns.live_action in [:edit, :series] &&
-            !String.ends_with?(URI.parse(uri).path, "/full"),
-        return_to:
-          if(preview_ui, do: MondekWeb.NextIncidentsLive.return_path(params["return_to"])),
+          socket.assigns.live_action in [:edit, :series] &&
+            !String.ends_with?(uri.path, "/full") && trail == [],
+        return_to: MondekWeb.BrowserNavigation.return_path(params["return_to"]),
         window_picker: nil
       )
 
     if socket.assigns.live_action == :series do
-      socket =
-        if preview_ui,
-          do: socket |> assign(filters: window_filters(params, true)) |> refresh_list(),
-          else: socket
+      socket = socket |> assign(filters: window_filters(params)) |> refresh_list()
 
       filters = Map.take(params, ~w(occurrence_page result_page))
 
@@ -132,11 +157,27 @@ defmodule MondekWeb.MaintenanceLive do
     end
   end
 
+  defp draft_origin(%{"check_id" => check, "stream_id" => stream})
+       when is_binary(check) and is_binary(stream), do: check <> ":" <> stream
+
+  defp draft_origin(params), do: params["copy_series"] || params["check_id"] || "selection"
+
+  defp owner_identity(value) when is_binary(value) and byte_size(value) <= 128, do: value
+  defp owner_identity(_), do: ""
+
+  defp regular_params(
+         _params,
+         %{assigns: %{live_action: :new, same_maintenance_owner: true, proposal: proposal}} =
+           socket
+       )
+       when is_map(proposal),
+       do: {:noreply, refresh_current(socket)}
+
   defp regular_params(
          %{"id" => id} = params,
-         %{assigns: %{preview_ui: true, live_action: :edit, window: %{"id" => id}}} = socket
+         %{assigns: %{live_action: :edit, window: %{"id" => id}}} = socket
        ) do
-    {:noreply, socket |> assign(filters: window_filters(params, true)) |> refresh_current()}
+    {:noreply, socket |> assign(filters: window_filters(params)) |> refresh_current()}
   end
 
   defp regular_params(params, socket) do
@@ -157,7 +198,7 @@ defmodule MondekWeb.MaintenanceLive do
 
     case socket.assigns.live_action do
       :index ->
-        filters = window_filters(params, socket.assigns.preview_ui)
+        filters = window_filters(params)
 
         {:noreply,
          socket |> assign(filters: filters, window: nil, proposal: nil) |> refresh_list()}
@@ -165,8 +206,8 @@ defmodule MondekWeb.MaintenanceLive do
       :new ->
         socket =
           assign(socket,
-            filters: window_filters(params, socket.assigns.preview_ui),
-            draft_origin: params["copy_series"] || params["check_id"] || "selection",
+            filters: window_filters(params),
+            draft_origin: draft_origin(params),
             settings_recovered: false,
             selection_recovered: false,
             selected_only: false,
@@ -228,7 +269,7 @@ defmodule MondekWeb.MaintenanceLive do
         end
 
       :edit ->
-        socket = assign(socket, filters: window_filters(params, socket.assigns.preview_ui))
+        socket = assign(socket, filters: window_filters(params))
         socket = if socket.assigns.preview_drawer, do: refresh_list(socket), else: socket
 
         case Maintenance.get(params["id"]) do
@@ -241,13 +282,19 @@ defmodule MondekWeb.MaintenanceLive do
     end
   end
 
-  defp window_filters(params, false),
-    do: Map.take(params, ~w(status assignment_id stream_id page))
+  defp window_scope_filters(params) do
+    for key <- ~w(status assignment_id stream_id page),
+        value = params[key],
+        is_binary(value) && String.valid?(value) && byte_size(value) <= 128,
+        key not in ~w(assignment_id stream_id) || match?({:ok, _}, Ecto.UUID.cast(value)),
+        into: %{},
+        do: {key, value}
+  end
 
-  defp window_filters(params, true) do
+  defp window_filters(params) do
     filters =
       Map.merge(
-        window_filters(params, false),
+        window_scope_filters(params),
         Mondek.OverviewFilters.params(Map.take(params, ["search"]))
       )
 
@@ -281,7 +328,11 @@ defmodule MondekWeb.MaintenanceLive do
   end
 
   @impl true
-  def handle_event("search", params, %{assigns: %{preview_ui: true, live_action: :new}} = socket) do
+  def handle_event(event, _params, %{assigns: %{investigation_active: true}} = socket)
+      when event not in ["recover", "recover_selection", "edit_cancel", "series_cancel_edit"],
+      do: {:noreply, socket}
+
+  def handle_event("search", params, %{assigns: %{live_action: :new}} = socket) do
     filter_choices_for_draft(socket, %{
       "search" => Mondek.OverviewFilters.params(params)["search"]
     })
@@ -290,7 +341,7 @@ defmodule MondekWeb.MaintenanceLive do
   def handle_event(
         "filter_remove",
         %{"field" => field},
-        %{assigns: %{preview_ui: true, live_action: :new}} = socket
+        %{assigns: %{live_action: :new}} = socket
       )
       when field in @selection_filter_fields do
     filter_choices_for_draft(socket, %{field => default_choice_filter(field)})
@@ -299,7 +350,7 @@ defmodule MondekWeb.MaintenanceLive do
   def handle_event(
         "filter_open",
         %{"field" => field},
-        %{assigns: %{preview_ui: true, live_action: :new}} = socket
+        %{assigns: %{live_action: :new}} = socket
       ) do
     case List.keyfind(@choice_fields, field, 0) do
       {^field, _, _} ->
@@ -319,7 +370,7 @@ defmodule MondekWeb.MaintenanceLive do
   def handle_event(
         "search",
         params,
-        %{assigns: %{preview_ui: true}} = socket
+        socket
       ) do
     search = Mondek.OverviewFilters.params(params)["search"]
 
@@ -328,7 +379,7 @@ defmodule MondekWeb.MaintenanceLive do
       else: patch_preview_list(socket, %{"search" => search})
   end
 
-  def handle_event("filter_open", %{"field" => field}, %{assigns: %{preview_ui: true}} = socket) do
+  def handle_event("filter_open", %{"field" => field}, socket) do
     case List.keyfind(@preview_filters, field, 0) do
       {^field, _, _, choices} ->
         label =
@@ -393,7 +444,7 @@ defmodule MondekWeb.MaintenanceLive do
   def handle_event(
         "filter_close",
         params,
-        %{assigns: %{preview_ui: true}} = socket
+        socket
       ) do
     socket = assign(socket, :window_picker, nil)
 
@@ -847,11 +898,12 @@ defmodule MondekWeb.MaintenanceLive do
 
   defp filter_picker(_, field, search), do: window_picker(field, search)
 
-  defp choice_picker(assigns, field, search) do
+  defp choice_picker(_assigns, field, search) do
     {^field, title, _} = List.keyfind(@choice_fields, field, 0)
 
     options =
-      for {key, label} <- choice_filter_options(assigns.filter_choices || %{}, field),
+      for {key, label} <-
+            choice_filter_options(MaintenanceSelection.filter_choices(search), field),
           String.contains?(String.downcase(label <> " " <> key), String.downcase(search)) do
         %{key: key, kind: "", label: label, show_key: false}
       end
@@ -865,7 +917,17 @@ defmodule MondekWeb.MaintenanceLive do
     for {field, name, _} <- @choice_fields,
         key = filters[field],
         key do
-      {_, label} = List.keyfind(choice_filter_options(choices, field), key, 0, {key, key})
+      option = List.keyfind(choice_filter_options(choices, field), key, 0)
+
+      {_, label} =
+        option ||
+          List.keyfind(
+            choice_filter_options(MaintenanceSelection.filter_choices(key), field),
+            key,
+            0,
+            {key, key}
+          )
+
       %{field: field, name: name, label: label, removable: key != default_choice_filter(field)}
     end
   end
@@ -907,7 +969,7 @@ defmodule MondekWeb.MaintenanceLive do
   end
 
   @impl true
-  def render(%{preview_ui: true} = assigns) do
+  def render(assigns) do
     ~H"""
     <div
       id="maintenance-preview-shell"
@@ -915,8 +977,17 @@ defmodule MondekWeb.MaintenanceLive do
       phx-hook="MaintenancePanel"
       data-maintenance-entity={(@window || @series || %{})["id"]}
       data-maintenance-surface={if @preview_drawer, do: "drawer", else: "page"}
-      data-selection={if @preview_drawer, do: (@window || @series || %{})["id"] || "unavailable"}
-      data-panel-heading="maintenance-heading"
+      data-selection={
+        if @investigation_active,
+          do: InvestigationTrail.selection(@investigation_params),
+          else: if(@preview_drawer, do: (@window || @series || %{})["id"] || "unavailable")
+      }
+      data-panel-heading={InvestigationTrail.heading(@investigation_params, "maintenance-heading")}
+      data-panel-background={
+        if @investigation_active,
+          do:
+            ".preview-masthead,.preview-sidebar,.preview-skip,#maintenance-owner-body,#main-content > .preview-list"
+      }
     >
       <MondekWeb.PreviewLayouts.navigation active={:maintenance} />
       <main id="main-content" class="preview-main preview-maintenance" tabindex="-1">
@@ -947,7 +1018,14 @@ defmodule MondekWeb.MaintenanceLive do
             <.maintenance_content {assigns} show_heading={false} />
           </div>
         </PreviewDetail.surface>
-        <div :if={@live_action != :index && !@preview_drawer} class="preview-maintenance-workflow">
+        <div
+          :if={@live_action != :index && !@preview_drawer}
+          id="maintenance-owner-body"
+          class="preview-maintenance-workflow"
+          hidden={@investigation_promoted}
+          inert={@investigation_active}
+          aria-hidden={if @investigation_active, do: "true"}
+        >
           <div class="preview-maintenance-back">
             <.link patch={preview_list_path(@filters, %{})}>← All maintenance windows</.link>
             <.link :if={@window || @series} patch={presentation_path(assigns, :drawer)}>Open fly-over</.link>
@@ -955,39 +1033,41 @@ defmodule MondekWeb.MaintenanceLive do
           </div>
           <.maintenance_content {assigns} />
         </div>
+        <.live_component
+          module={InvestigationStack}
+          id="investigation-stack"
+          host={@investigation_host}
+          params={@investigation_params}
+          now={@now}
+          context={@investigation_context}
+          back={
+            InvestigationTrail.path(@investigation_host, [], %{"surface" => nil, "page_entity" => nil})
+          }
+        />
       </main>
     </div>
-    """
-  end
-
-  def render(assigns) do
-    ~H"""
-    <MondekWeb.Layouts.app
-      active={:maintenance}
-      page_title="Maintenance"
-      snapshot={@navigation_counts}
-      now={@now}
-      flash={@flash}
-      main_class="maintenance-page"
-    >
-      <.link :if={@live_action != :index} navigate="/maintenance" class="back">All maintenance windows</.link>
-      <.maintenance_content {assigns} />
-    </MondekWeb.Layouts.app>
     """
   end
 
   defp maintenance_content(assigns) do
     assigns = assign_new(assigns, :show_heading, fn -> true end)
 
+    assigns =
+      assign(assigns,
+        show_entity_heading: assigns.show_heading && not is_nil(assigns.window || assigns.series),
+        show_workflow_heading: assigns.show_heading && is_nil(assigns.window || assigns.series),
+        section_level: if(assigns.preview_drawer, do: 3, else: 2)
+      )
+
     ~H"""
-    <header :if={@show_heading && @preview_ui && (@window || @series)} class="preview-incident-intro">
-      <PreviewDetail.heading level={1} size="xl">
+    <header :if={@show_entity_heading} class="preview-incident-intro">
+      <PreviewDetail.heading level={1} size="xl" id="maintenance-heading">
         {(@window || @series)["name"]}
       </PreviewDetail.heading>
     </header>
-    <div :if={@show_heading && (!@preview_ui || !(@window || @series))} class="page-heading">
+    <div :if={@show_workflow_heading} class="page-heading">
       <div>
-        <div class="eyebrow">Notification maintenance</div><h1>
+        <div class="eyebrow">Notification maintenance</div><h1 id="maintenance-heading" tabindex="-1">
           {page_heading(@live_action, @window || @series)}
         </h1>
         <p>
@@ -997,7 +1077,7 @@ defmodule MondekWeb.MaintenanceLive do
       <.link :if={@live_action == :index} navigate="/maintenance/new" class="button primary">Schedule maintenance</.link>
     </div>
     <p :if={@error} id="maintenance-error" class="form-error" role="alert">{@error}</p>
-    <p :if={@preview_ui && Phoenix.Flash.get(@flash, :info)} class="notice" role="status">
+    <p :if={Phoenix.Flash.get(@flash, :info)} class="notice" role="status">
       {Phoenix.Flash.get(@flash, :info)}
     </p>
     <p :if={@notice} id="maintenance-notice" class="notice notice-copy" role="status">
@@ -1016,7 +1096,6 @@ defmodule MondekWeb.MaintenanceLive do
         phx-click="review_current"
       >Review current saved window</button>
     </div>
-    <.window_list :if={@live_action == :index} listing={@listing} filters={@filters} />
     <PreviewMaintenanceDetails.series_detail
       :if={@series}
       series={@series}
@@ -1025,13 +1104,11 @@ defmodule MondekWeb.MaintenanceLive do
       cancel_reason={@cancel_reason}
       cancel_revision={@cancel_revision}
       preview={@series_cancel_preview}
-      preview_ui={@preview_ui}
       return_to={@return_to}
       list_filters={@filters}
-      series_path={
-        if @preview_ui && @series,
-          do: presentation_path(assigns, if(@preview_drawer, do: :drawer, else: :page))
-      }
+      current_path={@investigation_host}
+      section_level={@section_level}
+      series_path={presentation_path(assigns, if(@preview_drawer, do: :drawer, else: :page))}
     />
     <PreviewMaintenanceChooser.selection_chooser
       :if={@live_action == :new && @proposal}
@@ -1047,15 +1124,14 @@ defmodule MondekWeb.MaintenanceLive do
       selected_page={@selected_page}
       draft_origin={@draft_origin}
       preview={@preview}
-      preview_ui={@preview_ui}
       return_to={@return_to}
     />
-    <PreviewMaintenanceDetails.saved_window :if={@window && !@preview_ui} window={@window} />
     <PreviewMaintenanceDetails.preview_window_details
-      :if={@window && @preview_ui}
+      :if={@window}
       window={@window}
       context={navigation_context(assigns, :window)}
-      current_path={presentation_path(assigns, if(@preview_drawer, do: :drawer, else: :page))}
+      current_path={@investigation_host}
+      section_level={@section_level}
     />
     <PreviewMaintenanceDetails.saved_selection
       :if={
@@ -1076,8 +1152,9 @@ defmodule MondekWeb.MaintenanceLive do
       token={@review_token}
       stale={stale?(@window, @proposal)}
       draft_origin={@draft_origin}
-      preview_ui={@preview_ui}
       return_to={@return_to}
+      current_path={@investigation_host}
+      section_level={@section_level}
     />
     <section
       :if={@window && editable?(@window)}
@@ -1103,7 +1180,7 @@ defmodule MondekWeb.MaintenanceLive do
           <input type="hidden" name="_id" value={@window["id"]} />
           <input type="hidden" name="_open" value={to_string(@cancel_open)} />
           <input type="hidden" name="revision" value={@cancel_revision} />
-          <h2>{cancel_label(@window)}</h2>
+          <.dynamic_tag tag_name={"h#{@section_level}"}>{cancel_label(@window)}</.dynamic_tag>
           <p class="space-top">
             This ends only this window. Failure notifications become eligible only when no other maintenance window or acknowledgement holds them. An attempt already underway may finish.
           </p>
@@ -1130,11 +1207,6 @@ defmodule MondekWeb.MaintenanceLive do
         </form>
       </div>
     </section>
-    <PreviewMaintenanceDetails.history
-      :if={@window && !@preview_ui}
-      events={@window["history"] || []}
-      total={@window["history_count"] || 0}
-    />
     """
   end
 
@@ -1152,7 +1224,7 @@ defmodule MondekWeb.MaintenanceLive do
     <section class="preview-list" aria-labelledby="maintenance-heading">
       <header class="preview-heading">
         <h1 id="maintenance-heading" class="pf-v6-c-title pf-m-2xl">Maintenance</h1>
-        <.link navigate="/next/maintenance/new" class="pf-v6-c-button pf-m-primary">Schedule maintenance</.link>
+        <.link navigate="/maintenance/new" class="pf-v6-c-button pf-m-primary">Schedule maintenance</.link>
       </header>
       <div class="preview-maintenance-filter">
         <MondekWeb.PreviewFilters.filter_picker
@@ -1248,62 +1320,6 @@ defmodule MondekWeb.MaintenanceLive do
     """
   end
 
-  defp window_list(assigns) do
-    ~H"""
-    <nav class="maintenance-tabs" aria-label="Maintenance views">
-      <.link
-        patch={list_path(@filters, %{"status" => "current", "page" => 1})}
-        class="button"
-        aria-current={if @filters["status"] != "history", do: "page"}
-      >Active & upcoming</.link>
-      <.link
-        patch={list_path(@filters, %{"status" => "history", "page" => 1})}
-        class="button"
-        aria-current={if @filters["status"] == "history", do: "page"}
-      >History</.link>
-      <.link
-        :if={@filters["assignment_id"] || @filters["stream_id"]}
-        navigate="/maintenance"
-        class="text-link"
-      >Show every scope</.link>
-    </nav>
-    <p :if={(@listing["windows"] || []) == []} class="empty">No maintenance windows in this view.</p>
-    <div class="maintenance-window-list" id="maintenance-list">
-      <article
-        :for={window <- @listing["windows"] || []}
-        id={"maintenance-window-" <> window["id"]}
-        class="panel"
-      >
-        <div class="panel-heading">
-          <h2><.link navigate={entry_path(window)}>{window["name"]}</.link></h2><span class="badge">{status_label(
-            window
-          )}</span>
-        </div>
-        <div class="panel-body">
-          <p>{scope_label(window)}</p><p class="space-top">
-            {window["reason"]}
-          </p>
-          <PreviewMaintenanceDetails.series_summary :if={window["kind"] == "series"} series={window} />
-          <PreviewMaintenanceDetails.times :if={window["kind"] != "series"} window={window} />
-        </div>
-      </article>
-    </div>
-    <nav :if={pages(@listing) > 1} class="pagination" aria-label="Maintenance pages">
-      <.link
-        :if={(@listing["page"] || 1) > 1}
-        patch={list_path(@filters, %{"page" => @listing["page"] - 1})}
-        class="button small"
-      >Previous</.link>
-      <span>Page {@listing["page"] || 1} of {pages(@listing)}</span>
-      <.link
-        :if={(@listing["page"] || 1) < pages(@listing)}
-        patch={list_path(@filters, %{"page" => @listing["page"] + 1})}
-        class="button small"
-      >Next</.link>
-    </nav>
-    """
-  end
-
   defp refresh_list(socket), do: assign(socket, listing: Maintenance.list(socket.assigns.filters))
 
   defp load_candidates(socket) do
@@ -1355,7 +1371,7 @@ defmodule MondekWeb.MaintenanceLive do
 
   defp change_selection(socket, form, page_rows \\ nil) do
     keys = form["selected_keys"] || []
-    restore_filters = !socket.assigns.preview_ui || is_list(page_rows)
+    restore_filters = is_list(page_rows)
 
     with {:ok, page_rows} <-
            if(is_list(page_rows),
@@ -1842,9 +1858,6 @@ defmodule MondekWeb.MaintenanceLive do
     end
   end
 
-  defp saved_destination(%{preview_ui: false}, id, :series), do: series_path(id)
-  defp saved_destination(%{preview_ui: false}, id, :window), do: window_path(id)
-
   defp saved_destination(assigns, id, kind) do
     surface = if assigns.preview_drawer, do: :drawer, else: :page
     preview_entity_path(kind, id, surface, navigation_context(assigns, kind))
@@ -1868,13 +1881,13 @@ defmodule MondekWeb.MaintenanceLive do
   end
 
   def preview_return_path(path, params) do
-    case Regex.run(~r"\A/next/maintenance/(?:(series)/)?([a-f0-9-]{36})(/full)?\z", path,
+    case Regex.run(~r"\A/maintenance/(?:(series)/)?([a-f0-9-]{36})(/full)?\z", path,
            capture: :all_but_first
          ) do
       [kind, id | suffix] ->
         kind = if kind == "series", do: :series, else: :window
         surface = if suffix == ["/full"], do: :page, else: :drawer
-        filters = window_filters(params, true)
+        filters = window_filters(params)
 
         pages =
           if kind == :series do
@@ -1887,7 +1900,7 @@ defmodule MondekWeb.MaintenanceLive do
 
         return_to =
           case params["return_to"] do
-            "/next/maintenance/" <> _ -> nil
+            "/maintenance/" <> _ -> nil
             path -> MondekWeb.NextIncidentsLive.return_path(path)
           end
 
@@ -1915,11 +1928,8 @@ defmodule MondekWeb.MaintenanceLive do
       |> Map.reject(fn {key, value} -> is_nil(value) || {key, value} == {"status", "current"} end)
       |> URI.encode_query()
 
-    "/next/maintenance" <> if(query == "", do: "", else: "?" <> query)
+    "/maintenance" <> if(query == "", do: "", else: "?" <> query)
   end
-
-  defp list_path(filters, changes),
-    do: "/maintenance?" <> URI.encode_query(Map.merge(filters, changes))
 
   defp positive_integer(value), do: max(1, integer(value))
   defp integer(value) when is_integer(value), do: value

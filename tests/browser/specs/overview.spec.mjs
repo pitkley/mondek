@@ -23,7 +23,7 @@ test('LiveView overview preserves independent evidence and missing declarations 
   }).toBe(true);
 
   await page.setViewportSize({width: 1600, height: 1000});
-  await page.goto('/next');
+  await page.goto('/');
   await connected(page);
   await expect(page.locator('#preview-attention')).toContainText('Critical');
   await expect(page.locator('#preview-healthy-results')).toContainText('Healthy');
@@ -39,7 +39,7 @@ test('LiveView overview preserves independent evidence and missing declarations 
     expect(Math.abs(resultLeft - summaryLeft)).toBeLessThanOrEqual(1);
     expect(Math.abs(measurementLeft - summaryRight)).toBeLessThanOrEqual(1);
   }
-  await checkpoint(page, testInfo, 'next-overview-desktop');
+  await checkpoint(page, testInfo, 'overview-desktop');
 
   const filterQuery = page.getByRole('combobox');
   await filterQuery.click();
@@ -95,12 +95,12 @@ test('LiveView overview preserves independent evidence and missing declarations 
   await page.locator(`#open-expected-${missing.id}`).click();
   await expect(page).toHaveURL(/expected\/.*target_key=/);
   await page.locator('[data-overview-close]').click();
-  await expect(page).toHaveURL(/\/next\?target_key=/);
+  await expect(page).toHaveURL(/\/\?target_key=/);
   await filterQuery.click();
   await filterQuery.press('Backspace');
   await expect(filterQuery).toHaveAccessibleName('Target');
   await filterQuery.press('Backspace');
-  await expect(page).toHaveURL(/\/next$/);
+  await expect(page).toHaveURL(/\/$/);
   await expect(filterQuery).toHaveAccessibleName('Search results and targets');
   await expect(filterQuery).toBeFocused();
   await expect(page.getByRole('option', {name: 'Target', exact: true})).toBeVisible();
@@ -125,7 +125,7 @@ test('LiveView overview preserves independent evidence and missing declarations 
   await page.locator('#preview-search').press('Enter');
   await expect(page).toHaveURL(/environment=staging.*search=/);
   await page.getByRole('link', {name: 'Clear search text'}).click();
-  await expect(page).toHaveURL(/\/next\?environment=staging$/);
+  await expect(page).toHaveURL(/\/\?environment=staging$/);
   await page.getByRole('button', {name: /Edit Environment filter/}).click();
   await expect(filterQuery).toHaveAccessibleName('Environment');
   await filterQuery.press('Escape');
@@ -135,11 +135,11 @@ test('LiveView overview preserves independent evidence and missing declarations 
   await expect(filterQuery).toHaveAccessibleName('Environment');
   await filterQuery.fill('');
   await filterQuery.press('Backspace');
-  await expect(page).toHaveURL(/\/next$/);
+  await expect(page).toHaveURL(/\/$/);
 
   await page.setViewportSize({width: 320, height: 844});
   await filterQuery.click();
-  await checkpoint(page, testInfo, 'next-overview-filter-320');
+  await checkpoint(page, testInfo, 'overview-filter-320');
   await filterQuery.press('Escape');
   await page.setViewportSize({width: 1600, height: 1000});
 
@@ -162,7 +162,7 @@ test('LiveView overview preserves independent evidence and missing declarations 
   await missingOpener.click();
   await expect(page.locator('#overview-panel')).toHaveCount(0);
 
-  await expect(page).toHaveURL(/\/next$/);
+  await expect(page).toHaveURL(/\/$/);
   const search = page.locator('#preview-search');
   await search.fill(staging.source_key);
   await search.press('Enter');
@@ -173,9 +173,9 @@ test('LiveView overview preserves independent evidence and missing declarations 
   const opener = page.locator('#preview-attention [data-overview-open]');
   const openerId = await opener.getAttribute('id');
   await opener.click();
-  await expect(page).toHaveURL(/\/next\/results\//);
+  await expect(page).toHaveURL(/\/results\//);
   await expect(page.locator('#overview-panel-title')).toBeFocused();
-  const selectedURL = page.url();
+  let selectedURL = page.url();
   await expect(page.locator('#overview-panel .preview-evidence-state')).toHaveCount(1);
   await expect(page.locator('#overview-panel .preview-evidence-state').filter({hasText: 'Critical'})).toHaveCount(1);
   await expect(page.locator('#overview-panel .preview-evidence-state').filter({hasText: 'Healthy'})).toHaveCount(0);
@@ -191,8 +191,12 @@ test('LiveView overview preserves independent evidence and missing declarations 
   await expect(page.locator('#preview-healthy-results .preview-selected')).toHaveCount(1);
   await page.locator('#preview-related-results summary').click();
   await page.locator('#preview-related-results a').first().click();
-  await expect(page).toHaveURL(selectedURL);
-  await checkpoint(page, testInfo, 'next-overview-independent-observers');
+  expect(new URL(page.url()).pathname).toBe(new URL(selectedURL).pathname);
+  expect(new URL(page.url()).searchParams.get('search')).toBe(staging.source_key);
+  await expect.poll(() => new URL(page.url()).searchParams.get('inspect')).toBe(`result:${openerId.replace('open-result-', '')}`);
+  await expect(page.locator('.preview-panel-back-card')).toHaveCount(0);
+  selectedURL = page.url();
+  await checkpoint(page, testInfo, 'overview-independent-observers');
   await opener.locator('..').click();
   await expect(page.locator('#overview-panel')).toHaveCount(0);
   await opener.click();
@@ -203,11 +207,12 @@ test('LiveView overview preserves independent evidence and missing declarations 
   await opener.click();
   await expect(page.locator('#overview-panel')).toBeVisible();
 
+  selectedURL = page.url();
   await page.context().setOffline(true);
   // Chromium may keep an established WebSocket alive under HTTP offline emulation.
   // Force a reconnect while offline so the LiveView transport actually fails.
   await page.evaluate(() => { window.liveSocket.disconnect(); window.liveSocket.connect(); });
-  await expect(page.locator('#overview-panel .preview-connection')).toBeVisible();
+  await expect(page.locator('#overview-preview > main > .preview-connection')).toBeVisible();
   await page.context().setOffline(false);
   await connected(page);
   await expect(page).toHaveURL(selectedURL);
@@ -221,24 +226,31 @@ test('LiveView overview preserves independent evidence and missing declarations 
 
   await page.locator('#overview-panel').getByRole('link', {name: 'View check configuration'}).first().click();
   await connected(page);
-  await page.getByRole('link', {name: 'Back to check result', exact: true}).click();
-  await expect(page).toHaveURL(selectedURL);
+  await page.getByRole('link', {name: '← Back to result', exact: true}).click();
+  // A direct result route and an explicit trail for that same result are
+  // equivalent. The editor normalizes its return to an explicit typed trail.
+  await expect.poll(() => new URL(page.url()).pathname).toBe(new URL(selectedURL).pathname);
+  expect(new URL(page.url()).searchParams.get('search')).toBe(staging.source_key);
+  await expect.poll(() => new URL(page.url()).searchParams.get('inspect')).toBe(`result:${openerId.replace('open-result-', '')}`);
   await connected(page);
+  await expect(page.locator('#overview-panel')).toContainText('Critical');
+  await expect(page.locator('.preview-panel-back-card')).toHaveCount(0);
 
   await mode(request, {grouped_samples: {'coverage-service-a-staging/elasticsearch': {available: false}}});
   await expect(page.locator('#overview-panel')).toContainText('Collection unavailable');
   await expect(page.locator('#overview-panel')).toContainText('Critical');
   await expect(page.locator('#overview-panel .preview-evidence-state')).not.toContainText('Healthy');
-  await checkpoint(page, testInfo, 'next-overview-retained-failure');
+  await checkpoint(page, testInfo, 'overview-retained-failure');
 
-  await page.goto('/next');
+  await page.goto('/');
   await page.locator(`#open-expected-${missing.id}`).click();
   await expect(page.locator('#overview-panel')).toContainText('No runner is selected');
   await expect(page.locator('#overview-panel a[href^="/checks/"]')).toHaveCount(0);
   const expectedURL = page.url();
-  await page.getByRole('link', {name: 'View in Coverage'}).click();
+  await page.locator('#overview-panel').getByRole('link', {name: 'Open as page', exact: true}).click();
   await connected(page);
-  await expect(page.locator('#coverage-heading')).toBeVisible();
+  await expect(page.locator('#coverage-page-body')).toContainText('No runner is selected');
+  await expect(page.locator('#coverage-page-heading')).toBeVisible();
   await page.goBack();
   await expect(page).toHaveURL(expectedURL);
   await page.reload();
@@ -251,77 +263,29 @@ test('LiveView overview preserves independent evidence and missing declarations 
     await expect(page.locator('#overview-panel')).toContainText('No runner is selected');
     expect(await page.locator('#overview-panel').evaluate(el => el.contains(document.activeElement))).toBe(true);
     await page.locator('[data-overview-close]').focus();
-    await checkpoint(page, testInfo, `next-overview-declaration-${width}`);
+    await checkpoint(page, testInfo, `overview-declaration-${width}`);
     await page.locator('[data-overview-close]').click();
     await expect(page.locator('#preview-unobserved')).toBeVisible();
-    await checkpoint(page, testInfo, `next-overview-list-${width}`);
+    await checkpoint(page, testInfo, `overview-list-${width}`);
     await page.locator('#preview-attention [data-overview-open]').first().click();
     await expect(page.locator('#overview-panel')).toContainText('Critical');
     await expect(page.locator('#overview-panel .preview-evidence-state')).not.toContainText('Healthy');
-    await checkpoint(page, testInfo, `next-overview-observers-${width}`);
-    await page.goto(`/next/expected/${missing.id}`);
+    await checkpoint(page, testInfo, `overview-observers-${width}`);
+    await page.goto(`/expected/${missing.id}`);
     await connected(page);
   }
 });
 
-test('light themes preserve geometry, evidence and local preference', async ({page}, testInfo) => {
-  await page.setViewportSize({width: 1600, height: 1000});
-  await page.goto('/next');
-  await connected(page);
-  const picker = page.locator('#preview-theme-picker');
-  const choose = async (theme) => {
-    await picker.locator('summary').click();
-    await picker.locator(`input[value="${theme}"]`).check();
-    if (await picker.getAttribute('open') !== null) await picker.locator('summary').click();
-    await expect(page.locator('html')).toHaveAttribute('data-preview-theme', theme);
-    await expect(picker.locator('summary')).toBeFocused();
-  };
-  await picker.locator('summary').click();
-  await checkpoint(page, testInfo, 'theme-menu');
-  await page.keyboard.press('Escape');
-  await expect(picker.locator('summary')).toBeFocused();
-  const boardBox = await page.locator('#preview-summary').boundingBox();
-  const searchBox = await page.locator('#preview-search').boundingBox();
-  for (const theme of ['pearl', 'clear', 'mist', 'linen', 'original']) {
-    await choose(theme);
-    expect(await page.locator('#preview-summary').boundingBox()).toEqual(boardBox);
-    expect(await page.locator('#preview-search').boundingBox()).toEqual(searchBox);
-    const nav = page.getByRole('navigation', {name: 'Main navigation', exact: true});
-    const current = nav.getByRole('link', {name: 'Overview', exact: true});
-    const incidents = nav.getByRole('link', {name: 'Incidents', exact: true});
-    await expect(current).toHaveAttribute('aria-current', 'page');
-    const currentBackground = await current.evaluate(el => getComputedStyle(el).backgroundColor);
-    expect(currentBackground).not.toBe('rgba(0, 0, 0, 0)');
-    await page.locator('#overview-heading').hover();
-    const idleBackground = await incidents.evaluate(el => getComputedStyle(el).backgroundColor);
-    await incidents.hover();
-    await expect.poll(() => incidents.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(idleBackground);
-    expect(await current.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(await incidents.evaluate(el => getComputedStyle(el).backgroundColor));
-    await checkpoint(page, testInfo, `theme-${theme}-desktop`);
-  }
-  await choose('pearl');
-  await page.reload();
+test('Pearl shell preserves clear active navigation and compact narrow layout', async ({page}, testInfo) => {
+  await page.goto('/');
   await connected(page);
   await expect(page.locator('html')).toHaveAttribute('data-preview-theme', 'pearl');
-  await expect(picker.locator('input[value="pearl"]')).toBeChecked();
-  await page.locator('[data-overview-open]').first().click();
-  await expect(page.locator('#overview-panel')).toBeVisible();
-  const selectedURL = page.url();
-  await page.locator('#overview-panel').evaluate(async el => {
-    await Promise.all(el.getAnimations().map(animation => animation.finished));
-  });
-  const panelBox = await page.locator('#overview-panel').boundingBox();
-  await choose('pearl');
-  await expect(page).toHaveURL(selectedURL);
-  expect(await page.locator('#overview-panel').boundingBox()).toEqual(panelBox);
-  await checkpoint(page, testInfo, 'theme-pearl-panel');
-  await page.locator('[data-overview-close]').click();
-  await page.setViewportSize({width: 320, height: 844});
-  for (const theme of ['pearl', 'clear', 'mist', 'linen', 'original']) {
-    await choose(theme);
-    await checkpoint(page, testInfo, `theme-${theme}-320`);
+  await expect(page.getByRole('navigation', {name: 'Main navigation'}).getByRole('link', {name: 'Overview', exact: true})).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('link[href*="app.css"]')).toHaveCount(0);
+  for (const width of [1600, 390, 320]) {
+    await page.setViewportSize({width, height: 900});
+    await checkpoint(page, testInfo, `pearl-shell-${width}`);
   }
-  await choose('pearl');
 });
 
 test('thirty real alerts remain compact and page without dropping evidence', async ({page, request}, testInfo) => {
@@ -355,7 +319,7 @@ test('thirty real alerts remain compact and page without dropping evidence', asy
   }))});
   expect(admission.dispositions.map(row => row.disposition)).toEqual(Array(31).fill('current'));
   await page.setViewportSize({width: 1600, height: 1100});
-  await page.goto('/next?search=Density');
+  await page.goto('/?search=Density');
   await connected(page);
   const rows = page.locator('#preview-attention tbody tr');
   await expect(rows).toHaveCount(30);

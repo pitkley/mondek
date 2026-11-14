@@ -42,20 +42,20 @@ defmodule MondekWeb.LifecycleReviewTest do
       now
     )
 
-    {:ok, view, _} = live(build_conn(), "/incidents/" <> incident.id)
-    assert has_element?(view, "#retry-notification-" <> occurrence.id)
+    {:ok, view, _} = live(build_conn(), "/incidents/health/" <> incident.id <> "/full")
+    assert has_element?(view, "#preview-retry-" <> occurrence.id)
 
     view
-    |> form("#retry-notification-" <> occurrence.id, reason: "Receiver repaired")
+    |> form("#preview-retry-" <> occurrence.id, reason: "Receiver repaired")
     |> render_submit()
 
-    notification = "#notification-" <> occurrence.id
+    notification = "section[aria-labelledby='preview-delivery-heading']"
     assert has_element?(view, notification, "another eligible delivery attempt")
     assert has_element?(view, notification, "earlier attempts remain in the history")
     assert has_element?(view, notification, "Waiting for Acknowledgement and Maintenance")
     refute has_element?(view, notification, "first eligible delivery attempt")
-    refute has_element?(view, "#retry-notification-" <> occurrence.id)
-    assert has_element?(view, "#incident-attempts", "HTTP 503")
+    refute has_element?(view, "#preview-retry-" <> occurrence.id)
+    assert has_element?(view, "section[aria-labelledby='preview-delivery-heading']", "HTTP 503")
     assert Repo.get!(Occurrence, occurrence.id).status == "pending"
     assert Repo.aggregate(Attempt, :count) == 1
     assert {:ok, {:gated, _}} = NotificationWorker.begin_attempt(occurrence.id, now)
@@ -66,21 +66,26 @@ defmodule MondekWeb.LifecycleReviewTest do
     ingest(measurement("CRIT"))
     occurrence = record_failed_attempt(Repo.one!(Occurrence))
     incident = Repo.one!(Incident)
-    path = "/incidents/" <> incident.id
-    selector = "#retry-notification-" <> occurrence.id
-    input = "#retry-reason-" <> occurrence.id
+    path = "/incidents/health/" <> incident.id <> "/full"
+    selector = "#preview-retry-" <> occurrence.id
+    input = selector <> " input[name=reason]"
     reason = "Receiver restored after investigation"
     {:ok, view, _} = live(build_conn(), path)
     view |> form(selector, reason: reason) |> render_change()
     send(view.pid, :tick)
     assert has_element?(view, input <> "[value='#{reason}']")
     assert Repo.get!(Occurrence, occurrence.id).status == "exhausted"
-    assert has_element?(view, selector <> "[phx-auto-recover='edit_notification_retry']")
+    assert has_element?(view, selector <> "[phx-auto-recover='edit_retry_delivery']")
 
     {:ok, recovered, _} = live(build_conn(), path)
 
     recovered
-    |> render_change("edit_notification_retry", %{"_id" => occurrence.id, "reason" => reason})
+    |> with_target("#investigation-stack")
+    |> render_hook("edit_retry_delivery", %{
+      "entity" => "health:#{incident.id}",
+      "_id" => occurrence.id,
+      "reason" => reason
+    })
 
     send(recovered.pid, :tick)
     assert has_element?(recovered, input <> "[value='#{reason}']")
@@ -108,7 +113,7 @@ defmodule MondekWeb.LifecycleReviewTest do
     send(view.pid, :tick)
     assert has_element?(view, input <> "[value='#{rejected}']")
     view |> form(selector) |> render_submit()
-    assert has_element?(view, ".flash[role='alert']", "1 to 500 bytes")
+    assert has_element?(view, "[role=alert]", "1 to 500 bytes")
     assert has_element?(view, input <> "[value='#{rejected}']")
     assert Repo.get!(Occurrence, occurrence.id).status == "exhausted"
 
@@ -116,7 +121,7 @@ defmodule MondekWeb.LifecycleReviewTest do
     view |> form(selector) |> render_submit()
     assert Repo.get!(Occurrence, occurrence.id).status == "pending"
     refute has_element?(view, selector)
-    refute has_element?(view, ".flash[role='alert']")
+    refute has_element?(view, "[role=alert]")
 
     Repo.update_all(
       from(j in Oban.Job, where: fragment("?->>'occurrence_id'", j.args) == ^occurrence.id),
@@ -143,31 +148,34 @@ defmodule MondekWeb.LifecycleReviewTest do
 
     ingest(measurement("OK", 2))
     resolved = record_failed_attempt(Repo.one!(from o in Occurrence, where: o.kind == "resolved"))
-    {:ok, view, _} = live(build_conn(), "/incidents/" <> incident.id)
+    {:ok, view, _} = live(build_conn(), "/incidents/health/" <> incident.id <> "/full")
 
-    assert has_element?(
-             view,
-             "#maintenance-summary-10000000-0000-4000-8000-000000000001",
-             "Active"
+    assert Enum.any?(
+             Mondek.Maintenance.for_assignment(incident.assignment_id),
+             &(&1["status"] == "active")
            )
 
     view
-    |> form("#retry-notification-" <> resolved.id, reason: "Deliver the recorded closure")
+    |> form("#preview-retry-" <> resolved.id, reason: "Deliver the recorded closure")
     |> render_submit()
 
     assert has_element?(
              view,
-             ".flash[role='status']",
+             "[role=status]",
              "incident closure notifications remain eligible"
            )
 
     assert has_element?(
              view,
-             "#notification-" <> resolved.id,
+             "section[aria-labelledby='preview-delivery-heading']",
              "another eligible delivery attempt"
            )
 
-    refute has_element?(view, "#notification-" <> resolved.id, "Waiting for Maintenance")
+    refute has_element?(
+             view,
+             "section[aria-labelledby='preview-delivery-heading']",
+             "Waiting for Maintenance"
+           )
 
     inspected =
       Enum.find(
@@ -180,7 +188,7 @@ defmodule MondekWeb.LifecycleReviewTest do
     assert {:ok, {_, _}} = NotificationWorker.begin_attempt(resolved.id, Monitoring.now())
   end
 
-  test "retiring before the first measurement does not promise future collection" do
+  test "retiring before the first measurement preserves the reason and promises no future execution" do
     {:ok, _} =
       withdraw_source_fixture(
         "10000000-0000-4000-8000-000000000002",
@@ -188,16 +196,17 @@ defmodule MondekWeb.LifecycleReviewTest do
         at()
       )
 
-    {:ok, view, _} = live(build_conn(), "/resources/10000000-0000-4000-8000-000000000002")
-    html = render(view)
-    assert has_element?(view, "#retired-check-notice", "excluded from active coverage")
-    assert has_element?(view, "h3", "No retained execution evidence")
-    assert html =~ "retired without a confirmed measurement"
-    refute html =~ "Waiting for the first scheduled observation"
-    refute html =~ "Scheduled reports will appear"
+    {:ok, view, _} = live(build_conn(), "/executions/10000000-0000-4000-8000-000000000002")
+    assert has_element?(view, "#execution-scope", "Retired")
+    assert render(view) =~ "Target removed before first run"
+    refute render(view) =~ "Waiting for the first scheduled observation"
+    refute render(view) =~ "Scheduled reports will appear"
     refute has_element?(view, "#retire-check-form")
-    refute has_element?(view, "#maintenance-summary-10000000-0000-4000-8000-000000000002")
-    assert has_element?(view, "#check-control-history", "Target removed before first run")
+    refute has_element?(view, "a", "Schedule maintenance")
+
+    assert Repo.get!(Assignment, "10000000-0000-4000-8000-000000000002").current[
+             "confirmed_observation_id"
+           ] == nil
   end
 
   test "expired retired raw evidence is distinguished from a check that never measured" do
@@ -214,15 +223,16 @@ defmodule MondekWeb.LifecycleReviewTest do
     Mondek.Sweeper.sweep(DateTime.add(at(), 31 * 86_400))
     refute Repo.get(Observation, sample["id"])
 
-    {:ok, view, _} = live(build_conn(), "/resources/10000000-0000-4000-8000-000000000001")
-    html = render(view)
-    assert has_element?(view, "#retired-check-notice", "retirement does not mean recovery")
-    assert html =~ "Real sample in contract fixture"
-    assert html =~ "1 referenced observations are no longer retained"
-    assert html =~ "recorded history and measurement identities remain available"
-    assert has_element?(view, "h3", "No retained execution evidence")
-    refute html =~ "retired without a confirmed measurement"
-    refute html =~ "Scheduled reports will appear"
+    stream =
+      Repo.get_by!(Mondek.ResultStream, assignment_id: "10000000-0000-4000-8000-000000000001")
+
+    {:ok, view, _} = live(build_conn(), "/results/#{stream.id}/full")
+    assert render(view) =~ "This result is retired"
+    assert render(view) =~ "Real sample in contract fixture"
+    assert has_element?(view, "#result-measurement-provenance", sample["id"])
+    assert has_element?(view, ".preview-result-measurement", "Healthy")
+    refute render(view) =~ "Scheduled reports will appear"
+    assert stream.current["confirmed_observation_id"] == sample["id"]
   end
 
   test "zero active checks explain the empty coverage and keep a route to new monitoring" do
@@ -235,11 +245,10 @@ defmodule MondekWeb.LifecycleReviewTest do
     end
 
     {:ok, view, _} = live(build_conn(), "/")
-    assert has_element?(view, "#coverage-summary .stat-value", "0")
-    refute has_element?(view, ".stat-foot", "Checks awaiting fresh evidence")
-    refute has_element?(view, ".stat-foot", "All checks have fresh evidence")
-    refute has_element?(view, "#resource-10000000-0000-4000-8000-000000000002")
-    assert has_element?(view, "#runner-onboarding", "Waiting for check inventory")
-    assert has_element?(view, "a[href='/checks?status=retired']", "retired result history")
+    assert has_element?(view, "#preview-onboarding", "No active results")
+    assert has_element?(view, "a[href='/guide']", "Connect a runner")
+    refute has_element?(view, "#preview-check-results tbody tr")
+    {:ok, history, _} = live(build_conn(), "/checks?status=retired")
+    assert render(history) =~ "HTTP readiness"
   end
 end

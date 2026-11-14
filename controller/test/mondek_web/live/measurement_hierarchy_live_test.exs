@@ -10,7 +10,12 @@ defmodule MondekWeb.MeasurementHierarchyLiveTest do
 
   test "the first failed execution explains collection without claiming a confirmed Unknown measurement" do
     now = DateTime.utc_now()
-    assert {:ok, _} = Monitoring.control(control(), now)
+
+    assert {:ok, _} =
+             Monitoring.control(
+               control(%{"active" => %{"10000000-0000-4000-8000-000000000001" => 1}}),
+               now
+             )
 
     failure =
       measured_report("UNKNOWN", 1, now, %{
@@ -30,27 +35,27 @@ defmodule MondekWeb.MeasurementHierarchyLiveTest do
     refute stream.current["confirmed_observation_id"]
     assert stream.current["health"] == "UNKNOWN"
 
-    {:ok, view, _} = live(build_conn(), "/checks/" <> stream.id)
-    assert has_element?(view, "#result-measurement", "Not measured")
-    assert has_element?(view, "#result-measurement", "No confirmed measurement yet")
-    refute has_element?(view, "#result-measurement .badge.unknown")
-    refute has_element?(view, "#confirmed-result-details")
+    {:ok, view, _} = live(build_conn(), "/results/" <> stream.id <> "/full")
+    assert has_element?(view, ".preview-result-measurement", "Not measured")
+    assert has_element?(view, ".preview-result-measurement", "No confirmed measurement yet")
+    refute has_element?(view, ".preview-result-measurement .pf-v6-c-label", "Unknown")
+    refute has_element?(view, ".preview-result-measurement .preview-check-details")
+    assert has_element?(view, "#collection-diagnostics", "Collection unavailable")
 
     assert has_element?(
              view,
-             "#measurement-notice-10000000-0000-4000-8000-000000000001",
-             "Measurement unavailable"
-           )
-
-    assert has_element?(
-             view,
-             "#measurement-notice-10000000-0000-4000-8000-000000000001",
+             "#collection-diagnostics",
              "Worker failed before producing its first result"
            )
 
-    assert has_element?(view, "details#check-execution-history")
-    refute has_element?(view, "details#check-execution-history[open]")
-    assert has_element?(view, "#check-execution-history", failure["id"])
+    {:ok, execution, _} = live(build_conn(), "/executions/#{stream.assignment_id}")
+    assert has_element?(execution, "#execution-history", failure["id"])
+
+    assert has_element?(
+             execution,
+             "#execution-history",
+             "Worker failed before producing its first result"
+           )
   end
 
   test "a valid result in an incomplete shared execution keeps its own confirmed evidence and freshness" do
@@ -81,43 +86,44 @@ defmodule MondekWeb.MeasurementHierarchyLiveTest do
     assert left.current["knowledge"] == "fresh"
     refute right.current["confirmed_observation_id"]
 
-    {:ok, view, _} = live(build_conn(), "/checks/" <> left.id)
-    assert has_element?(view, "#result-measurement .badge.warn", "Warning")
-    assert has_element?(view, "#result-measurement .badge.fresh", "Fresh")
-    assert has_element?(view, "#result-measurement", "Left queue has eight waiting items")
-    assert has_element?(view, "#confirmed-result-details pre", "Warning starts at five items")
-    refute has_element?(view, "details#confirmed-result-details")
-    refute has_element?(view, "#measurement-notice-#{assignment.id}")
-    refute has_element?(view, "#result-measurement", "Right datasource failed")
-    assert has_element?(view, "#check-execution-history", "Right datasource failed")
-    refute has_element?(view, "#check-execution-history[open]")
+    {:ok, view, _} = live(build_conn(), "/results/" <> left.id <> "/full")
+    assert has_element?(view, ".preview-result-measurement", "Warning")
+    assert has_element?(view, ".preview-result-measurement", "Fresh")
+    assert has_element?(view, ".preview-result-measurement", "Left queue has eight waiting items")
 
+    assert has_element?(
+             view,
+             ".preview-result-measurement .preview-check-details",
+             "Warning starts at five items"
+           )
+
+    refute has_element?(view, ".preview-result-measurement", "Right datasource failed")
+    {:ok, execution, _} = live(build_conn(), "/executions/#{assignment.id}")
+    assert has_element?(execution, "#execution-history", "Right datasource failed")
     incident = Repo.get_by!(Incident, stream_id: left.id)
-    {:ok, incident_view, _} = live(build_conn(), "/incidents/" <> incident.id)
-    assert has_element?(incident_view, "#incident-check-now .badge.warn", "Warning")
+    {:ok, incident_view, _} = live(build_conn(), "/incidents/health/" <> incident.id <> "/full")
+    assert has_element?(incident_view, "#preview-health-evidence", "Warning")
 
     assert has_element?(
              incident_view,
-             "#incident-current-details pre",
+             "#preview-health-evidence .preview-check-details",
              "Left queue was inspected"
            )
 
-    refute has_element?(incident_view, "details#incident-current-details")
-    refute has_element?(incident_view, "#incident-check-now", "Right datasource failed")
-
-    {:ok, missing_view, _} = live(build_conn(), "/checks/" <> right.id)
-    assert has_element?(missing_view, "#result-measurement", "Not measured")
-
-    assert has_element?(
-             missing_view,
-             "#measurement-notice-#{assignment.id}",
-             "Measurement unavailable"
-           )
+    refute has_element?(incident_view, "#preview-health-evidence", "Right datasource failed")
+    {:ok, missing_view, _} = live(build_conn(), "/results/" <> right.id <> "/full")
+    assert has_element?(missing_view, ".preview-result-measurement", "Not measured")
+    assert has_element?(missing_view, "#collection-diagnostics", "Collection unavailable")
   end
 
   test "a later historical receipt stays in execution history and cannot replace the accepted collection diagnosis" do
     now = DateTime.utc_now()
-    assert {:ok, _} = Monitoring.control(control(), now)
+
+    assert {:ok, _} =
+             Monitoring.control(
+               control(%{"active" => %{"10000000-0000-4000-8000-000000000001" => 1}}),
+               now
+             )
 
     confirmed =
       measured_report("CRIT", 2, DateTime.add(now, -2), %{
@@ -170,27 +176,37 @@ defmodule MondekWeb.MeasurementHierarchyLiveTest do
     assert stream.current["confirmed_observation_id"] == confirmed["id"]
     assert hd(Monitoring.stream_inspection(stream.id, now)["evidence"])["id"] == historical["id"]
 
-    {:ok, view, _} = live(build_conn(), "/checks/" <> stream.id)
-    assert has_element?(view, "#result-measurement .badge.crit", "Critical")
+    {:ok, view, _} = live(build_conn(), "/results/" <> stream.id <> "/full")
+    assert has_element?(view, ".preview-result-measurement", "Critical")
 
     assert has_element?(
              view,
-             "#confirmed-result-details pre",
+             ".preview-result-measurement .preview-check-details",
              "Measured root usage is 96 percent"
            )
 
     assert has_element?(
              view,
-             "#measurement-notice-10000000-0000-4000-8000-000000000001",
+             "#collection-diagnostics",
              "Accepted current worker failed to read filesystem"
            )
 
-    refute has_element?(view, "#result-measurement", "Old disk measurement looked healthy")
-    refute has_element?(view, "#result-measurement", "Delayed historical report")
-    assert has_element?(view, "#check-execution-history > summary", "Execution evidence")
-    assert has_element?(view, "#check-execution-history", "Old disk measurement looked healthy")
-    refute has_element?(view, "#check-execution-history[open]")
-    refute has_element?(view, "h2", "Latest execution")
+    refute has_element?(
+             view,
+             ".preview-result-measurement",
+             "Old disk measurement looked healthy"
+           )
+
+    refute has_element?(view, ".preview-result-measurement", "Delayed historical report")
+    {:ok, execution, _} = live(build_conn(), "/executions/#{stream.assignment_id}")
+    assert has_element?(execution, "#execution-history", "Old disk measurement looked healthy")
+    assert has_element?(execution, "#execution-history", "historical")
+
+    assert has_element?(
+             execution,
+             "#collection-diagnostics",
+             "Accepted current worker failed to read filesystem"
+           )
   end
 
   defp measured_report(health, sequence, now, overrides) do
@@ -240,7 +256,7 @@ defmodule MondekWeb.MeasurementHierarchyLiveTest do
 
     assert {:ok, _} =
              Monitoring.control(
-               control(%{"prepared" => %{assignment.id => 1}, "active" => %{}}),
+               control(%{"prepared" => %{assignment.id => 1}, "active" => %{assignment.id => 1}}),
                now
              )
 

@@ -155,10 +155,12 @@ defmodule Mondek.NotificationDelivery do
 
     incident_path =
       if payload["incident_type"] == "monitoring_loss",
-        do: "/monitoring-incidents/",
-        else: "/incidents/"
+        do: "/incidents/loss/",
+        else: "/incidents/health/"
 
-    url = String.trim_trailing(metadata["public_url"], "/") <> incident_path <> incident_id
+    url =
+      String.trim_trailing(metadata["public_url"], "/") <> incident_path <> incident_id <> "/full"
+
     target = payload["target"] || %{}
 
     body =

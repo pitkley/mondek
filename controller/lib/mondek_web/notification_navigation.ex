@@ -2,29 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.NotificationNavigation do
   @moduledoc "Canonical bounded notification URLs shared by delivery and incident inspection."
-  @statuses ~w(unresolved exhausted pending retrying delivering delivered superseded all)
+  def filters(params), do: Mondek.NotificationFilters.params(params)
 
-  def filters(params) do
-    status = if params["notification_status"] in @statuses, do: params["notification_status"]
-
-    value = params["notification_page"]
-
-    input =
-      if is_integer(value) or (is_binary(value) and byte_size(value) <= 10),
-        do: to_string(value),
-        else: "1"
-
-    page =
-      case Integer.parse(input) do
-        {number, ""} when number > 1 -> min(number, 100_000)
-        _ -> nil
-      end
-
-    %{"notification_status" => status, "notification_page" => page}
-    |> Map.reject(fn {_, value} -> is_nil(value) end)
-  end
-
-  def path(params \\ %{}), do: "/notifications" <> query(filters(params))
+  def path(params \\ %{}),
+    do:
+      "/notifications" <>
+        query(
+          filters(params)
+          |> Map.reject(fn {key, value} ->
+            (key == "notification_status" && value == "unresolved") || value == ""
+          end)
+        )
 
   def detail_path(id, return_to \\ nil) do
     return_to = list_return(return_to)

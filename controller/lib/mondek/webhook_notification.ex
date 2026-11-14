@@ -174,7 +174,7 @@ defmodule Mondek.WebhookNotification do
         "type" => if(monitoring?, do: "monitoring_loss", else: "health"),
         "url" =>
           String.trim_trailing(public_url, "/") <>
-            if(monitoring?, do: "/monitoring-incidents/", else: "/incidents/") <> id,
+            if(monitoring?, do: "/incidents/loss/", else: "/incidents/health/") <> id <> "/full",
         "closure_reason" => payload["closure_reason"]
       },
       "evidence" => %{

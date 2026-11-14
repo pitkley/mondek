@@ -6,10 +6,9 @@ defmodule MondekWeb.CoverageLiveTest do
   import Phoenix.LiveViewTest
   alias Mondek.Coverage
   alias Mondek.CoverageFixtures, as: F
-
   @endpoint MondekWeb.Endpoint
 
-  test "fresh retained results do not send unconfirmed declarations to collection diagnostics" do
+  test "retained fresh results do not turn unconfirmed declarations into confirmed coverage" do
     now = Monitoring.now()
     publication = F.publication([F.candidate(F.check())])
     assert {:ok, _} = Monitoring.inventory(publication, now)
@@ -23,12 +22,18 @@ defmodule MondekWeb.CoverageLiveTest do
              )
 
     [scope] = Coverage.scopes(%{}, now)["items"]
-    {:ok, view, _} = live(build_conn(), "/coverage/" <> scope["id"])
-    assert has_element?(view, "#coverage-observers a", "Inspect runner publication")
-    refute has_element?(view, "#coverage-observers a", "Investigate measurement")
+    {:ok, view, _} = live(build_conn(), "/coverage/#{scope["id"]}/full")
+    assert has_element?(view, "table[aria-label='Runner decisions']", "Declaration unconfirmed")
+    assert has_element?(view, "a", "Review source declaration")
+
+    refute has_element?(
+             view,
+             "#preview-coverage-facts",
+             "Every selected runner has a current measurement"
+           )
   end
 
-  test "monitoring loss retains incident context through intended coverage and its publishing runner" do
+  test "monitoring loss opens its exact declaration and runner within one investigation" do
     now = Monitoring.now()
     publication = F.publication([F.candidate(F.check(), false)])
     assert {:ok, _} = Monitoring.inventory(publication, now)
@@ -56,47 +61,37 @@ defmodule MondekWeb.CoverageLiveTest do
       }
     })
 
-    origin = "/monitoring-incidents/#{incident.id}?members_page=1&status=open"
-    {:ok, loss, _} = live(build_conn(), origin)
+    {:ok, view, _} = live(build_conn(), "/incidents/loss/#{incident.id}/full")
+    view |> element("a[href*='coverage%3A#{scope["id"]}']") |> render_click()
+    assert has_element?(view, "#overview-panel", "Not selected")
 
-    {:ok, coverage, _} =
-      loss |> element("#monitoring-members a") |> render_click() |> follow_redirect(build_conn())
+    view
+    |> element("#overview-panel a[href*='runner%3A#{publication["installation_id"]}']")
+    |> render_click()
 
-    assert has_element?(coverage, ".back[href='#{origin}']", "Back to monitoring incident")
-    assert has_element?(coverage, "#coverage-observers", "Excluded from execution")
-
-    {:ok, runner, _} =
-      coverage
-      |> element("#coverage-observers .actions a", "Inspect runner context")
-      |> render_click()
-      |> follow_redirect(build_conn())
-
-    assert has_element?(runner, ".back", "Back to coverage")
-
-    {:ok, coverage, _} =
-      runner |> element(".back") |> render_click() |> follow_redirect(build_conn())
-
-    assert has_element?(coverage, ".back[href='#{origin}']", "Back to monitoring incident")
+    assert has_element?(view, "#overview-panel #runner-detail")
+    assert has_element?(view, "[data-panel-back-path*='coverage%3A#{scope["id"]}']")
   end
 
-  test "a never-installed node is visible with its exclusion and source guidance" do
+  test "a never-installed node retains exclusion evidence and source guidance" do
     now = Monitoring.now()
     candidate = F.candidate(F.check("Root disk", "production", "Node B"), false)
     publication = F.publication([candidate], %{"runner_label" => "Node A"})
     assert {:ok, _} = Monitoring.inventory(publication, now)
     [scope] = Coverage.scopes(%{}, now)["items"]
-    {:ok, view, _} = live(build_conn(), "/coverage")
-    assert has_element?(view, "#coverage-scopes", "Node B")
-    assert has_element?(view, "#coverage-scopes", "No selected runner")
-    assert has_element?(view, "#coverage-scopes", "0 of 0 selected runners")
-    assert has_element?(view, "#coverage-boundary", "nobody has declared remain unknown")
-    assert has_element?(view, "#coverage-explanation", "Being selected to run is not proof")
-    assert has_element?(view, "#coverage-explanation a[href='/checks']", "Checks")
+    {:ok, list, _} = live(build_conn(), "/coverage")
+    assert has_element?(list, "table[aria-label='Declared results']", "Node B")
+    assert has_element?(list, "table[aria-label='Declared results']", "No runner selected")
+    {:ok, detail, _} = live(build_conn(), "/coverage/#{scope["id"]}/full")
 
-    {:ok, detail, _} = live(build_conn(), "/coverage/" <> scope["id"])
-    assert has_element?(detail, "#coverage-observers", "Observer lacks service-query capability")
-    assert has_element?(detail, "#coverage-observers", "Node A")
-    refute has_element?(detail, "#coverage-observers a", "Inspect result")
+    assert has_element?(
+             detail,
+             "table[aria-label='Runner decisions']",
+             "Observer lacks service-query capability"
+           )
+
+    assert has_element?(detail, "table[aria-label='Runner decisions']", "Node A")
+    refute has_element?(detail, "table[aria-label='Runner decisions'] a", "View check result")
 
     assert has_element?(
              detail,
@@ -105,7 +100,7 @@ defmodule MondekWeb.CoverageLiveTest do
            )
   end
 
-  test "intended result titles avoid duplicate labels while preserving distinct outputs" do
+  test "declared result labels avoid duplicate names while retaining distinct output labels" do
     now = Monitoring.now()
     duplicate = F.check("Root disk") |> put_in(["outputs", Access.at(0), "label"], "Root disk")
     distinct = F.check("Backups") |> put_in(["outputs", Access.at(0), "label"], "Daily export")
@@ -117,20 +112,14 @@ defmodule MondekWeb.CoverageLiveTest do
              )
 
     {:ok, list, _} = live(build_conn(), "/coverage")
-    assert has_element?(list, "#coverage-scopes h3", "Root disk")
-    refute has_element?(list, "#coverage-scopes h3", "Root disk · Root disk")
-    assert has_element?(list, "#coverage-scopes h3", "Backups · Daily export")
+    assert has_element?(list, "table[aria-label='Declared results']", "Root disk")
+    refute has_element?(list, "table[aria-label='Declared results']", "Root disk · Root disk")
+    assert has_element?(list, "table[aria-label='Declared results']", "Backups · Daily export")
 
     for scope <- Coverage.scopes(%{}, now)["items"] do
-      {:ok, detail, _} = live(build_conn(), "/coverage/" <> scope["id"])
-      assert has_element?(detail, "#coverage-scope-detail h2", "Measurement coverage")
-
-      expected =
-        if scope["source_key"] == "Root disk", do: "Root disk", else: "Backups · Daily export"
-
-      assert has_element?(detail, "h1", "Coverage")
-      assert has_element?(detail, ".view-heading h2", expected)
-      refute has_element?(detail, ".view-heading h2", "Root disk · Root disk")
+      {:ok, detail, _} = live(build_conn(), "/coverage/#{scope["id"]}/full")
+      assert has_element?(detail, "#preview-coverage-facts")
+      refute render(detail) =~ "Root disk · Root disk"
     end
   end
 
@@ -153,39 +142,34 @@ defmodule MondekWeb.CoverageLiveTest do
     assert {:ok, _} = Monitoring.inventory(publication, now)
 
     for scope <- Coverage.scopes(%{}, now)["items"] do
-      {:ok, detail, _} = live(build_conn(), "/coverage/" <> scope["id"])
-      assert has_element?(detail, "#coverage-scope-detail", "edge-node")
+      {:ok, detail, _} = live(build_conn(), "/coverage/#{scope["id"]}/full")
+      assert has_element?(detail, "#preview-coverage-identity", "edge-node")
 
       assert has_element?(
                detail,
-               "#coverage-observers",
-               "Runner executes in: observer.example.test"
+               "table[aria-label='Observer identity']",
+               "observer.example.test"
              )
 
       if scope["source_key"] == "Backup service" do
         assert has_element?(
                  detail,
-                 "#coverage-observers",
-                 "Requires execution in edge-node; runner executes in observer.example.test"
+                 "table[aria-label='Runner decisions']",
+                 "Requires execution in edge-node"
                )
 
-        assert has_element?(detail, "#coverage-observers .badge", "Not selected here")
-        refute has_element?(detail, "#coverage-observers a", "Inspect result")
+        assert has_element?(detail, "table[aria-label='Runner decisions']", "Not selected")
       else
-        assert has_element?(detail, "#coverage-observers", "Selected to execute")
-
         assert has_element?(
                  detail,
-                 "#coverage-observers",
-                 "Shared runners can monitor other environments"
+                 "table[aria-label='Runner decisions']",
+                 "Waiting for measurement"
                )
-
-        refute has_element?(detail, "#coverage-observers", "Excluded from execution")
       end
     end
   end
 
-  test "fresh Critical evidence and an unavailable peer show partial coverage with independent results" do
+  test "critical evidence and an unavailable peer retain independent result states" do
     now = Monitoring.now()
     one = F.publication([F.candidate(F.check())], %{"runner_label" => "Primary observer"})
     two = F.publication([F.candidate(F.check())], %{"runner_label" => "Other observer"})
@@ -198,89 +182,51 @@ defmodule MondekWeb.CoverageLiveTest do
     assert disposition(F.sample(one, "CRIT", 1, now)) == "current"
     assert disposition(F.sample(two, "UNKNOWN", 1, now)) == "current"
     [scope] = Coverage.scopes(%{}, now)["items"]
-    {:ok, list, _} = live(build_conn(), "/coverage?runner_id=" <> one["installation_id"])
-    assert has_element?(list, "#coverage-scopes", "1 of 2 selected runners")
-    assert render(list) =~ "include every runner declaring each result"
+    {:ok, detail, _} = live(build_conn(), "/coverage/#{scope["id"]}/full")
+    assert has_element?(detail, "#preview-coverage-facts", "Partial coverage")
+    assert has_element?(detail, "#preview-coverage-facts", "1 of 2")
+    assert has_element?(detail, "table[aria-label='Runner decisions']", "Collection unavailable")
 
-    return_path = "/coverage/" <> scope["id"] <> "?runner_id=" <> one["installation_id"]
-    {:ok, detail, _} = live(build_conn(), return_path)
-    assert has_element?(detail, "#coverage-scope-detail", "Partial runner coverage")
+    [observer] =
+      Coverage.observers(scope["id"], %{}, now)["items"]
+      |> Enum.filter(&(&1["runner_id"] == one["installation_id"]))
 
-    assert has_element?(
-             detail,
-             "[data-runner-id='#{one["installation_id"]}']",
-             "Last measured health: Critical"
-           )
-
-    assert has_element?(
-             detail,
-             "[data-runner-id='#{two["installation_id"]}']",
-             "Collection unavailable"
-           )
-
-    refute has_element?(
-             detail,
-             "[data-runner-id='#{two["installation_id"]}']",
-             "Last measured health"
-           )
-
-    assert has_element?(
-             detail,
-             "[data-runner-id='#{two["installation_id"]}'] a",
-             "Investigate measurement"
-           )
-
-    refute has_element?(
-             detail,
-             "[data-runner-id='#{one["installation_id"]}'] a",
-             "Investigate measurement"
-           )
-
-    navigation =
-      detail
-      |> element("[data-runner-id='#{one["installation_id"]}'] a", "Inspect result")
-      |> render_click()
-
-    {:ok, result, _} = follow_redirect(navigation, build_conn())
-    assert has_element?(result, "a.back[href='#{return_path}']", "Back to coverage")
+    detail |> element("a[href*='result%3A#{observer["stream_id"]}']") |> render_click()
+    assert has_element?(detail, "#overview-panel", "Critical")
   end
 
-  test "scopes page in bounded groups and preserve the list page through inspection" do
+  test "bounded declaration pages retain their page when opening and reopening details" do
     candidates =
       for n <- 1..60,
           do: F.candidate(F.check("check-#{String.pad_leading(to_string(n), 3, "0")}"), false)
 
     assert {:ok, _} = Monitoring.inventory(F.publication(candidates), Monitoring.now())
-    {:ok, list, _} = live(build_conn(), "/coverage?search=check-&page=2")
+    {:ok, view, _} = live(build_conn(), "/coverage?search=check-&page=2")
+    assert count(view, "table[aria-label='Declared results'] > tbody > tr") == 25
+    assert has_element?(view, "nav[aria-label='Declared result pages'] [aria-current=page]", "2")
 
-    assert Enum.count(
-             list
-             |> render()
-             |> LazyHTML.from_document()
-             |> LazyHTML.query("[data-scope-id]")
-           ) == 25
+    view
+    |> element("table[aria-label='Declared results'] tbody tr:first-child a[data-overview-open]")
+    |> render_click()
 
-    assert has_element?(list, "#coverage-scopes", "60 matching intended results")
-    assert has_element?(list, "#coverage-pages-top", "Page 2 of 3")
-    refute has_element?(list, "#coverage-scopes", "check-001")
-    navigation = list |> element("[data-scope-id]:first-of-type h3 a") |> render_click()
-    {:ok, detail, _} = follow_redirect(navigation, build_conn())
-
-    assert has_element?(
-             detail,
-             "a.back[href='/coverage?page=2&search=check-']",
-             "All intended results"
-           )
+    path = assert_patch(view)
+    assert URI.decode_query(URI.parse(path).query)["page"] == "2"
+    {:ok, reopened, _} = live(build_conn(), path)
+    assert has_element?(reopened, "#overview-panel #preview-coverage-facts")
+    assert count(reopened, "table[aria-label='Declared results'] > tbody > tr") == 25
   end
 
-  test "unsupported, downgraded and unbound declarations are distinct from empty coverage" do
+  test "unsupported downgraded and unresolved catalogues remain distinct from empty coverage" do
     now = Monitoring.now()
-    unsupported = F.publication([]) |> Map.delete("coverage")
-    assert {:ok, _} = Monitoring.inventory(unsupported, now)
+    assert {:ok, _} = Monitoring.inventory(F.publication([]) |> Map.delete("coverage"), now)
     known = F.publication([F.candidate(F.check(), false)], %{"runner_label" => "Downgraded"})
     assert {:ok, _} = Monitoring.inventory(known, now)
-    downgraded = known |> Map.put("inventory_revision", 2) |> Map.delete("coverage")
-    assert {:ok, _} = Monitoring.inventory(downgraded, now)
+
+    assert {:ok, _} =
+             Monitoring.inventory(
+               known |> Map.put("inventory_revision", 2) |> Map.delete("coverage"),
+               now
+             )
 
     unbound =
       F.candidate(F.check("Local template"), false)
@@ -293,28 +239,22 @@ defmodule MondekWeb.CoverageLiveTest do
       |> put_in(["outputs", Access.at(0), "target"], nil)
 
     assert {:ok, _} = Monitoring.inventory(F.publication([unbound]), now)
-    {:ok, list, _} = live(build_conn(), "/coverage")
+    {:ok, view, _} = live(build_conn(), "/coverage")
+    assert has_element?(view, ".preview-coverage-audit")
+    assert has_element?(view, "table[aria-label='Declared results']", "Declarations unconfirmed")
 
     assert has_element?(
-             list,
-             "#coverage-audit-warning",
-             "Sources missing coverage support: 1"
-           )
-
-    assert has_element?(list, "#coverage-scopes", "Declarations unconfirmed")
-    {:ok, publishers, _} = live(build_conn(), "/coverage/publishers")
-    assert has_element?(publishers, "#coverage-publishers", "Intended checks unknown")
-    assert has_element?(publishers, "#coverage-publishers", "Declarations unconfirmed")
-    {:ok, diagnostics, _} = live(build_conn(), "/coverage/diagnostics")
-
-    assert has_element?(
-             diagnostics,
-             "#coverage-diagnostics",
+             view,
+             "#preview-coverage-runner-diagnostics",
              "A monitored environment is required"
            )
+
+    {:ok, publishers, _} = live(build_conn(), "/coverage/publishers")
+    assert render(publishers) =~ "Catalogue not supported"
+    assert render(publishers) =~ "Catalogue needs confirmation"
   end
 
-  test "source replacement retains earlier measurements as context without claiming desired coverage" do
+  test "source replacement retains old measurement without claiming current configuration coverage" do
     now = Monitoring.now()
     publication = F.publication([F.candidate(F.check())])
     assert {:ok, _} = Monitoring.inventory(publication, now)
@@ -329,20 +269,19 @@ defmodule MondekWeb.CoverageLiveTest do
       })
 
     assert {:ok, _} = Monitoring.inventory(newer, now)
-    {:ok, detail, _} = live(build_conn(), "/coverage/" <> scope["id"])
-    assert has_element?(detail, "#coverage-scope-detail", "Awaiting current measurement")
+    {:ok, detail, _} = live(build_conn(), "/coverage/#{scope["id"]}/full")
+    assert has_element?(detail, "table[aria-label='Runner decisions']", "earlier configuration")
 
-    assert has_element?(
+    refute has_element?(
              detail,
-             "#coverage-observers",
-             "Fresh evidence belongs to an earlier configuration"
+             "#preview-coverage-facts",
+             "Every selected runner has a current measurement"
            )
 
-    assert has_element?(detail, "#coverage-observers", "Last measured health: Healthy")
-    refute has_element?(detail, "#coverage-observers .badge", "Fresh measurement")
+    assert has_element?(detail, "table[aria-label='Runner decisions'] a", "View check result")
   end
 
-  test "a fresh observer does not hide an unconfirmed publisher and supported empty catalogues are explicit" do
+  test "one fresh observer does not hide an unconfirmed peer and empty catalogues stay explicit" do
     now = Monitoring.now()
     active = F.publication([F.candidate(F.check())])
     excluded = F.publication([F.candidate(F.check(), false)])
@@ -360,72 +299,58 @@ defmodule MondekWeb.CoverageLiveTest do
              )
 
     [scope] = Coverage.scopes(%{}, now)["items"]
-    {:ok, detail, _} = live(build_conn(), "/coverage/" <> scope["id"])
-    assert has_element?(detail, "#coverage-scope-detail", "Partial runner coverage")
-
-    assert has_element?(
-             detail,
-             "#coverage-scope-detail",
-             "Fresh measurements: 1 of 1 selected runners"
-           )
-
-    assert has_element?(
-             detail,
-             "#coverage-scope-detail",
-             "1 last-known declarations remain unconfirmed"
-           )
-
-    assert has_element?(detail, "#coverage-scope-detail", "or has an unconfirmed declaration")
-
+    {:ok, detail, _} = live(build_conn(), "/coverage/#{scope["id"]}/full")
+    assert has_element?(detail, "#preview-coverage-facts", "Partial coverage")
+    assert has_element?(detail, "#preview-coverage-facts", "1 of 1 selected runner reporting")
+    assert has_element?(detail, "#preview-coverage-facts", "Unconfirmed")
     empty = excluded |> Map.put("inventory_revision", 3) |> put_in(["coverage", "candidates"], [])
     assert {:ok, _} = Monitoring.inventory(empty, now)
     send(detail.pid, :tick)
-    assert has_element?(detail, "#coverage-scope-detail", "Fresh measurements available")
-    {:ok, publishers, _} = live(build_conn(), "/coverage/publishers")
 
     assert has_element?(
-             publishers,
-             "#coverage-publishers",
-             "This runner explicitly declares no checks for this source"
+             detail,
+             "#preview-coverage-facts",
+             "Every selected runner has a current measurement"
+           )
+
+    assert Enum.any?(
+             Coverage.publishers(%{}, now)["items"],
+             &(&1["declarations"] == 0 && &1["audit_status"] == "confirmed")
            )
   end
 
-  test "unknown scope is a recoverable empty state and filter values retain literal identifiers" do
-    {:ok, missing, _} = live(build_conn(), "/coverage/" <> String.duplicate("a", 64))
-    assert has_element?(missing, "#coverage-scope-missing", "no longer declared")
-    {:ok, view, _} = live(build_conn(), "/coverage")
+  test "unknown declarations recover safely and literal filter identifiers stay intact" do
+    {:ok, missing, _} = live(build_conn(), "/coverage/#{String.duplicate("a", 64)}/full")
+    assert has_element?(missing, "h1", "Declaration unavailable")
+    {:ok, view, _} = live(build_conn(), "/coverage?search=1&source_id=1&environment=1")
+    assert has_element?(view, "form[phx-hook='PreviewFilterPicker'][data-search='1']")
+    assert has_element?(view, ".preview-filter-chip", "1")
 
-    view
-    |> form("#coverage-filters", search: "1", source_id: "1", environment: "1", status: "missing")
-    |> render_submit()
-
-    assert_patch(view, "/coverage?environment=1&search=1&source_id=1&status=missing")
-    assert has_element?(view, "#coverage-source[value='1']")
+    assert Mondek.CoverageFilters.params(%{"source_id" => "1", "environment" => "1"}) == %{
+             "source_id" => "1",
+             "environment" => "1"
+           }
   end
 
-  test "nested URL filters are ignored and pending edits survive background refresh and recovery" do
+  test "nested query filters are ignored while applied filters survive ticks and reopening" do
     {:ok, view, _} = live(build_conn(), "/coverage?search[value]=x&page[bad]=1")
-    assert has_element?(view, "#coverage-filters")
-    refute has_element?(view, "#coverage-search[value='x']")
-
-    view
-    |> form("#coverage-filters", search: "Pending check", environment: "staging")
-    |> render_change()
-
+    assert has_element?(view, "form[phx-hook='PreviewFilterPicker']")
+    refute has_element?(view, ".preview-search-token", "x")
+    render_change(view, "search", %{"search" => "Pending check"})
+    path = assert_patch(view)
     send(view.pid, :tick)
-    assert has_element?(view, "#coverage-search[value='Pending check']")
-    assert has_element?(view, "#coverage-environment[value='staging']")
+    assert has_element?(view, "form[phx-hook='PreviewFilterPicker'][data-search='Pending check']")
+    render_change(view, "search", %{"search" => "Pending check"})
+    refute_patched(view)
+    {:ok, reopened, _} = live(build_conn(), path)
 
-    render_hook(view, "recover_filters", %{
-      "search" => "Recovered check",
-      "environment" => "production"
-    })
-
-    assert has_element?(view, "#coverage-search[value='Recovered check']")
-    refute has_element?(view, "#coverage-scopes", "Recovered check")
+    assert has_element?(
+             reopened,
+             "form[phx-hook='PreviewFilterPicker'][data-search='Pending check']"
+           )
   end
 
-  test "unresolved declarations retain downgrade provenance and prompts distinguish exact target kinds" do
+  test "unresolved declarations retain downgrade provenance and prompts distinguish target kinds" do
     now = Monitoring.now()
 
     candidate =
@@ -444,9 +369,13 @@ defmodule MondekWeb.CoverageLiveTest do
                now
              )
 
-    {:ok, unresolved, _} = live(build_conn(), "/coverage/diagnostics")
-    assert has_element?(unresolved, "#coverage-diagnostics", "Last-known declaration")
-    assert render(unresolved) =~ "custom metadata that cannot describe excluded checks"
+    {:ok, unresolved, _} = live(build_conn(), "/coverage")
+
+    assert has_element?(
+             unresolved,
+             "#preview-coverage-runner-diagnostics",
+             "Custom metadata cannot resolve excluded scope"
+           )
 
     for kind <- ["host", "service"] do
       item =
@@ -460,17 +389,22 @@ defmodule MondekWeb.CoverageLiveTest do
     assert length(scopes) == 2
 
     for scope <- scopes do
-      {:ok, detail, _} = live(build_conn(), "/coverage/" <> scope["id"])
+      {:ok, detail, _} = live(build_conn(), "/coverage/#{scope["id"]}/full")
 
-      prompt =
-        detail
-        |> element("#coverage-agent-prompts-coverage-text")
-        |> render()
-        |> LazyHTML.from_document()
-        |> LazyHTML.text()
+      assert has_element?(
+               detail,
+               "#coverage-agent-prompts-coverage-text",
+               ~s("target_kind":"#{scope["target"]["kind"]}")
+             )
 
-      assert prompt =~ ~s("target_kind":"#{scope["target"]["kind"]}")
-      assert prompt =~ ~s("controller_url":"http://www.example.com")
+      assert has_element?(
+               detail,
+               "#coverage-agent-prompts-coverage-text",
+               ~s("controller_url":"#{MondekWeb.Endpoint.url()}")
+             )
     end
   end
+
+  defp count(view, selector),
+    do: view |> render() |> LazyHTML.from_document() |> LazyHTML.query(selector) |> Enum.count()
 end

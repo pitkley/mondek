@@ -124,7 +124,7 @@ defmodule Mondek.SMTPNotificationTest do
     [record] = request(receiver, "/records")
     assert record["subject"] =~ "PROBLEM CRIT"
     assert record["body"] =~ "Real sample in contract fixture"
-    assert record["body"] =~ "/incidents/#{occurrence.incident_id}"
+    assert record["body"] =~ "/incidents/health/#{occurrence.incident_id}/full"
     assert record["body"] =~ "2009-09-15T08:00:00.010000Z"
     assert record["occurrence_id"] == occurrence.id
     assert record["from"] == "mondek@example.invalid"

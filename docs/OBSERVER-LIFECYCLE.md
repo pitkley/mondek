@@ -6,9 +6,15 @@ A source publication is one runner installation publishing one source. It is the
 
 Lost contact, stale evidence and failed discovery never mean that monitoring is no longer wanted. A complete accepted source inventory can withdraw that publisher's membership. An explicit operator decision can retire the entire publication. Both are administrative changes, not measured recovery.
 
+## Find a publication
+
+The Source publications table starts with an **Active publications** lifecycle chip. Remove it to include retained retired and awaiting-inventory publications, or choose a specific lifecycle. Search and the Runner, Source and Environment chips apply before pagination across the complete inventory. Declarations on retired or awaiting-inventory rows are retained context, not current coverage. A publication is one runner × source, so managing it does not retire other source projects on the same installation.
+
+Open **Manage publication** to choose a decision, enter a reason, review the complete impact, then apply. The replacement chooser uses the same search component as the inventories and only lists active publications of the same source. Review pagination preserves the original token and expiry; a stale review must be repeated. Related runner/result evidence opens in the investigation stack while the publication editor retains its typed proposal and captured authority. Page promotion hides the preserved editor, and returning restores it. Reconnect restores the exact identity-bound draft; an existing token remains usable only while the domain still accepts its original review.
+
 ## Reviewed lifecycle
 
-From **Coverage → Publishing runners**, inspect a publication and review retirement with a reason. The review identifies affected checks and open incidents, declarations that will disappear, scopes losing their final publisher and remaining independent observers. The saved action retains its reviewed identities and durable history. Changed membership or control authority requires another review.
+From **Coverage → Source publications**, inspect a publication and review retirement with a reason. The review identifies affected checks and open incidents, declarations that will disappear, scopes losing their final publisher and remaining independent observers. The saved action retains its reviewed identities and durable history. Changed membership or control authority requires another review.
 
 Retirement means **Retired from this controller**. It fences inventory republication and current admission for that installation/source, even after a new boot or a greater inventory revision. The runner receives an authoritative control response without the retired assignments. A disconnected runner can still execute its last accepted schedule until it reconnects; buffered evidence retains its original identity and age and cannot become current for a successor.
 
@@ -33,7 +39,7 @@ devenv shell -- python3 tests/browser/run.py --suite publishers
 devenv shell -- mondek publishers-down
 ```
 
-Open [Publishing runners](http://localhost:4017/coverage/publishers). The separate demo runs two installed service observers of the same source and a node observer of another source. Retire or replace the predecessor, inspect its saved decision and original evidence, then restore it into new check identities. `publishers-down` retains only this demo's data; acceptance and browser commands use disposable project-specific services and volumes. The normal installation receives the same lifecycle UI through `devenv shell -- mondek start`.
+Open [Source publications](http://localhost:4017/coverage/publishers). The separate demo runs two installed service observers of the same source and a node observer of another source. Retire or replace the predecessor, inspect its saved decision and original evidence, then restore it into new check identities. `publishers-down` retains only this demo's data; acceptance and browser commands use disposable project-specific services and volumes. The normal installation receives the same lifecycle UI through `devenv shell -- mondek start`.
 
 ## Election and grace boundaries
 

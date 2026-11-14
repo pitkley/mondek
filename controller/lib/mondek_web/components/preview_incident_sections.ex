@@ -14,9 +14,11 @@ defmodule MondekWeb.PreviewIncidentSections do
 
     assigns =
       assigns
+      |> assign_new(:full_page, fn -> false end)
       |> assign_new(:target, fn -> nil end)
       |> assign_new(:entity, fn -> nil end)
       |> assign_new(:result_path, fn -> nil end)
+      |> assign_new(:expected_path, fn -> nil end)
       |> assign_new(:delivery_filter, fn -> [] end)
       |> assign_new(:current, fn -> nil end)
       |> assign_new(:id_prefix, fn -> "" end)
@@ -33,7 +35,12 @@ defmodule MondekWeb.PreviewIncidentSections do
       aria-labelledby={@id_prefix <> "preview-ack-heading"}
     >
       <header class="preview-section-heading preview-ack-heading">
-        <h3 id={@id_prefix <> "preview-ack-heading"}>Acknowledgement</h3>
+        <.dynamic_tag
+          tag_name={if @full_page, do: "h2", else: "h3"}
+          id={@id_prefix <> "preview-ack-heading"}
+        >
+          Acknowledgement
+        </.dynamic_tag>
         <span
           :if={@feedback && elem(@feedback, 0) == :ok}
           class="pf-v6-c-label pf-m-green"
@@ -59,6 +66,38 @@ defmodule MondekWeb.PreviewIncidentSections do
               {if @incident["acknowledged_until"],
                 do: time(@incident["acknowledged_until"]),
                 else: "Incident ends"}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Recorded by</th><td>
+              {@incident["acknowledged_by"] || "Local operator"}
+            </td>
+          </tr>
+          <tr :if={@incident["acknowledgement_ceiling"]}>
+            <th scope="row">Severity covered</th><td>
+              {badge_text(@incident["acknowledgement_ceiling"])} and below. Higher severity ends this acknowledgement.
+            </td>
+          </tr>
+          <tr :if={@incident["acknowledgement_impacts"] not in [nil, []]}>
+            <th scope="row">Impacts covered</th><td>
+              {impact_labels(@incident["acknowledgement_impacts"], @incident["impacts"] || [])}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Scope</th><td>
+              {cond do
+                @kind == "loss" ->
+                  "This monitoring loss incident"
+
+                @detail["contributions"] ->
+                  "This shared incident"
+
+                @incident["condition_incident_id"] ->
+                  "This contribution only; the shared incident is unchanged"
+
+                true ->
+                  "This result’s health incident"
+              end}
             </td>
           </tr>
           <tr>
@@ -126,6 +165,18 @@ defmodule MondekWeb.PreviewIncidentSections do
             </legend>
             <p id={@id_prefix <> "preview-ack-effect"} class="preview-caption preview-ack-effect">
               Pauses failure notifications for {acknowledgement_scope(@kind, @detail)}. Checks continue.
+            </p>
+            <p
+              :if={@kind == "health" && !stale_review?(@review, @incident)}
+              class="preview-caption preview-ack-effect preview-ack-reviewed-scope"
+            >
+              Covers {badge_text(@incident["health"])} severity and below.
+              <span :if={(@incident["impacts"] || []) != []}>Impacts: {Enum.map_join(
+                @incident["impacts"],
+                ", ",
+                &(&1["label"] || &1["key"])
+              )}.</span>
+              Higher severity{if @detail["contributions"], do: " or a new impact"} ends this acknowledgement.
             </p>
             <div class="preview-ack-options">
               <div
@@ -196,7 +247,11 @@ defmodule MondekWeb.PreviewIncidentSections do
             >{@draft["note"]}</textarea>
           </label>
           <div class="preview-incident-form-actions">
-            <button type="submit" class="pf-v6-c-button pf-m-primary">
+            <button
+              type="submit"
+              class="pf-v6-c-button pf-m-primary"
+              disabled={stale_review?(@review, @incident)}
+            >
               {if @acknowledged, do: "Replace acknowledgement", else: "Save acknowledgement"}
             </button>
             <button
@@ -220,14 +275,18 @@ defmodule MondekWeb.PreviewIncidentSections do
       class="preview-table-group preview-incident-section"
       aria-labelledby={@id_prefix <> "preview-maintenance-heading"}
     >
-      <h3 id={@id_prefix <> "preview-maintenance-heading"} class="preview-section-heading">
+      <.dynamic_tag
+        tag_name={if @full_page, do: "h2", else: "h3"}
+        id={@id_prefix <> "preview-maintenance-heading"}
+        class="preview-section-heading"
+      >
         Maintenance
-      </h3>
+      </.dynamic_tag>
       <PreviewDetail.facts labelledby={@id_prefix <> "preview-maintenance-heading"}>
         <tr :for={window <- @maintenance_windows}>
           <th scope="row">Active window</th>
           <td>
-            <.link href={with_incident_return("/next/maintenance/" <> window["id"], @current)}>
+            <.link href={with_incident_return("/maintenance/" <> window["id"], @current)}>
               {window["name"] || window["reason"] || "View maintenance window"}
             </.link>
             <span class="preview-caption"> · Ends {time(window["ends_at"])}</span>
@@ -256,7 +315,11 @@ defmodule MondekWeb.PreviewIncidentSections do
       </div>
     </section>
 
-    <PreviewDetail.card id={@id_prefix <> "preview-history"} title="Incident history">
+    <PreviewDetail.card
+      level={if @full_page, do: 2, else: 3}
+      id={@id_prefix <> "preview-history"}
+      title="Incident history"
+    >
       <PreviewDetail.facts label="Incident history">
         <tr>
           <th scope="row">Opened</th><td>{time(@incident["opened_at"])}</td>
@@ -322,7 +385,7 @@ defmodule MondekWeb.PreviewIncidentSections do
                 if !@result_path,
                   do:
                     PreviewNavigation.path(
-                      %{"incident_return" => @current},
+                      %{"return_to" => @current},
                       :result,
                       evidence["stream_id"]
                     )
@@ -332,12 +395,15 @@ defmodule MondekWeb.PreviewIncidentSections do
             </.link>
             <.link
               :if={evidence["coverage_id"]}
+              patch={if @expected_path, do: @expected_path.(evidence["coverage_id"])}
               href={
-                PreviewNavigation.path(
-                  %{"incident_return" => @current},
-                  :expected,
-                  evidence["coverage_id"]
-                )
+                if !@expected_path,
+                  do:
+                    PreviewNavigation.path(
+                      %{"return_to" => @current},
+                      :expected,
+                      evidence["coverage_id"]
+                    )
               }
             >
               Review expected monitoring
@@ -383,9 +449,13 @@ defmodule MondekWeb.PreviewIncidentSections do
       class="preview-table-group preview-incident-section"
       aria-labelledby={@id_prefix <> "preview-delivery-heading"}
     >
-      <h3 id={@id_prefix <> "preview-delivery-heading"} class="preview-section-heading">
+      <.dynamic_tag
+        tag_name={if @full_page, do: "h2", else: "h3"}
+        id={@id_prefix <> "preview-delivery-heading"}
+        class="preview-section-heading"
+      >
         Notification delivery
-      </h3>
+      </.dynamic_tag>
       {render_slot(@delivery_filter)}
       <p
         :if={@delivery_feedback}
@@ -444,9 +514,9 @@ defmodule MondekWeb.PreviewIncidentSections do
                     <th scope="row">Maintenance</th>
                     <td>
                       <div :for={window <- notice["maintenance_windows"]}>
-                        <.link href={
-                          with_incident_return("/next/maintenance/" <> window["id"], @current)
-                        }>{window["name"] ||
+                        <.link href={with_incident_return("/maintenance/" <> window["id"], @current)}>{window[
+                          "name"
+                        ] ||
                           window["reason"] || "View window"}</.link>
                       </div>
                     </td>
@@ -562,12 +632,12 @@ defmodule MondekWeb.PreviewIncidentSections do
         do: Map.put(params, "stream_id", incident["stream_id"]),
         else: params
 
-    if(schedule?, do: "/next/maintenance/new?", else: "/next/maintenance?") <>
+    if(schedule?, do: "/maintenance/new?", else: "/maintenance?") <>
       URI.encode_query(params)
   end
 
-  defp maintenance_href(_, _, true), do: "/next/maintenance/new"
-  defp maintenance_href(_, _, false), do: "/next/maintenance"
+  defp maintenance_href(_, _, true), do: "/maintenance/new"
+  defp maintenance_href(_, _, false), do: "/maintenance"
 
   defp with_incident_return(path, nil), do: path
 
@@ -583,10 +653,21 @@ defmodule MondekWeb.PreviewIncidentSections do
   defp delivery_status_color("delivering"), do: "pf-m-blue"
   defp delivery_status_color(_), do: nil
 
-  defp acknowledgement_scope("loss", %{"scope_kind" => "runner"}),
-    do: "this runner’s monitoring loss incident"
+  defp stale_review?(review, incident),
+    do:
+      review["revision"] != incident["acknowledgement_revision"] ||
+        review["attention_revision"] != incident["attention_revision"]
 
-  defp acknowledgement_scope("loss", _), do: "this source’s monitoring loss incident"
+  defp impact_labels(keys, impacts) do
+    labels = Map.new(impacts, &{&1["key"], &1["label"] || &1["key"]})
+    Enum.map_join(keys, ", ", &Map.get(labels, &1, &1))
+  end
+
+  defp acknowledgement_scope("loss", %{"scope_kind" => "runner"}),
+    do: "this runner’s monitoring loss incident, including results added later"
+
+  defp acknowledgement_scope("loss", _),
+    do: "this source’s monitoring loss incident, including results added later"
 
   defp acknowledgement_scope("health", %{"contributions" => _}),
     do: "this shared health incident"
@@ -595,10 +676,34 @@ defmodule MondekWeb.PreviewIncidentSections do
 
   defp measurement_list(assigns) do
     ~H"""
-    <div :for={measurement <- @measurements} class="preview-incident-evidence">
+    <div
+      :for={measurement <- @measurements}
+      class="preview-incident-evidence"
+      data-observation-id={measurement.id}
+    >
       <p><strong>{measurement.summary}</strong></p>
       <p class="preview-caption">{measurement.state} · {time(measurement.at)}</p>
       <.check_details text={measurement.details} />
+      <details phx-mounted={JS.ignore_attributes("open")}>
+        <summary>Timing and identity</summary>
+        <PreviewDetail.facts label="Historical measurement identity">
+          <tr>
+            <th scope="row">Observation</th><td><code>{measurement.id}</code></td>
+          </tr>
+          <tr>
+            <th scope="row">Configuration version</th><td>{measurement.generation}</td>
+          </tr>
+          <tr>
+            <th scope="row">Source time</th><td>{time(measurement.source_at)}</td>
+          </tr>
+          <tr>
+            <th scope="row">Evaluated</th><td>{time(measurement.evaluated_at)}</td>
+          </tr>
+          <tr>
+            <th scope="row">Received</th><td>{time(measurement.received_at)}</td>
+          </tr>
+        </PreviewDetail.facts>
+      </details>
     </div>
     """
   end
@@ -627,6 +732,11 @@ defmodule MondekWeb.PreviewIncidentSections do
         result <- get_in(observation, ["payload", "results"]) || [],
         !result_key || result["key"] == result_key do
       %{
+        id: observation["id"],
+        generation: observation["generation"],
+        source_at: result["source_at"],
+        evaluated_at: observation["evaluated_at"],
+        received_at: observation["received_at"],
         summary: result["summary"],
         state: badge_text(result["health"]),
         at: result["source_at"] || observation["evaluated_at"],

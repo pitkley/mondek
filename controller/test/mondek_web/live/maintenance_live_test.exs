@@ -9,10 +9,10 @@ defmodule MondekWeb.MaintenanceLiveTest do
   @endpoint MondekWeb.Endpoint
 
   test "preview schedules, filters and cancels a reviewed incident maintenance window" do
-    incident_path = "/next/incidents/health/#{Ecto.UUID.generate()}"
+    incident_path = "/incidents/health/#{Ecto.UUID.generate()}"
 
     path =
-      "/next/maintenance/new?" <>
+      "/maintenance/new?" <>
         URI.encode_query(%{
           "check_id" => "10000000-0000-4000-8000-000000000001",
           "return_to" => incident_path
@@ -30,13 +30,13 @@ defmodule MondekWeb.MaintenanceLiveTest do
              "1 result across 1 scheduled check"
            )
 
-    assert has_element?(draft, "#maintenance-preview-matches[open]")
+    assert has_element?(draft, "#maintenance-preview-matches")
     saved = save_preview(draft)
     assert has_element?(saved, "#maintenance-preview-shell")
     assert has_element?(saved, "#maintenance-saved", "Upcoming")
     assert has_element?(saved, "a[href='#{incident_path}']", "Back to incident")
 
-    {:ok, listing, _} = live(build_conn(), "/next/maintenance")
+    {:ok, listing, _} = live(build_conn(), "/maintenance")
 
     assert has_element?(
              listing,
@@ -45,7 +45,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
            )
 
     render_submit(element(listing, "#overview-search"), %{"search" => "no matching name"})
-    assert_patch(listing, "/next/maintenance?search=no+matching+name")
+    assert_patch(listing, "/maintenance?search=no+matching+name")
     assert has_element?(listing, "main", "No maintenance matches this view.")
 
     saved |> element("a", "Open fly-over") |> render_click()
@@ -77,10 +77,10 @@ defmodule MondekWeb.MaintenanceLiveTest do
     assert has_element?(cancelled, "#maintenance-preview-shell")
     assert has_element?(cancelled, "#overview-panel #maintenance-saved", "Cancelled")
 
-    render_patch(listing, "/next/maintenance?status=history")
+    render_patch(listing, "/maintenance?status=history")
     render_hook(listing, "filter_open", %{"field" => "scope"})
     render_hook(listing, "filter_select", %{"key" => "check", "kind" => ""})
-    history_path = "/next/maintenance?scope=check&status=history"
+    history_path = "/maintenance?scope=check&status=history"
     assert_patch(listing, history_path)
     listing |> element("a", "Sunday storage work") |> render_click()
     assert has_element?(listing, "#overview-panel table[aria-label='Saved window']", "Cancelled")
@@ -97,7 +97,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
   end
 
   test "preview chooser retains selections and settings when filters hide a row" do
-    {:ok, view, _} = live(build_conn(), "/next/maintenance/new")
+    {:ok, view, _} = live(build_conn(), "/maintenance/new")
     assert has_element?(view, "#maintenance-choice-search-chip-kind", "Scheduled checks")
     assert has_element?(view, "#maintenance-name")
     assert has_element?(view, "#maintenance-preview-button[disabled]")
@@ -125,43 +125,31 @@ defmodule MondekWeb.MaintenanceLiveTest do
     assert has_element?(view, "#maintenance-name[value='Planned storage work']")
   end
 
-  test "global creation searches checks and check pages lead to reviewed maintenance" do
+  test "global creation searches the chooser and keeps settings visible before selection" do
     {:ok, chooser, _} = live(build_conn(), "/maintenance/new")
     assert has_element?(chooser, "#maintenance-check-chooser")
-
-    chooser
-    |> form("#maintenance-selection-form",
-      filters: %{search: "10000000-0000-4000-8000-000000000001"}
-    )
-    |> render_change()
-
-    assert has_element?(
-             chooser,
-             "a[href='/maintenance/new?check_id=10000000-0000-4000-8000-000000000001']"
-           )
-
-    assert has_element?(chooser, "#maintenance-settings[style='display: none']")
-    {:ok, check, _} = live(build_conn(), "/resources/10000000-0000-4000-8000-000000000001")
+    choose_filters(chooser, %{search: "10000000-0000-4000-8000-000000000001"})
+    assert has_element?(chooser, "table[aria-label='Checks and targets']", "Linux filesystem")
+    assert has_element?(chooser, "#maintenance-name")
+    assert has_element?(chooser, "#maintenance-preview-button[disabled]")
+    {:ok, execution, _} = live(build_conn(), "/executions/10000000-0000-4000-8000-000000000001")
 
     assert has_element?(
-             check,
-             "#schedule-maintenance[href='/maintenance/new?check_id=10000000-0000-4000-8000-000000000001']"
+             execution,
+             "a[href^='/maintenance/new?check_id=10000000-0000-4000-8000-000000000001']",
+             "Schedule maintenance"
            )
 
-    refute has_element?(check, "#maintenance-form-10000000-0000-4000-8000-000000000001")
+    refute has_element?(execution, "#maintenance-form")
   end
 
-  test "selection spans pages and filters while settings and explicit removals survive" do
+  test "selection spans pages and filters while pinned checkboxes remain removable" do
     publish_many(60)
     {:ok, view, _} = live(build_conn(), "/maintenance/new")
-
-    view
-    |> form("#maintenance-selection-form", filters: %{source_id: "maintenance.consumer"})
-    |> render_change()
-
-    assert length(elements(view, ".maintenance-picker-rows li")) == 25
+    choose_filters(view, %{source_id: "maintenance.consumer"})
+    assert length(choice_keys(view)) == 25
     view |> element("#maintenance-select-page") |> render_click()
-    assert has_element?(view, "#maintenance-selected-count", "25 selections")
+    assert has_element?(view, "#maintenance-selected-count", "25 selected")
     view |> form("#maintenance-form", window: %{start_mode: "scheduled"}) |> render_change()
     view |> form("#maintenance-form", window: future_values()) |> render_change()
 
@@ -171,28 +159,22 @@ defmodule MondekWeb.MaintenanceLiveTest do
 
     [next_key | _] = choice_keys(view)
     view |> form("#maintenance-selection-form", selected_keys: [next_key]) |> render_change()
-    assert has_element?(view, "nav[aria-label='Maintenance selection pages']", "Page 2 of 3")
-    assert has_element?(view, "#maintenance-selected-count", "26 selections")
-
-    view
-    |> form("#maintenance-selection-form", filters: %{search: "Bulk check 059"})
-    |> render_change()
-
-    assert has_element?(view, "#maintenance-selected-count", "26 selections")
+    assert has_element?(view, "#maintenance-selected-count", "26 selected")
+    choose_filters(view, %{search: "Bulk check 059"})
+    assert has_element?(view, "#maintenance-selected-count", "26 selected")
     assert has_element?(view, "#maintenance-name[value='Sunday storage work']")
-    view |> element("#maintenance-review-selected") |> render_click()
-    assert length(elements(view, ".maintenance-picker-rows li")) == 25
+
+    assert length(elements(view, ".preview-maintenance-pinned input[type=checkbox][checked]")) ==
+             26
 
     view
-    |> element("nav[aria-label='Maintenance selection pages'] button", "Next")
+    |> element(".preview-maintenance-pinned tr:nth-child(2) input[type=checkbox]")
     |> render_click()
 
-    assert length(elements(view, ".maintenance-picker-rows li")) == 1
-    view |> element(".maintenance-picker-rows button", "Remove") |> render_click()
-    assert has_element?(view, "#maintenance-selected-count", "25 selections")
+    assert has_element?(view, "#maintenance-selected-count", "25 selected")
     view |> element("#maintenance-clear-selection") |> render_click()
-    assert has_element?(view, "#maintenance-selected-count", "0 selections")
-    assert has_element?(view, "#maintenance-settings[style='display: none']")
+    assert has_element?(view, "#maintenance-selected-count", "0 selected")
+    assert has_element?(view, "#maintenance-preview-button[disabled]")
     assert has_element?(view, "#maintenance-name[value='Sunday storage work']")
   end
 
@@ -200,12 +182,10 @@ defmodule MondekWeb.MaintenanceLiveTest do
     publish_many(60)
     {:ok, view, _} = live(build_conn(), "/maintenance/new")
 
-    view
-    |> form("#maintenance-selection-form", filters: %{source_id: "maintenance.consumer"})
-    |> render_change()
+    choose_filters(view, %{source_id: "maintenance.consumer"})
 
     view |> element("#maintenance-select-matching") |> render_click()
-    assert has_element?(view, "#maintenance-selected-count", "60 selections")
+    assert has_element?(view, "#maintenance-selected-count", "60 selected")
     view |> form("#maintenance-form", window: %{start_mode: "scheduled"}) |> render_change()
     view |> form("#maintenance-form", window: future_values()) |> render_submit()
 
@@ -232,7 +212,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
              "Inspect currently matching results (60)"
            )
 
-    refute has_element?(view, "#maintenance-preview-matches[open]")
+    assert has_element?(view, "#maintenance-preview-matches[open]")
     view |> element("nav[aria-label='Affected result pages'] button", "Next") |> render_click()
     assert has_element?(view, "nav[aria-label='Affected result pages']", "Page 2 of 3")
     assert length(elements(view, "#maintenance-preview .maintenance-matches li")) == 25
@@ -260,21 +240,32 @@ defmodule MondekWeb.MaintenanceLiveTest do
 
     refute has_element?(saved, "#maintenance-selection-details[open]")
     assert has_element?(saved, "#maintenance-history", "60 selected checks or targets")
-    assert has_element?(saved, "#maintenance-history a[href='#maintenance-saved-selection']")
+
+    assert has_element?(
+             saved,
+             "#maintenance-selection-details",
+             "These selections are fixed for this window"
+           )
+
     refute has_element?(saved, "#maintenance-select-matching")
     refute has_element?(saved, "#maintenance-include-more")
     {:ok, listing, _} = live(build_conn(), "/maintenance")
-    assert has_element?(listing, "#maintenance-list", "60 selected checks or targets")
+
+    assert has_element?(
+             listing,
+             "table[aria-label='Maintenance windows and series']",
+             "60 selected checks or targets"
+           )
 
     check =
       Repo.one!(from a in Assignment, where: a.source_id == "maintenance.consumer", limit: 1)
 
-    {:ok, detail, _} = live(build_conn(), "/resources/" <> check.id)
-    assert has_element?(detail, "#maintenance-summary-#{check.id}", "Selected checks and targets")
+    {:ok, detail, _} = live(build_conn(), "/executions/" <> check.id)
+    assert has_element?(detail, "#execution-maintenance", "Selected checks and targets")
 
     refute has_element?(
              detail,
-             "#maintenance-summary-#{check.id}",
+             "#execution-maintenance",
              "All results of this scheduled check"
            )
   end
@@ -283,9 +274,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
     publish_many(30)
     {:ok, view, _} = live(build_conn(), "/maintenance/new")
 
-    view
-    |> form("#maintenance-selection-form", filters: %{source_id: "maintenance.consumer"})
-    |> render_change()
+    choose_filters(view, %{source_id: "maintenance.consumer"})
 
     view |> element("#maintenance-select-page") |> render_click()
     captured = selection_recovery(view)
@@ -293,12 +282,12 @@ defmodule MondekWeb.MaintenanceLiveTest do
     moved = moved_key |> Base.url_decode64!(padding: false) |> Jason.decode!()
     check = Repo.get!(Assignment, moved["assignment_id"])
     Monitoring.change(check, %{label: "ZZZ check moved to the next page"})
-    view |> form("#maintenance-selection-form") |> render_change()
+    choose_filters(view, %{source_id: "maintenance.consumer"})
     refute moved_key in choice_keys(view)
-    assert has_element?(view, "#maintenance-selected-count", "25 selections")
+    assert has_element?(view, "#maintenance-selected-count", "25 selected")
     delayed = Map.update!(captured, "selected_keys", &List.delete(&1, moved_key))
     render_change(view, "selection_change", delayed)
-    assert has_element?(view, "#maintenance-selected-count", "24 selections")
+    assert has_element?(view, "#maintenance-selected-count", "24 selected")
     saved = Jason.decode!(hidden(view, "_proposal"))["selections"]
     refute Enum.any?(saved, &(&1["assignment_id"] == moved["assignment_id"]))
   end
@@ -309,26 +298,22 @@ defmodule MondekWeb.MaintenanceLiveTest do
     view |> form("#maintenance-form", window: %{start_mode: "scheduled"}) |> render_change()
     view |> form("#maintenance-form", window: future_values()) |> render_change()
     view |> element("#maintenance-include-more") |> render_click()
-    assert has_element?(view, "#maintenance-selected-count", "1 selection")
+    assert has_element?(view, "#maintenance-selected-count", "1 selected")
     render_click(view, "include_more", %{})
-    assert has_element?(view, "#maintenance-selected-count", "1 selection")
-    assert has_element?(view, "#maintenance-selection-help", "same source")
+    assert has_element?(view, "#maintenance-selected-count", "1 selected")
+    assert has_element?(view, "#maintenance-choice-search-chip-kind", "Scheduled checks")
 
     assert has_element?(
              view,
              "#maintenance-check-chooser",
-             "does not include separately named disks"
+             "A selected check covers all of its results"
            )
 
-    view
-    |> form("#maintenance-selection-form",
-      filters: %{kind: "target", source_id: "maintenance.consumer"}
-    )
-    |> render_change()
+    choose_filters(view, %{kind: "target", source_id: "maintenance.consumer"})
 
-    assert has_element?(view, "#maintenance-check-chooser", "across all observers")
+    assert has_element?(view, "#maintenance-check-chooser", "across runners")
     view |> element("#maintenance-select-matching") |> render_click()
-    assert has_element?(view, "#maintenance-selected-count", "3 selections")
+    assert has_element?(view, "#maintenance-selected-count", "3 selected")
     view |> form("#maintenance-form") |> render_submit()
 
     assert has_element?(
@@ -345,9 +330,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
     publish_many(30)
     {:ok, view, _} = live(build_conn(), "/maintenance/new")
 
-    view
-    |> form("#maintenance-selection-form", filters: %{source_id: "maintenance.consumer"})
-    |> render_change()
+    choose_filters(view, %{source_id: "maintenance.consumer"})
 
     view |> element("#maintenance-select-page") |> render_click()
     view |> form("#maintenance-form", window: %{start_mode: "scheduled"}) |> render_change()
@@ -377,7 +360,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
 
       assert has_element?(recovered, "#maintenance-name[value='Typed while disconnected']")
       assert has_element?(recovered, "#maintenance-reason", "Unsent reason survives")
-      assert has_element?(recovered, "#maintenance-selected-count", "26 selections")
+      assert has_element?(recovered, "#maintenance-selected-count", "26 selected")
 
       assert has_element?(
                recovered,
@@ -385,7 +368,12 @@ defmodule MondekWeb.MaintenanceLiveTest do
                "Page 2 of 2"
              )
 
-      assert has_element?(recovered, "#maintenance-source[value='maintenance.consumer']")
+      assert has_element?(
+               recovered,
+               "#maintenance-choice-search-chip-source_id",
+               "maintenance.consumer"
+             )
+
       refute has_element?(recovered, "#maintenance-save")
       recovered |> form("#maintenance-form") |> render_submit()
 
@@ -413,7 +401,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
     {:ok, recovered, _} = live(build_conn(), new_path())
     render_change(recovered, "recover_selection", captured)
     render_change(recovered, "recover", settings)
-    assert has_element?(recovered, "#maintenance-selected-count", "3 selections")
+    assert has_element?(recovered, "#maintenance-selected-count", "3 selected")
     refute has_element?(recovered, "#maintenance-check-chooser[style='display: none']")
     assert has_element?(recovered, "#maintenance-name[value='Converted draft']")
   end
@@ -436,7 +424,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
     valid = base |> Map.put("selections", selectors) |> Jason.encode!()
     assert byte_size(valid) > 16_000
     render_change(view, "recover", %{"_proposal" => valid})
-    assert has_element?(view, "#maintenance-selected-count", "40 selections")
+    assert has_element?(view, "#maintenance-selected-count", "40 selected")
 
     for invalid <- [
           Map.put(base, "selections", List.duplicate(hd(selectors), 513)),
@@ -445,7 +433,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
         ] do
       render_change(view, "recover", %{"_proposal" => Jason.encode!(invalid)})
       assert has_element?(view, "#maintenance-error", "does not belong")
-      assert has_element?(view, "#maintenance-selected-count", "40 selections")
+      assert has_element?(view, "#maintenance-selected-count", "40 selected")
     end
 
     render_change(view, "recover", %{"_proposal" => String.duplicate("x", 2_097_153)})
@@ -472,13 +460,16 @@ defmodule MondekWeb.MaintenanceLiveTest do
     assert byte_size(encoded) > 1_500_000
     assert byte_size(encoded) < 2_097_152
     render_change(view, "recover", %{"_proposal" => encoded})
-    assert has_element?(view, "#maintenance-selected-count", "512 selections")
-    view |> element("#maintenance-review-selected") |> render_click()
+    assert has_element?(view, "#maintenance-selected-count", "512 selected")
     captured = selection_recovery(view)
     {:ok, recovered, _} = live(build_conn(), "/maintenance/new")
     render_change(recovered, "recover_selection", captured)
-    assert has_element?(recovered, "#maintenance-selected-count", "512 selections")
-    assert length(elements(recovered, ".maintenance-picker-rows li")) == 25
+    assert has_element?(recovered, "#maintenance-selected-count", "512 selected")
+
+    assert length(
+             elements(recovered, ".preview-maintenance-pinned input[type=checkbox][checked]")
+           ) == 512
+
     refute has_element?(recovered, "#maintenance-error")
   end
 
@@ -528,7 +519,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
     assert window.name == values["name"]
     assert DateTime.compare(window.starts_at, Monitoring.now()) == :gt
     {:ok, listing, _} = live(build_conn(), "/maintenance")
-    assert has_element?(listing, "#maintenance-window-#{window.id}", values["name"])
+    assert has_element?(listing, "tr:has(#open-window-#{window.id})", values["name"])
   end
 
   test "invalid daylight-saving gaps retain values and repeated times require an explicit occurrence" do
@@ -717,11 +708,11 @@ defmodule MondekWeb.MaintenanceLiveTest do
     navigation = recovered |> form("#maintenance-cancel-form") |> render_submit()
     {:ok, cancelled, _} = follow_redirect(navigation, build_conn())
     assert has_element?(cancelled, "#maintenance-saved", "Cancelled")
-    assert has_element?(cancelled, "#maintenance-saved dt", "Scheduled start")
-    assert has_element?(cancelled, "#maintenance-saved dt", "Scheduled end")
-    assert has_element?(cancelled, "#maintenance-saved dt", "Planned duration")
-    assert has_element?(cancelled, "#maintenance-saved dt", "Cancelled at")
-    assert has_element?(cancelled, "#maintenance-history h3", "Window cancelled before start")
+    assert has_element?(cancelled, "#maintenance-saved th", "Starts")
+    assert has_element?(cancelled, "#maintenance-saved th", "Ends")
+    assert has_element?(cancelled, "#maintenance-saved th", "Planned duration")
+    assert has_element?(cancelled, "#maintenance-saved th", "Cancelled")
+    assert has_element?(cancelled, "#maintenance-history", "Window cancelled before start")
     assert has_element?(cancelled, "#maintenance-history", "Work postponed")
     refute has_element?(cancelled, "#maintenance-form")
   end
@@ -747,10 +738,13 @@ defmodule MondekWeb.MaintenanceLiveTest do
              "1 result across 1 scheduled check"
            )
 
-    assert has_element?(view, "#maintenance-preview a[href='/checks/#{streams["volume"].id}']")
-    refute has_element?(view, "#maintenance-preview a[href='/checks/#{streams["other"].id}']")
+    assert has_element?(view, "#maintenance-preview a[href*='#{streams["volume"].id}']")
+    refute has_element?(view, "#maintenance-preview a[href*='#{streams["other"].id}']")
     captured = hidden(view, "_proposal")
-    {:ok, recovered, _} = live(build_conn(), new_path(check.id))
+
+    {:ok, recovered, _} =
+      live(build_conn(), new_path(check.id) <> "&stream_id=" <> streams["volume"].id)
+
     recovered |> render_change("recover", %{"_proposal" => captured})
     assert has_element?(recovered, "#maintenance-dynamic-scope", "same source")
     recovered |> form("#maintenance-form") |> render_submit()
@@ -758,7 +752,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
     window = Repo.one!(MaintenanceWindow)
     assert {:ok, _} = Inventory.reconcile(inventory([], 2), at())
     {:ok, dormant, _} = live(build_conn(), "/maintenance/" <> window.id)
-    assert has_element?(dormant, "#maintenance-saved", "No current results match")
+    assert has_element?(dormant, "#maintenance-saved-matches", "No current results match")
 
     dormant
     |> form("#maintenance-form", window: %{reason: "Target returning during window"})
@@ -778,13 +772,26 @@ defmodule MondekWeb.MaintenanceLiveTest do
     assert {:ok, preview} = Maintenance.preview(proposal)
     assert {:ok, window} = Maintenance.apply(preview["review_token"], proposal)
     {:ok, view, _} = live(build_conn(), "/maintenance/" <> window["id"])
-    assert has_element?(view, "#maintenance-scope[disabled]")
-    assert has_element?(view, "#maintenance-start[readonly]")
-    assert has_element?(view, "#maintenance-timezone[readonly]")
+    refute has_element?(view, "#maintenance-scope")
+    refute has_element?(view, "#maintenance-start")
+    refute has_element?(view, "#maintenance-timezone")
     ends = Monitoring.now() |> DateTime.add(3 * 86_400) |> MaintenanceTime.local("UTC")
 
     for {suffix, root} <- [{"", "#overview-panel"}, {"/full", "#maintenance-preview-shell"}] do
-      {:ok, surface, _} = live(build_conn(), "/next/maintenance/#{window["id"]}" <> suffix)
+      {:ok, surface, _} = live(build_conn(), "/maintenance/#{window["id"]}" <> suffix)
+      section_level = if suffix == "", do: 3, else: 2
+
+      assert has_element?(
+               surface,
+               root <> " h#{section_level}#maintenance-saved-heading",
+               "Saved window"
+             )
+
+      assert has_element?(
+               surface,
+               root <> " #maintenance-settings .panel-heading h#{section_level}",
+               "Window settings"
+             )
 
       assert has_element?(
                surface,
@@ -813,11 +820,11 @@ defmodule MondekWeb.MaintenanceLiveTest do
       |> render_submit()
 
     {:ok, ended, _} = follow_redirect(navigation, build_conn())
-    assert has_element?(ended, "#maintenance-saved dt", "Scheduled end")
-    assert has_element?(ended, "#maintenance-saved dt", "Planned duration")
-    assert has_element?(ended, "#maintenance-saved dt", "Ended early at")
-    refute has_element?(ended, "#maintenance-saved dt", "Elapsed duration")
-    assert has_element?(ended, "#maintenance-history h3", "Maintenance ended early")
+    assert has_element?(ended, "#maintenance-saved th", "Ends")
+    assert has_element?(ended, "#maintenance-saved th", "Planned duration")
+    assert has_element?(ended, "#maintenance-saved th", "Ended early")
+    refute has_element?(ended, "#maintenance-saved th", "Elapsed duration")
+    assert has_element?(ended, "#maintenance-history", "Maintenance ended early")
   end
 
   test "target scope survives normalized preview, back to editing and full form recovery" do
@@ -851,7 +858,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
 
     assert Jason.decode!(hidden(view, "_proposal"))["scope"] == "target"
     assert Jason.decode!(hidden(view, "_proposal"))["target_key"] == "volume-uid"
-    {:ok, recovered, _} = live(build_conn(), new_path(check.id))
+    {:ok, recovered, _} = live(build_conn(), new_path(check.id) <> "&stream_id=" <> stream.id)
 
     render_change(recovered, "recover", %{
       "_proposal" => captured_after_preview,
@@ -869,7 +876,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
              "1 result across 1 scheduled check"
            )
 
-    assert has_element?(recovered, "#maintenance-preview a[href='/checks/#{stream.id}']")
+    assert has_element?(recovered, "#maintenance-preview a[href*='#{stream.id}']")
   end
 
   test "full recovered form retains its target when inventory inserts an earlier scope option" do
@@ -880,8 +887,8 @@ defmodule MondekWeb.MaintenanceLiveTest do
         from s in ResultStream, where: s.assignment_id == ^check.id and s.result_key == "volume"
       )
 
-    path = new_path(check.id)
-    {:ok, view, _} = live(build_conn(), path <> "&stream_id=" <> stream.id)
+    path = new_path(check.id) <> "&stream_id=" <> stream.id
+    {:ok, view, _} = live(build_conn(), path)
     values = %{"name" => "My volume window", "reason" => "Preserve the selected target"}
     view |> form("#maintenance-form", window: values) |> render_change()
     captured = hidden(view, "_proposal")
@@ -943,7 +950,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
     assert Jason.decode!(hidden(recovered, "_proposal"))["target_key"] == "volume-uid"
     assert has_element?(recovered, "#maintenance-name[value='My volume window']")
     recovered |> form("#maintenance-form") |> render_submit()
-    assert has_element?(recovered, "#maintenance-preview a[href='/checks/#{stream.id}']")
+    assert has_element?(recovered, "#maintenance-preview a[href*='#{stream.id}']")
     refute has_element?(recovered, "#maintenance-preview", "Added result")
     save_preview(recovered)
     assert Repo.one!(MaintenanceWindow).target_key == "volume-uid"
@@ -963,7 +970,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
     {:ok, view, _} = live(build_conn(), "/maintenance/" <> window["id"])
 
     values =
-      for name <- ~w(starts_local ends_local), into: %{} do
+      for name <- ~w(ends_local), into: %{} do
         input_id = if name == "starts_local", do: "maintenance-start", else: "maintenance-end"
 
         value =
@@ -1010,7 +1017,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
     )
 
     send(view.pid, :tick)
-    assert has_element?(view, "#maintenance-start[readonly]")
+    refute has_element?(view, "#maintenance-start")
     assert has_element?(view, "#maintenance-review-current")
     assert has_element?(view, "#maintenance-preview-button[disabled]")
     view |> element("#maintenance-review-current") |> render_click()
@@ -1021,6 +1028,168 @@ defmodule MondekWeb.MaintenanceLiveTest do
     assert {:ok, current} = Maintenance.get(window["id"])
     assert current["starts_at"] == DateTime.to_iso8601(started)
   end
+
+  test "a maintenance drawer retains its reviewed draft through related result and incident investigation" do
+    connect()
+    ingest(measurement("CRIT"))
+    incident = Repo.one!(Incident)
+    window = save_window()
+    path = "/maintenance/#{window["id"]}?status=current&page=2"
+    {:ok, view, _} = live(build_conn(), path)
+
+    view
+    |> form("#maintenance-form", window: %{reason: "Keep this reviewed maintenance draft"})
+    |> render_submit()
+
+    token = hidden(view, "_review_token")
+    original_revision = Jason.decode!(hidden(view, "_proposal"))["revision"]
+    view |> element("#maintenance-saved-matches a") |> render_click()
+    assert has_element?(view, "#maintenance-owner-body[inert]")
+    assert length(elements(view, "#overview-panel")) == 1
+    assert has_element?(view, "#overview-panel .preview-result-measurement", "Critical")
+    assert hidden(view, "_review_token") == token
+    render_submit(view, "save", %{"_review_token" => token})
+    assert {:ok, unchanged} = Maintenance.get(window["id"])
+    assert unchanged["reason"] == window["reason"]
+    render_click(view, "review_current", %{})
+    assert hidden(view, "_review_token") == token
+    view |> element("#overview-panel a", "View incident") |> render_click()
+    assert has_element?(view, "#overview-panel #preview-health-evidence")
+    view |> element("#overview-panel a", "View latest check result") |> render_click()
+    assert has_element?(view, "#overview-panel .preview-result-measurement")
+    assert length(elements(view, "[data-panel-back-path]")) == 0
+    view |> element("#overview-panel [data-overview-close]") |> render_click()
+    assert has_element?(view, "#overview-panel #maintenance-form")
+
+    assert Jason.decode!(hidden(view, "_proposal"))["reason"] ==
+             "Keep this reviewed maintenance draft"
+
+    assert hidden(view, "_review_token") == token
+    assert Jason.decode!(hidden(view, "_proposal"))["revision"] == original_revision
+    assert Repo.get!(Incident, incident.id).status == "open"
+  end
+
+  test "new maintenance survives evidence page promotion and reconnect without renewing its review" do
+    connect()
+    ingest(measurement("CRIT"))
+    {:ok, view, _} = live(build_conn(), new_path())
+    view |> form("#maintenance-form", window: %{start_mode: "scheduled"}) |> render_change()
+    view |> form("#maintenance-form", window: future_values()) |> render_submit()
+    encoded = hidden(view, "_proposal")
+    token = hidden(view, "_review_token")
+    view |> element("#maintenance-preview-matches a") |> render_click()
+    promoted_path = href_of(view, "#overview-panel a", "Open as page")
+    view |> element("#overview-panel a", "Open as page") |> render_click()
+    assert has_element?(view, "#maintenance-owner-body[hidden][inert] #maintenance-form")
+    assert has_element?(view, "#preview-result-page")
+    assert hidden(view, "_review_token") == token
+    # A reconnect recovers the bounded maintenance proposal, never its old review token.
+    {:ok, recovered, _} = live(build_conn(), promoted_path)
+    render_change(recovered, "recover", %{"_proposal" => encoded})
+    assert has_element?(recovered, "#maintenance-name[value='Sunday storage work']")
+    refute has_element?(recovered, "#maintenance-save")
+    recovered |> element("#preview-result-page a", "Open fly-over") |> render_click()
+    recovered |> element("#overview-panel [data-overview-close]") |> render_click()
+    assert has_element?(recovered, "#maintenance-name[value='Sunday storage work']")
+    assert Repo.aggregate(MaintenanceWindow, :count) == 0
+    recovered |> form("#maintenance-form") |> render_submit()
+    save_preview(recovered)
+    assert Repo.aggregate(MaintenanceWindow, :count) == 1
+  end
+
+  test "concurrent maintenance changes cannot be bypassed through an inactive investigation owner" do
+    connect()
+    ingest(measurement("CRIT"))
+    window = save_window()
+    {:ok, view, _} = live(build_conn(), "/maintenance/#{window["id"]}/full")
+
+    view
+    |> form("#maintenance-form", window: %{reason: "Older reviewed maintenance"})
+    |> render_submit()
+
+    token = hidden(view, "_review_token")
+    view |> element("#maintenance-saved-matches a") |> render_click()
+    {:ok, current} = Maintenance.get(window["id"])
+
+    {:ok, review} =
+      Maintenance.preview(Map.put(current["proposal"], "reason", "Another operator saved this"))
+
+    {:ok, _} = Maintenance.apply(review["review_token"], review["proposal"])
+    render_submit(view, "save", %{"_review_token" => token})
+    assert {:ok, %{"reason" => "Another operator saved this"}} = Maintenance.get(window["id"])
+    view |> element("#overview-panel [data-overview-close]") |> render_click()
+    assert has_element?(view, "#maintenance-save[disabled]")
+    render_submit(view, "save", %{"_review_token" => token})
+    assert {:ok, %{"reason" => "Another operator saved this"}} = Maintenance.get(window["id"])
+    refute has_element?(view, "#maintenance-save")
+    assert has_element?(view, "#maintenance-reason", "Older reviewed maintenance")
+    assert has_element?(view, "#maintenance-review-current")
+    assert has_element?(view, "#maintenance-preview-button[disabled]")
+  end
+
+  test "changing the seeded result starts a distinct maintenance draft and rejects the old recovery" do
+    check = publish()
+
+    streams =
+      Repo.all(
+        from r in ResultStream, where: r.assignment_id == ^check.id, order_by: r.result_key
+      )
+
+    [first, second] = streams
+
+    first_path =
+      "/maintenance/new?" <> URI.encode_query(%{"check_id" => check.id, "stream_id" => first.id})
+
+    second_path =
+      "/maintenance/new?" <> URI.encode_query(%{"check_id" => check.id, "stream_id" => second.id})
+
+    {:ok, view, _} = live(build_conn(), first_path)
+    view |> form("#maintenance-form", window: %{name: "First result draft"}) |> render_change()
+    captured = hidden(view, "_proposal")
+    render_patch(view, second_path)
+    refute has_element?(view, "#maintenance-name[value='First result draft']")
+    second_draft = Jason.decode!(hidden(view, "_proposal"))
+    assert second_draft["_origin"] == check.id <> ":" <> second.id
+    refute second_draft["_origin"] == Jason.decode!(captured)["_origin"]
+    render_change(view, "recover", %{"_proposal" => captured})
+    refute has_element?(view, "#maintenance-name[value='First result draft']")
+    assert has_element?(view, "#maintenance-error")
+    assert Repo.aggregate(MaintenanceWindow, :count) == 0
+  end
+
+  test "malformed list and return scope parameters never crash maintenance rendering" do
+    window = save_window()
+
+    for query <- [
+          "page[x]=1",
+          "page[]=1",
+          "assignment_id[x]=1",
+          "stream_id[]=x",
+          "assignment_id=bogus",
+          "stream_id=bogus"
+        ] do
+      for path <- [
+            "/maintenance",
+            "/maintenance/#{window["id"]}",
+            "/maintenance/#{window["id"]}/full"
+          ] do
+        {:ok, view, _} = live(build_conn(), path <> "?" <> query)
+        assert has_element?(view, "#main-content")
+        assert has_element?(view, "#maintenance-heading, #overview-panel-title")
+        GenServer.stop(view.pid)
+      end
+    end
+  end
+
+  defp href_of(view, selector, text),
+    do:
+      view
+      |> element(selector, text)
+      |> render()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("a")
+      |> LazyHTML.attribute("href")
+      |> hd()
 
   defp new_path(id \\ "10000000-0000-4000-8000-000000000001"),
     do: "/maintenance/new?check_id=" <> id
@@ -1081,14 +1250,14 @@ defmodule MondekWeb.MaintenanceLiveTest do
       view
       |> render()
       |> LazyHTML.from_document()
-      |> LazyHTML.query(".maintenance-picker-rows input[type='checkbox']")
+      |> LazyHTML.query(".preview-maintenance-choice-row input[name='selected_keys[]']")
       |> LazyHTML.attribute("value")
 
   defp selection_recovery(view) do
     document = view |> render() |> LazyHTML.from_document()
 
     fields =
-      for name <- ~w(_proposal _page_selections _filters _selected_only _selected_page),
+      for name <- ~w(_proposal _page_selections _filters),
           into: %{} do
         {name,
          document
@@ -1099,7 +1268,7 @@ defmodule MondekWeb.MaintenanceLiveTest do
 
     selected =
       document
-      |> LazyHTML.query("#maintenance-selection-form input[type='checkbox'][checked]")
+      |> LazyHTML.query("#maintenance-selection-form input[name='selected_keys[]'][checked]")
       |> LazyHTML.attribute("value")
 
     Map.put(fields, "selected_keys", selected)
@@ -1175,4 +1344,19 @@ defmodule MondekWeb.MaintenanceLiveTest do
         "complete" => true,
         "checks" => checks
       })
+
+  defp choose_filters(view, values) do
+    for {field, value} <- values do
+      field = to_string(field)
+
+      if field == "search" do
+        render_submit(element(view, "#maintenance-choice-search"), %{"search" => value})
+      else
+        render_hook(view, "filter_open", %{"field" => field})
+        render_hook(view, "filter_select", %{"key" => value})
+      end
+    end
+
+    view
+  end
 end

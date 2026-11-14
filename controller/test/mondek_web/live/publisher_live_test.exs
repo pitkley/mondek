@@ -15,7 +15,13 @@ defmodule MondekWeb.PublisherLiveTest do
     refute has_element?(missing, "#publisher-lifecycle-form")
     {_publication, source} = publication("Storage observer")
     {:ok, list, _} = live(build_conn(), "/coverage/publishers")
-    assert has_element?(list, "a[href='/coverage/publishers/#{source.id}']", "Manage publication")
+
+    assert has_element?(
+             list,
+             "a[href^='/coverage/publishers/#{source.id}?']",
+             "Manage publication"
+           )
+
     {:ok, view, _} = live(build_conn(), path(source))
     assert has_element?(view, "#publisher-heading", "Storage observer")
     assert has_element?(view, "#publisher-summary", "Other observers keep independent evidence")
@@ -39,6 +45,13 @@ defmodule MondekWeb.PublisherLiveTest do
     assert hidden(view, "_review_token") == token
     apply_review(view)
     assert has_element?(view, "#publisher-status", "Retired from this controller")
+
+    assert has_element?(
+             view,
+             "#publisher-summary",
+             "A later restoration creates new check instances"
+           )
+
     assert has_element?(view, "#publisher-history", "Host decommissioned")
     assert Repo.get!(Incident, incident.id).closure_reason == "publisher_retired"
     assert active_results(source) == 0
@@ -75,7 +88,7 @@ defmodule MondekWeb.PublisherLiveTest do
     assert has_element?(
              waiting,
              "[data-publisher-id='#{source.id}']",
-             "Waiting for a new publication"
+             "Waiting for inventory"
            )
 
     refute has_element?(waiting, "[data-publisher-id='#{source.id}'] a", "Declared scopes")
@@ -182,7 +195,7 @@ defmodule MondekWeb.PublisherLiveTest do
     token = hidden(view, "_review_token")
     view |> element("#publisher-impact-pages button", "Next") |> render_click()
     assert hidden(view, "_review_token") == token
-    assert has_element?(view, "#publisher-impact-pages", "Page 2 of 2")
+    assert has_element?(view, "#publisher-impact-pages [aria-current=page]", "2")
 
     assert Enum.count(LazyHTML.query(LazyHTML.from_document(render(view)), "[data-impact-scope]")) ==
              6
@@ -312,10 +325,17 @@ defmodule MondekWeb.PublisherLiveTest do
 
     edit(view, "restore", "Unsaved restoration draft")
     view |> element("#publisher-saved-decision a", "Inspect saved measurement") |> render_click()
+    evidence_path = assert_patch(view)
 
     assert has_element?(
              view,
              "#publisher-saved-measurement[data-observation-id='#{report["id"]}']"
+           )
+
+    assert has_element?(
+             view,
+             "#publisher-saved-measurement-heading[tabindex='-1']",
+             "Saved replacement measurement"
            )
 
     assert has_element?(view, "#publisher-saved-measurement", "Original readiness witness")
@@ -333,6 +353,44 @@ defmodule MondekWeb.PublisherLiveTest do
     refute has_element?(view, "#publisher-saved-measurement", "Measured OK")
     send(view.pid, :tick)
     assert has_element?(view, "#publisher-saved-measurement", "Original readiness witness")
+
+    # Follow a separate investigation through an external editor; returning must
+    # restore this exact archived decision and witness, not the current view.
+    {:ok, history, _} = live(build_conn(), evidence_path)
+
+    history
+    |> element("#publisher-saved-decision a", "Inspect replacement result")
+    |> render_click()
+
+    assert_patch(history)
+
+    {:ok, editor_conn} =
+      history
+      |> element("#overview-panel a", "View check configuration")
+      |> render_click()
+      |> follow_redirect(build_conn())
+
+    {:ok, editor, _} = live(editor_conn)
+
+    {:ok, returned, _} =
+      editor
+      |> element("a.back", "Back to coverage")
+      |> render_click()
+      |> follow_redirect(build_conn())
+
+    returned |> element("#overview-panel [data-overview-close]") |> render_click()
+    restored_path = assert_patch(returned)
+    restored_context = URI.decode_query(URI.parse(restored_path).query)
+    expected_context = URI.decode_query(URI.parse(evidence_path).query)
+
+    assert Map.take(restored_context, ~w(event_id event_page evidence_id history_page)) ==
+             Map.take(expected_context, ~w(event_id event_page evidence_id history_page))
+
+    assert has_element?(
+             returned,
+             "#publisher-saved-measurement[data-observation-id='#{report["id"]}']",
+             "Original readiness witness"
+           )
 
     render_patch(view, path(predecessor) <> "?event_id=#{event_id}")
     refute has_element?(view, "#publisher-saved-measurement")
@@ -435,21 +493,150 @@ defmodule MondekWeb.PublisherLiveTest do
 
     refute has_element?(
              view,
-             "#publisher-saved-decision article:first-of-type a",
+             "#publisher-saved-decision .publication-saved-table tbody tr:first-child a",
              "Inspect saved measurement"
            )
 
     refute has_element?(
              view,
-             "#publisher-saved-decision article:first-of-type summary",
+             "#publisher-saved-decision .publication-saved-table tbody tr:first-child summary",
              "Saved replacement evidence reference"
            )
 
     assert has_element?(
              view,
-             "#publisher-saved-decision article:first-of-type",
-             "Replacement's last measured health at the decision: Healthy"
+             "#publisher-saved-decision .publication-saved-table tbody tr:first-child",
+             "Replacement's last measured health: Healthy"
            )
+  end
+
+  test "publication inventory filters complete records before pagination and keeps literal source all" do
+    for n <- 1..30,
+        do:
+          publication(
+            "Observer #{String.pad_leading(to_string(n), 2, "0")}",
+            if(n == 30, do: "all", else: "ordinary")
+          )
+
+    {:ok, view, _} = live(build_conn(), "/coverage/publishers")
+    assert has_element?(view, "#preview-chip-lifecycle", "Active publications")
+
+    assert Enum.count(LazyHTML.query(LazyHTML.from_document(render(view)), "[data-publisher-id]")) ==
+             25
+
+    assert has_element?(view, ".preview-page-controls a[aria-label='Page 2']")
+    {:ok, exact, _} = live(build_conn(), "/coverage/publishers?source_id=all")
+    assert has_element?(exact, "#coverage-publishers", "1 matching publications")
+    assert has_element?(exact, "#preview-chip-source_id", "all")
+    assert has_element?(exact, "[data-publisher-id]", "Observer 30")
+    exact |> element("a[aria-label='Remove Lifecycle filter']") |> render_click()
+    assert_patch(exact, "/coverage/publishers?lifecycle=all&source_id=all")
+    exact |> element("a[aria-label='Remove Source filter']") |> render_click()
+    exact |> element("button[phx-click=filter_open][phx-value-field=source_id]") |> render_click()
+    render_hook(exact, "filter_query", %{"search" => "all"})
+    assert has_element?(exact, "button[phx-click=filter_select][phx-value-key=all]", "all")
+    exact |> element("button[phx-click=filter_select][phx-value-key=all]") |> render_click()
+    assert_patch(exact, "/coverage/publishers?lifecycle=all&source_id=all")
+    assert has_element?(exact, "#coverage-publishers", "1 matching publications")
+  end
+
+  test "publication review and original authority survive related evidence and presentation" do
+    {_p, source} = publication("Observer")
+    {:ok, view, _} = live(build_conn(), path(source))
+    edit(view, "retire", "Keep reviewed reason")
+    preview(view)
+    token = hidden(view, "_review_token")
+    view |> element("#publication-runner") |> render_click()
+    assert has_element?(view, "#publication-workflow[inert]")
+    # A crafted event to the inactive editor cannot submit its saved review.
+    render_submit(view, "apply", recovery(view))
+    assert Repo.get!(SourceInventory, source.id).retired_at == nil
+    view |> element("#overview-panel a", "Open as page") |> render_click()
+    assert has_element?(view, "#publication-workflow[hidden][inert]")
+    assert has_element?(view, "#runner-page")
+    view |> element("#runner-page a", "Open fly-over") |> render_click()
+    view |> element("#overview-panel a[data-overview-close]") |> render_click()
+    assert has_element?(view, "#publisher-reason", "Keep reviewed reason")
+    assert hidden(view, "_review_token") == token
+    apply_review(view)
+    assert Repo.get!(SourceInventory, source.id).retired_at != nil
+  end
+
+  test "a replacement hidden by the chooser page or search can be removed without losing the draft" do
+    {_old, source} = publication("Origin")
+    {_new, successor} = publication("Z chosen")
+    for n <- 1..25, do: publication("A observer #{n}")
+    {:ok, view, _} = live(build_conn(), path(source))
+    edit(view, "replace", "Keep this reason")
+    view |> element("#publisher-successor-pages button", "Next") |> render_click()
+    view |> element("[data-successor-id='#{successor.id}'] button") |> render_click()
+    preview(view)
+    assert hidden(view, "_review_token") != nil
+    view |> element("#publisher-successor-pages button", "Previous") |> render_click()
+    refute has_element?(view, "[data-successor-id='#{successor.id}']")
+    assert has_element?(view, "#publisher-selected-successor", "Z chosen")
+    view |> form("#publisher-successor-filter", search: "no such observer") |> render_submit()
+    assert has_element?(view, "#publisher-selected-successor", "Z chosen")
+    refute has_element?(view, "[data-successor-id]")
+    view |> element("#publisher-clear-successor") |> render_click()
+    assert has_element?(view, "#publisher-selected-successor", "No replacement selected")
+    refute has_element?(view, "#publisher-clear-successor")
+    refute has_element?(view, "#publisher-preview")
+    assert hidden(view, "_review_token") == nil
+    assert has_element?(view, "#publisher-reason", "Keep this reason")
+    assert Jason.decode!(hidden(view, "_proposal"))["successor_id"] == nil
+  end
+
+  test "a replacement review survives result presentation and hidden-owner reconnect but not changed membership" do
+    {old, source} = publication("Old observer")
+    {new, successor} = publication("Replacement observer")
+    assert {:ok, _} = F.activate(new, Monitoring.now())
+    assert disposition(F.sample(new, "CRIT", 1, Monitoring.now())) == "current"
+    {:ok, view, _} = live(build_conn(), path(source))
+    edit(view, "replace", "Keep exact replacement authority")
+    view |> element("[data-successor-id='#{successor.id}'] button") |> render_click()
+    preview(view)
+    token = hidden(view, "_review_token")
+    assert has_element?(view, "#publisher-apply:not([disabled])")
+    view |> element("#publisher-impact a", "Inspect replacement result") |> render_click()
+
+    page_link =
+      view
+      |> element("#overview-panel a", "Open as page")
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("a")
+      |> LazyHTML.attribute("href")
+      |> hd()
+
+    view |> element("#overview-panel a", "Open as page") |> render_click()
+    assert has_element?(view, "#publication-workflow[hidden][inert]")
+    assert has_element?(view, "#preview-result-page")
+    captured = recovery(view)
+    {:ok, recovered, _} = live(build_conn(), page_link)
+    render_change(recovered, "recover", captured)
+    assert has_element?(recovered, "#publication-workflow[hidden][inert]")
+    assert hidden(recovered, "_review_token") == token
+    assert has_element?(recovered, "#publisher-selected-successor", "Replacement observer")
+    assert has_element?(recovered, "#publisher-reason", "Keep exact replacement authority")
+    assert Jason.decode!(hidden(recovered, "_proposal"))["successor_id"] == successor.id
+    # A remote membership change cannot turn this retained review into new authority.
+    changed =
+      old
+      |> Map.put("inventory_revision", 2)
+      |> Map.put("checks", [])
+      |> put_in(["coverage", "candidates"], [])
+
+    assert {:ok, _} = Monitoring.inventory(changed, Monitoring.now())
+    send(recovered.pid, :tick)
+    assert hidden(recovered, "_review_token") == token
+    recovered |> element("#preview-result-page a", "Open fly-over") |> render_click()
+    recovered |> element("#overview-panel a[data-overview-close]") |> render_click()
+    assert has_element?(recovered, "#publisher-reason", "Keep exact replacement authority")
+    assert has_element?(recovered, "#publisher-selected-successor", "Replacement observer")
+    assert has_element?(recovered, "#publisher-apply[disabled]")
+    apply_review(recovered)
+    assert Repo.get!(SourceInventory, source.id).retired_at == nil
   end
 
   defp publication(label, source_id \\ "coverage-test") do

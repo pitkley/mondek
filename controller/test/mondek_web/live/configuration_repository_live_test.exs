@@ -75,10 +75,10 @@ defmodule MondekWeb.ConfigurationRepositoryLiveTest do
 
     assert has_element?(view, "#configuration-change-detail h4", "Before")
     assert has_element?(view, "#configuration-change-detail h4", "After")
-    assert has_element?(view, "#configuration-repository-history li #configuration-change-detail")
-    assert has_element?(view, ".configuration-field-changes dt", "warn_percent")
-    assert has_element?(view, ".configuration-field-changes dt", "crit_percent")
-    assert has_element?(view, "#configuration-change-detail", "1 configuration document changed.")
+    assert has_element?(view, "#main-content #configuration-change-detail")
+    assert has_element?(view, ".configuration-field-changes th", "warn_percent")
+    assert has_element?(view, ".configuration-field-changes th", "crit_percent")
+    assert has_element?(view, "#configuration-change-detail", "1 configuration document changed")
 
     assert has_element?(
              view,
@@ -91,6 +91,66 @@ defmodule MondekWeb.ConfigurationRepositoryLiveTest do
     assert html =~ "90"
     view |> element("button[phx-click='close-change']") |> render_click()
     refute has_element?(view, "#configuration-change-detail")
+  end
+
+  test "recent history search and numbered pages retain an immutable selected revision" do
+    row = Repo.get!(Assignment, "10000000-0000-4000-8000-000000000001")
+
+    for value <- 60..72 do
+      current = Repo.get!(Assignment, row.id)
+
+      assert {:ok, _} =
+               Monitoring.save_assignment(
+                 current.id,
+                 current.revision,
+                 Map.put(current.params, "warn_percent", value)
+               )
+    end
+
+    {:ok, state} = Mondek.ConfigurationRepository.state()
+    {:ok, view, _} = live(build_conn(), "/configuration/history")
+    assert has_element?(view, "nav[aria-label='Recent configuration revisions']")
+    view |> element("button[phx-value-head='#{state.head}']") |> render_click()
+    selected_url = assert_patch(view)
+    assert has_element?(view, "#configuration-change-detail", "72")
+    view |> form("#overview-search", search: "no such revision") |> render_submit()
+    assert has_element?(view, "#configuration-repository-history", "No recent changes match")
+    assert has_element?(view, "#configuration-change-detail", state.head)
+    current = Repo.get!(Assignment, row.id)
+
+    assert {:ok, _} =
+             Monitoring.save_assignment(
+               current.id,
+               current.revision,
+               Map.put(current.params, "warn_percent", 73)
+             )
+
+    send(view.pid, :tick)
+    assert has_element?(view, "#configuration-change-detail", "72")
+
+    refute has_element?(
+             view,
+             "#configuration-change-detail .configuration-field-changes td",
+             "73"
+           )
+
+    view |> form("#overview-search", search: "") |> render_submit()
+
+    view
+    |> element("nav[aria-label='Recent configuration revisions'] a[aria-label='Page 2']")
+    |> render_click()
+
+    assert has_element?(
+             view,
+             "nav[aria-label='Recent configuration revisions'] [aria-current=page]",
+             "2"
+           )
+
+    assert has_element?(view, "#configuration-change-detail", state.head)
+    {:ok, restored, _} = live(build_conn(), selected_url)
+    assert has_element?(restored, "#configuration-change-detail", state.head)
+    restored |> render_patch("/configuration/history?change=" <> String.duplicate("f", 40))
+    assert has_element?(restored, "#configuration-change-missing", "could not be found")
   end
 
   test "large changes have bounded document pages with all evidence reachable" do
@@ -126,9 +186,25 @@ defmodule MondekWeb.ConfigurationRepositoryLiveTest do
              "12 configuration documents changed"
            )
 
-    assert has_element?(view, "nav[aria-label='Changed documents']", "Page 1 of 2")
-    view |> element("button[phx-value-page='2']") |> render_click()
-    assert has_element?(view, "nav[aria-label='Changed documents']", "Page 2 of 2")
-    assert has_element?(view, "button[phx-value-page='3'][disabled]")
+    assert has_element?(view, "nav[aria-label='Changed documents'] [aria-current=page]", "1")
+    view |> element("button[phx-value-page='2'][aria-label='Page 2']") |> render_click()
+    assert has_element?(view, "nav[aria-label='Changed documents'] [aria-current=page]", "2")
+
+    assert has_element?(
+             view,
+             "nav[aria-label='Changed documents'] span[aria-disabled=true]",
+             "Next"
+           )
+  end
+
+  test "malformed revision selections are ignored without losing the history list" do
+    for query <- ["change[x]=y", "change[]=x", "change=" <> String.duplicate("a", 1000)] do
+      {:ok, view, _} = live(build_conn(), "/configuration/history?" <> query)
+      assert has_element?(view, "#configuration-repository-state")
+      refute has_element?(view, "#configuration-change-detail")
+      send(view.pid, :tick)
+      assert render(view) =~ "Configuration history"
+      GenServer.stop(view.pid)
+    end
   end
 end

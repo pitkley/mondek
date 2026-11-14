@@ -2,7 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.ConfigurationLive do
   use MondekWeb, :live_view
-  alias MondekWeb.BulkConfiguration
+
+  alias MondekWeb.{
+    BulkConfiguration,
+    BrowserNavigation,
+    InvestigationStack,
+    InvestigationTrail,
+    PreviewDetail,
+    PreviewFilters,
+    PreviewLayouts,
+    ScalarFilterPicker
+  }
+
   import MondekWeb.EvidencePresentation
   alias Mondek.ConfigurationRules
   alias Mondek.Monitoring
@@ -10,7 +21,28 @@ defmodule MondekWeb.ConfigurationLive do
   alias MondekWeb.ConfigurationValues
   alias MondekWeb.ParameterForm
   alias Phoenix.LiveView.JS
-  import MondekWeb.MonitoringUI
+
+  import MondekWeb.MonitoringUI,
+    only: [
+      page_projection: 1,
+      controller_origin: 1,
+      source_check?: 1,
+      source_label: 1,
+      owner_label: 1,
+      runner_label: 1,
+      environment_name: 1,
+      parameter_value: 1,
+      parameter_label: 1,
+      retired?: 1,
+      measured_target: 1,
+      config_status: 1,
+      configuration_message: 1,
+      integer: 1,
+      error_message: 1,
+      return_label: 2,
+      knowledge: 1
+    ]
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Process.send_after(self(), :tick, 1000)
@@ -28,7 +60,12 @@ defmodule MondekWeb.ConfigurationLive do
        stale_ids: MapSet.new(),
        feedback: %{},
        instance_review: nil,
-       exception_review: nil
+       exception_review: nil,
+       filter_picker: nil,
+       investigation_params: %{},
+       investigation_host: "/configuration",
+       investigation_open: false,
+       investigation_page: false
      )
      |> refresh()}
   end
@@ -38,35 +75,47 @@ defmodule MondekWeb.ConfigurationLive do
     do: {:noreply, push_navigate(socket, to: "/configuration")}
 
   def handle_params(params, uri, socket) do
+    same_entity = socket.assigns.selected_id == params["id"]
+    local = URI.parse(uri)
+    filters = configuration_filters(params)
+
     socket =
       socket
       |> assign(
         selected_id: params["id"],
-        return_to: safe_return_path(params["return_to"]),
+        return_to: BrowserNavigation.return_path(params["return_to"]),
         controller_url: controller_origin(uri),
-        filters: inventory_params(params, socket.assigns.live_action),
-        page_title: page_name(socket.assigns.live_action)
+        filters: filters,
+        page_title: "Configuration",
+        investigation_params: params,
+        investigation_host: local.path <> if(local.query, do: "?" <> local.query, else: ""),
+        investigation_open: InvestigationTrail.resolve(params) != [],
+        investigation_page: !is_nil(InvestigationTrail.promoted(params)),
+        filter_picker: if(filters == socket.assigns.filters, do: socket.assigns.filter_picker)
       )
 
     socket =
-      assign(socket,
-        drafts: %{},
-        errors: %{},
-        stale_ids: MapSet.new(),
-        feedback: %{},
-        instance_review: nil,
-        exception_review: nil
-      )
+      if same_entity,
+        do: socket,
+        else:
+          assign(socket,
+            drafts: %{},
+            errors: %{},
+            stale_ids: MapSet.new(),
+            feedback: %{},
+            instance_review: nil,
+            exception_review: nil
+          )
 
     socket = refresh(socket)
     assignment = get_in(socket.assigns.check_inspection || %{}, ["assignment"])
 
-    socket =
-      assign(socket,
-        drafts: if(assignment, do: %{assignment["id"] => draft(assignment)}, else: %{})
-      )
+    drafts =
+      if assignment,
+        do: Map.put_new(socket.assigns.drafts, assignment["id"], draft(assignment)),
+        else: socket.assigns.drafts
 
-    {:noreply, socket}
+    {:noreply, assign(socket, drafts: drafts)}
   end
 
   @impl true
@@ -78,31 +127,109 @@ defmodule MondekWeb.ConfigurationLive do
   def handle_info(:changed, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_event("filter", params, socket) do
-    filters =
-      params
-      |> Map.take(~w(search runner_id environment health freshness status configuration_stage))
-      |> Map.merge(result_page_size_filter(socket.assigns.filters, socket.assigns.live_action))
+  def handle_event("recover_editor", %{"_id" => id, "params" => params} = form, socket) do
+    revision = integer(form["_revision"])
 
-    {:noreply,
-     push_patch(socket, to: filter_path(socket.assigns.live_action, filters), replace: true)}
-  end
+    valid_params =
+      is_map(params) && map_size(params) <= 32 &&
+        Enum.all?(params, fn {key, value} ->
+          is_binary(key) && String.valid?(key) && byte_size(key) <= 128 &&
+            ((is_binary(value) && String.valid?(value)) || is_number(value) || is_boolean(value))
+        end)
 
-  def handle_event("recover_filters", params, socket) do
-    mode = socket.assigns.live_action
-
-    # Recovered controls include empty inputs and the selected default status,
-    # while the URL may omit both. Replaying those values is not a filter edit
-    # and must not discard the current result page or rewrite its return URL.
-    if comparable_inventory_filters(params, mode) ==
-         comparable_inventory_filters(socket.assigns.filters, mode) do
-      {:noreply, socket}
+    if id == socket.assigns.selected_id && is_integer(revision) && revision > 0 && valid_params &&
+         byte_size(Jason.encode!(params)) <= 16_384 do
+      {:noreply,
+       assign(socket,
+         drafts: Map.put(socket.assigns.drafts, id, %{revision: revision, params: params}),
+         instance_review: nil,
+         exception_review: nil
+       )}
     else
-      handle_event("filter", params, socket)
+      {:noreply, socket}
     end
   end
 
-  def handle_event("edit", %{"_id" => id, "params" => params} = form, socket) do
+  def handle_event(event, params, socket)
+      when event in ~w(edit reload cancel_instance_review confirm_instance_save save preview_exception_reset cancel_exception_reset reset_exception) do
+    id = params["_id"] || params["id"] || socket.assigns.selected_id
+
+    if socket.assigns.investigation_open || is_nil(socket.assigns.selected_id) ||
+         id != socket.assigns.selected_id,
+       do: {:noreply, socket},
+       else: handle_editor_event(event, params, socket)
+  end
+
+  def handle_event("search", %{"search" => value}, socket),
+    do: patch_configuration_filters(socket, %{"search" => ScalarFilterPicker.text(value)})
+
+  def handle_event("filter_open", %{"field" => field}, socket) do
+    case configuration_picker(field, "") do
+      nil ->
+        {:noreply, socket}
+
+      picker ->
+        {:noreply,
+         assign(socket,
+           filter_picker: %{
+             picker
+             | value: configuration_selected_label(socket.assigns.filters, field)
+           }
+         )}
+    end
+  end
+
+  def handle_event("filter_close", %{"reopen" => true}, socket),
+    do: {:noreply, ready_filters(socket)}
+
+  def handle_event("filter_close", _, socket), do: {:noreply, assign(socket, filter_picker: nil)}
+
+  def handle_event(
+        "filter_remove_edit",
+        _,
+        %{assigns: %{filter_picker: %{field: field}}} = socket
+      ),
+      do:
+        patch_configuration_filters(ready_filters(socket), %{
+          field => if(field == "status", do: "all", else: "")
+        })
+
+  def handle_event("filter_remove", %{"field" => field}, socket),
+    do:
+      patch_configuration_filters(ready_filters(socket), %{
+        field => if(field == "status", do: "all", else: "")
+      })
+
+  def handle_event(
+        event,
+        %{"search" => value},
+        %{assigns: %{filter_picker: %{field: field}}} = socket
+      )
+      when event in ["filter_query", "filter_first"] do
+    picker = configuration_picker(field, value)
+
+    case {event, picker.options} do
+      {"filter_first", [option | _]} ->
+        patch_configuration_filters(ready_filters(socket), %{field => option.key})
+
+      _ ->
+        {:noreply, assign(socket, filter_picker: picker)}
+    end
+  end
+
+  def handle_event(
+        "filter_select",
+        %{"key" => key},
+        %{assigns: %{filter_picker: %{field: field, options: options}}} = socket
+      ) do
+    if Enum.any?(options, &(&1.key == key)),
+      do: patch_configuration_filters(ready_filters(socket), %{field => key}),
+      else: {:noreply, socket}
+  end
+
+  def handle_event(_, _, socket), do: {:noreply, socket}
+
+  defp handle_editor_event("edit", %{"_id" => id, "params" => params} = form, socket) do
     # LiveView recovers the browser's form after a new server process mounts.
     # Keep the reviewed revision with those values across that recovery.
     reviewed = %{revision: integer(form["_revision"]), params: params}
@@ -115,7 +242,7 @@ defmodule MondekWeb.ConfigurationLive do
      )}
   end
 
-  def handle_event("reload", %{"id" => id}, socket) do
+  defp handle_editor_event("reload", %{"id" => id}, socket) do
     socket = refresh(socket)
     assignment = Monitoring.assignment_detail(id) || %{}
 
@@ -128,13 +255,17 @@ defmodule MondekWeb.ConfigurationLive do
      )}
   end
 
-  def handle_event("cancel_instance_review", _, socket),
+  defp handle_editor_event("cancel_instance_review", _, socket),
     do: {:noreply, assign(socket, instance_review: nil)}
 
-  def handle_event("confirm_instance_save", _, %{assigns: %{instance_review: nil}} = socket),
-    do: {:noreply, socket}
+  defp handle_editor_event(
+         "confirm_instance_save",
+         _,
+         %{assigns: %{instance_review: nil}} = socket
+       ),
+       do: {:noreply, socket}
 
-  def handle_event("confirm_instance_save", _, socket) do
+  defp handle_editor_event("confirm_instance_save", _, socket) do
     review = socket.assigns.instance_review
 
     case ConfigurationRules.apply_instance(review["review_token"]) do
@@ -166,7 +297,7 @@ defmodule MondekWeb.ConfigurationLive do
     end
   end
 
-  def handle_event("save", %{"_id" => id} = form, socket) do
+  defp handle_editor_event("save", %{"_id" => id} = form, socket) do
     params = form["params"] || %{}
     reviewed = %{revision: integer(form["_revision"]), params: params}
 
@@ -209,7 +340,11 @@ defmodule MondekWeb.ConfigurationLive do
     end
   end
 
-  def handle_event("preview_exception_reset", %{"id" => id, "revision" => revision}, socket) do
+  defp handle_editor_event(
+         "preview_exception_reset",
+         %{"id" => id, "revision" => revision},
+         socket
+       ) do
     case ConfigurationRules.preview_reset(id, integer(revision)) do
       {:ok, preview} ->
         {:noreply, assign(socket, exception_review: Map.put(preview, "assignment_id", id))}
@@ -220,10 +355,10 @@ defmodule MondekWeb.ConfigurationLive do
     end
   end
 
-  def handle_event("cancel_exception_reset", _params, socket),
+  defp handle_editor_event("cancel_exception_reset", _params, socket),
     do: {:noreply, assign(socket, exception_review: nil)}
 
-  def handle_event("reset_exception", %{"_review_token" => token}, socket) do
+  defp handle_editor_event("reset_exception", %{"_review_token" => token}, socket) do
     preview = socket.assigns.exception_review
 
     result =
@@ -263,9 +398,11 @@ defmodule MondekWeb.ConfigurationLive do
     end
   end
 
+  defp handle_editor_event(_, _, socket), do: {:noreply, socket}
+
   defp refresh(socket) do
     at = Monitoring.now()
-    snapshot = Monitoring.overview(at)
+    snapshot = %{"now" => Monitoring.iso(at)}
 
     socket =
       assign(socket, snapshot: snapshot, now: parse_time(snapshot["now"]) || DateTime.utc_now())
@@ -299,540 +436,687 @@ defmodule MondekWeb.ConfigurationLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <MondekWeb.Layouts.app
-      active={@live_action}
-      page_title={page_name(@live_action)}
-      snapshot={@snapshot}
-      now={@now}
-      flash={@flash}
+    <div
+      class="preview-shell"
+      id="configuration-shell"
+      phx-hook="OverviewPanel"
+      data-selection={InvestigationTrail.selection(@investigation_params)}
+      data-panel-heading={InvestigationTrail.heading(@investigation_params, "configuration-heading")}
+      data-panel-background=".preview-masthead,.preview-sidebar,#configuration-page-background"
     >
-      <.inventory
-        :if={@live_action == :configuration}
-        listing={@listing}
-        mode={@live_action}
-        filters={@filters}
-        snapshot={@snapshot}
-        now={@now}
-      />
-      <.configuration
-        :if={@live_action == :configuration_detail}
-        inspection={@check_inspection}
-        now={@now}
-        drafts={@drafts}
-        errors={@errors}
-        stale_ids={@stale_ids}
-        feedback={@feedback}
-        instance_review={@instance_review}
-        exception_review={@exception_review}
-        return_to={@return_to}
-      />
-    </MondekWeb.Layouts.app>
+      <PreviewLayouts.navigation active={:configuration} />
+      <main id="main-content" class="preview-main" tabindex="-1">
+        <div
+          id="configuration-page-background"
+          class="configuration-workspace"
+          hidden={@investigation_page}
+          inert={@investigation_open}
+        >
+          <div
+            :for={key <- [:info, :error]}
+            :if={Phoenix.Flash.get(@flash, key)}
+            class="ui-feedback"
+            role={if key == :error, do: "alert", else: "status"}
+          >
+            {Phoenix.Flash.get(@flash, key)}
+          </div>
+          <.inventory :if={@live_action == :configuration} {assigns} />
+          <.configuration :if={@live_action == :configuration_detail} {assigns} />
+        </div>
+        <.live_component
+          module={InvestigationStack}
+          id="investigation-stack"
+          host={@investigation_host}
+          params={@investigation_params}
+          now={@now}
+          root={nil}
+          initial={[]}
+          context={{"configuration", @selected_id || "inventory"}}
+          back={
+            InvestigationTrail.path(@investigation_host, [], %{"surface" => nil, "page_entity" => nil})
+          }
+          controller_url={@controller_url}
+        />
+        <div class="preview-connection" role="status">
+          Connection interrupted. Displayed evidence may be out of date. Reconnecting…
+        </div>
+      </main>
+    </div>
     """
   end
 
   defp inventory(assigns) do
+    assigns =
+      assign(assigns,
+        filter_fields: configuration_fields(),
+        filter_chips: configuration_chips(assigns.filters)
+      )
+
     ~H"""
-    <div class="page-heading">
-      <div>
-        <div class="eyebrow">Runner-provided inventory</div>
-        <h1>Configuration</h1>
-        <p>
-          Review effective settings and instance exceptions, or create shared rules for present and future checks.
-        </p>
-      </div>
-      <.link
-        navigate="/configuration/rules"
-        class="button primary"
-        id="configuration-rules-link"
-      >Configuration rules</.link>
-    </div>
-    <p class="space-top">
-      <.link
-        navigate="/configuration/history"
-        class="button secondary"
-        id="configuration-history-link"
-      >Configuration history and Git access</.link>
-    </p>
-    <section class="configuration-intents" aria-label="Choose what to configure">
-      <div class="panel panel-body">
-        <h2>Share settings across similar checks</h2>
-        <p>
-          A shared rule covers matching checks now and when new ones appear. Choose a group declared by your check code, then review its scope and values.
-        </p>
-        <.link
-          navigate="/configuration/rules/new"
-          class="button primary space-top"
-          id="new-shared-rule"
-        >New shared rule</.link>
-      </div>
-      <div class="panel panel-body">
-        <h2>Change individual checks</h2>
-        <p>
-          Find a check below to inspect its effective values or create an instance exception. Selecting several checks creates exceptions for those instances only, not future checks.
-        </p>
-        <a href="#check-inventory" class="button space-top">Find individual checks</a>
-      </div>
-    </section>
-    <ConfigurationValues.workflow />
-    <.setup :if={get_in(@snapshot, ["coverage", "active"]) == 0 && @filters["status"] != "retired"} />
-    <.inventory_filters filters={@filters} mode={@mode} snapshot={@snapshot} />
-    <section class="panel" id="check-inventory">
-      <div class="panel-heading">
-        <h2 id="check-inventory-heading">Scheduled checks</h2>
-        <span class="badge">{@listing["total"]} matching</span>
-      </div>
-      <.live_component
-        module={BulkConfiguration}
-        id="bulk-configuration"
-        rows={@listing["items"]}
-        filters={@filters}
-        return_to={filter_path(@mode, @filters)}
-        now={@now}
-      />
-      <.pagination listing={@listing} filters={@filters} mode={@mode} />
-    </section>
-    <details
-      class="panel config-adoption-summary space-top"
-      id="configuration-adoption-summary"
-      phx-mounted={JS.ignore_attributes("open")}
-    >
-      <summary>Installation-wide configuration adoption</summary>
-      <p>
-        <strong>{@listing["total"]} matching</strong>
-        · {@listing["configuration_summary"]["scope_total"]} before the adoption filter · {@listing[
-          "configuration_summary"
-        ]["global_total"]} active checks across the installation.
+    <section class="preview-list" aria-labelledby="configuration-heading">
+      <header class="preview-heading">
+        <h1 id="configuration-heading" class="pf-v6-c-title pf-m-2xl">Configuration</h1>
+        <div class="configuration-actions">
+          <.link
+            navigate="/configuration/rules/new"
+            id="new-shared-rule"
+            class="pf-v6-c-button pf-m-primary"
+          >New shared rule</.link>
+          <.link
+            navigate="/configuration/rules"
+            id="configuration-rules-link"
+            class="pf-v6-c-button pf-m-secondary"
+          >Saved rules</.link>
+          <.link
+            navigate="/configuration/history"
+            id="configuration-history-link"
+            class="pf-v6-c-button pf-m-link"
+          >History &amp; Git</.link>
+        </div>
+      </header>
+      <p id="configuration-scope-guidance" class="configuration-section-note">
+        Open a scheduled check to edit its settings. Selected exceptions cover these instances only, not future checks. Use a shared rule to include future checks.
       </p>
-      <p class="config-adoption-context">
-        Across all active checks · Selecting a stage clears other filters.
-      </p>
-      <nav class="config-adoption-counts" aria-label="Configuration adoption across the installation">
-        <.link
-          :for={{stage, name} <- configuration_stage_names()}
-          patch={filter_path(:configuration, %{"configuration_stage" => stage, "status" => "active"})}
-          class={"config-adoption-count " <> if(stage == "measured", do: "config-adoption-measured", else: "")}
-        >
-          <span>{name}</span><span class="config-adoption-number">{@listing["configuration_summary"][
-            "global_counts"
-          ][stage]}</span>
-          <small>{configuration_stage_hint(stage)}</small>
-        </.link>
-      </nav>
-      <details id="configuration-stage-help" phx-mounted={JS.ignore_attributes("open")}>
-        <summary>About configuration stages</summary>
-        <p id="configuration-adoption-help">
-          Counts above cover all active checks; choose a stage to view that installation-wide set. Stages follow the desired version. Measured means fresh complete evidence arrived; it can be stale now.
+      <div class="configuration-filter-toolbar">
+        <PreviewFilters.filter_picker
+          picker={@filter_picker}
+          chips={@filter_chips}
+          fields={@filter_fields}
+          search={@filters["search"]}
+          remove={
+            fn field ->
+              configuration_path(
+                Map.put(@filters, field, if(field == "status", do: "all", else: ""))
+                |> Map.delete("page")
+              )
+            end
+          }
+          clear_search={configuration_path(Map.delete(@filters, "search") |> Map.delete("page"))}
+          form_label="Filter scheduled checks"
+          label="Search scheduled checks"
+          placeholder="Search or filter scheduled checks"
+        />
+      </div>
+      <section
+        class="preview-table-group"
+        id="check-inventory"
+        aria-labelledby="check-inventory-heading"
+      >
+        <h2 id="check-inventory-heading" class="preview-section-heading">
+          Scheduled checks <span class="pf-v6-c-badge pf-m-read">{@listing["total"]} matching</span>
+        </h2>
+        <.live_component
+          module={BulkConfiguration}
+          id="bulk-configuration"
+          rows={@listing["items"]}
+          filters={@filters}
+          return_to={configuration_path(@filters)}
+          now={@now}
+          enabled={!@investigation_open}
+        />
+        <div class="configuration-pagination pagination">
+          <MondekWeb.PreviewPagination.pagination
+            page={@listing["page"]}
+            size={@listing["page_size"]}
+            total={@listing["total"]}
+            label="Scheduled check pages"
+            url={fn page -> configuration_path(Map.put(@filters, "page", page)) end}
+          />
+        </div>
+      </section>
+      <PreviewDetail.card id="configuration-adoption-summary" title="Configuration adoption" level={2}>
+        <p class="configuration-section-note">
+          <strong>{@listing["total"]} matching</strong>
+          · {@listing["configuration_summary"]["scope_total"]} before the adoption filter · {@listing[
+            "configuration_summary"
+          ]["global_total"]} active checks across the installation.
         </p>
-        <p>
-          Source-owned settings follow the same stages. Retired checks appear only with All adoption stages.
-          For a waiting version, inspect its results and
-          <.link navigate="/runners">runner diagnostics</.link>
-          for collection, preparation or connection problems.
-        </p>
-      </details>
-    </details>
-    <p class="footnote space-top">
-      Search and filters apply to the full stored inventory. Silence or a failed inventory refresh does not retire expected results.
-    </p>
+        <PreviewDetail.facts label="Installation-wide configuration adoption">
+          <tr :for={{stage, name} <- configuration_stage_names()}>
+            <th scope="row">{name}</th>
+            <td>
+              <.link patch={
+                configuration_path(%{"configuration_stage" => stage, "status" => "active"})
+              }>{@listing["configuration_summary"]["global_counts"][stage]} installation-wide</.link>
+            </td>
+            <td>{configuration_stage_hint(stage)}</td>
+          </tr>
+        </PreviewDetail.facts>
+        <details id="configuration-stage-help" phx-mounted={JS.ignore_attributes("open")}>
+          <summary>What these stages mean</summary>
+          <p class="configuration-section-note">
+            Each stage follows the desired saved version. Measured means fresh complete evidence arrived for that version; inspect results for current health and freshness. Counts are installation-wide. Selecting a stage clears other filters.
+          </p>
+        </details>
+      </PreviewDetail.card>
+      <div class="configuration-help"><ConfigurationValues.workflow /></div>
+    </section>
     """
   end
 
   defp configuration(assigns) do
-    assignment = (assigns.inspection || %{})["assignment"] || %{}
+    assignment = (assigns.check_inspection || %{})["assignment"] || %{}
 
-    result_return_to =
-      if Regex.match?(~r"\A/(checks|resources)/", URI.parse(assigns.return_to || "").path || "") do
-        MondekWeb.InvestigationNavigation.safe_return_path(
-          URI.decode_query(URI.parse(assigns.return_to).query || "")["return_to"]
-        )
-      else
-        assigns.return_to
-      end
-
-    assigns = assign(assigns, assignment: assignment, result_return_to: result_return_to)
+    assigns =
+      assign(assigns,
+        assignment: assignment,
+        current_draft: assigns.drafts[assignment["id"]] || draft(assignment),
+        current_error: assigns.errors[assignment["id"]]
+      )
 
     ~H"""
-    <.link navigate={@return_to || "/configuration"} class="back"><.icon name="back" size={13} />{return_label(
-      @return_to,
-      "All scheduled checks"
-    )}</.link>
-    <div :if={@assignment == %{}} class="notice warn">
-      This check is not in the retained inventory.
-    </div>
-    <div :if={@assignment != %{}}>
-      <div class="page-heading">
-        <div>
-          <div class="eyebrow">Scheduled check configuration</div><h1>{label(@assignment)}</h1>
-          <dl class="result-context">
-            <div>
-              <dt>Monitored subject</dt><dd>{measured_target(@assignment)}</dd>
-            </div><div>
-              <dt>Monitored environment</dt><dd>{environment_name(@assignment)}</dd>
-            </div><div>
-              <dt>Observing runner</dt><dd>{runner_label(@assignment)}</dd>
-            </div>
-          </dl>
-        </div><.badge value={config_status(@assignment)} />
-      </div>
-      <section
-        :if={!retired?(@assignment)}
-        class={"panel config-adoption-status " <> if(config_status(@assignment) == "measured", do: "config-adoption-complete", else: "config-adoption-waiting")}
-        id="configuration-adoption-status"
-        aria-labelledby="configuration-adoption-heading"
-      >
-        <h2 id="configuration-adoption-heading">
-          {if config_status(@assignment) == "measured",
-            do: "Saved version measured",
-            else: "Saved version is still being adopted"}
-        </h2>
-        <p id={"configuration-progress-" <> @assignment["id"]} role="status">
-          {configuration_message(@assignment)}
-        </p>
-        <p :if={config_status(@assignment) != "measured"} class="config-adoption-next">
-          Existing results keep the version that produced them.
-          <a href="#configuration-results">Inspect results</a>
-          or <.link navigate={
-            if @assignment["runner_id"],
-              do: MondekWeb.RunnersLive.detail_path(@assignment["runner_id"]),
-              else: "/runners"
-          }>check runner status</.link>.
-        </p>
-        <details
-          id="configuration-adoption-versions"
-          class="config-adoption-versions"
-          phx-mounted={JS.ignore_attributes("open")}
-        >
-          <summary>Configuration adoption stages</summary>
-          <.stages assignment={@assignment} show_message={false} />
-        </details>
-      </section>
-      <p :if={get_in(@assignment, ["discovery", "kind"]) == "manager"} class="space-bottom">
-        <.link navigate={"/configuration/discovery/" <> @assignment["id"]} class="button primary">Configure resource discovery</.link>
+    <div class="configuration-editor">
+      <header class="preview-heading configuration-detail-heading">
+        <h1 id="configuration-heading" class="pf-v6-c-title pf-m-2xl">
+          {if @assignment == %{}, do: "Check not found", else: label(@assignment)}
+        </h1>
+        <.link navigate={@return_to || "/configuration"} class="back pf-v6-c-button pf-m-link">← {return_label(
+          @return_to,
+          "All scheduled checks"
+        )}</.link>
+      </header>
+      <p :if={@assignment == %{}} class="configuration-section-note">
+        This check is not in the retained inventory.
       </p>
-      <div class="config-grid">
-        <section class="panel config-card" id={"configuration-" <> @assignment["id"]}>
-          <div class="panel-heading">
-            <h2>Parameters</h2><span class="badge">{owner_label(@assignment)}</span>
-          </div>
-          <div class="panel-body">
-            <section
-              :if={source_check?(@assignment) && editable?(@assignment)}
-              id="configuration-scope"
-              class="parameter-intro"
-            >
-              <h3>Change settings for this check</h3>
-              <p>
-                This form changes {length(@assignment["streams"] || [])} {if length(
-                                                                               @assignment["streams"] ||
-                                                                                 []
-                                                                             ) == 1,
-                                                                             do: "result",
-                                                                             else: "results"} from this check on {runner_label(
+      <%= if @assignment != %{} do %>
+        <PreviewDetail.card id="configuration-scope" title="Scheduled check" level={2}>
+          <PreviewDetail.facts label="Scheduled check scope">
+            <tr>
+              <th scope="row">Monitored subject</th><td>{configuration_subject(@assignment)}</td>
+            </tr>
+            <tr>
+              <th scope="row">Monitored environment</th><td>{environment_name(@assignment)}</td>
+            </tr>
+            <tr>
+              <th scope="row">Observing runner</th><td>
+                <.link
+                  :if={@assignment["runner_id"]}
+                  patch={
+                    investigation_path(@investigation_host, {"runner", @assignment["runner_id"]})
+                  }
+                >{runner_label(@assignment)}</.link><span :if={!@assignment["runner_id"]}>{runner_label(
                   @assignment
-                )}.
-                This exception belongs to this scheduled instance. If it manages automatic discovery, its settings also apply to resources it discovers later. It does not follow a replacement observer.
+                )}</span>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Settings owner</th><td>{owner_label(@assignment)}</td>
+            </tr>
+            <tr>
+              <th scope="row">Applies to</th><td>
+                {length(@assignment["streams"] || [])} results from one execution. Names, targets and membership are defined in code.
+              </td>
+            </tr>
+          </PreviewDetail.facts>
+        </PreviewDetail.card>
+        <PreviewDetail.card
+          :if={!retired?(@assignment)}
+          id="configuration-adoption-status"
+          title={
+            if config_status(@assignment) == "measured",
+              do: "Saved version measured",
+              else: "Saved version is still being adopted"
+          }
+          level={2}
+        >
+          <p
+            id={"configuration-progress-" <> @assignment["id"]}
+            role="status"
+            class="configuration-section-note"
+          >
+            {configuration_message(@assignment)}
+          </p>
+          <p :if={config_status(@assignment) != "measured"} class="configuration-section-note">
+            Existing results keep the version that produced them.
+            <a href="#configuration-results">Inspect results</a><span :if={@assignment["runner_id"]}> or <.link patch={investigation_path(@investigation_host, {"runner", @assignment["runner_id"]})}>check runner status</.link></span>.
+          </p>
+          <details id="configuration-adoption-versions" phx-mounted={JS.ignore_attributes("open")}>
+            <summary>Configuration adoption stages</summary>
+            <div class="stages">
+              <PreviewDetail.facts label="Configuration versions">
+                <tr>
+                  <th scope="row">Saved</th><td>v{@assignment["desired_generation"]}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Prepared</th><td>{version(@assignment["prepared_generation"])}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Active</th><td>{version(@assignment["active_generation"])}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Measured</th><td>{version(@assignment["observed_generation"])}</td>
+                </tr>
+              </PreviewDetail.facts>
+            </div>
+          </details>
+        </PreviewDetail.card>
+        <div class="config-grid">
+          <PreviewDetail.card id={"configuration-" <> @assignment["id"]} title="Parameters" level={2}>
+            <div class="configuration-card-body">
+              <p :if={source_check?(@assignment) && editable?(@assignment)} id="delegated-parameters">
+                Edits here are saved as an instance exception for this scheduled check. Shared rules and code defaults no longer apply until that exception is removed; it does not follow a replacement observer.
               </p>
-              <div class="form-actions">
+              <div :if={editable?(@assignment)} class="configuration-actions">
                 <.link
                   :if={@assignment["parameter_contract"]}
                   id="create-durable-rule"
-                  navigate={"/configuration/rules/new?" <> URI.encode_query(Map.reject(%{"check_id" => @assignment["id"], "return_to" => @return_to}, fn {_, value} -> is_nil(value) end))}
-                  class="button small"
+                  navigate={"/configuration/rules/new?" <> URI.encode_query(%{"check_id" => @assignment["id"], "return_to" => @investigation_host})}
+                  class="pf-v6-c-button pf-m-secondary"
                 >Configure similar checks</.link>
-                <span class="footnote">Shared settings can include future checks.</span>
                 <button
                   :if={is_map(@assignment["instance_exception"])}
                   id="remove-instance-exception"
                   type="button"
-                  class="button small"
+                  class="pf-v6-c-button pf-m-secondary"
                   phx-click="preview_exception_reset"
                   phx-value-id={@assignment["id"]}
                   phx-value-revision={@assignment["revision"]}
                 >Remove exception and use rules/defaults</button>
+                <.link
+                  :if={get_in(@assignment, ["discovery", "kind"]) == "manager"}
+                  navigate={"/configuration/discovery/" <> @assignment["id"]}
+                  class="pf-v6-c-button pf-m-secondary"
+                >Configure resource discovery</.link>
               </div>
-              <p :if={!@assignment["parameter_contract"]} class="footnote">
-                To share settings through rules, declare a parameter contract in this check's Python code.
+              <p :if={!editable?(@assignment)} id="source-owned-parameters">
+                {if retired?(@assignment),
+                  do: "This check is retired. These are its last saved values.",
+                  else:
+                    "These settings are owned by the source. Change them in the monitoring project and publish a new complete inventory."}
               </p>
+              <form
+                :if={editable?(@assignment)}
+                id={"form-" <> @assignment["id"]}
+                phx-change="edit"
+                phx-submit="save"
+                phx-auto-recover="recover_editor"
+              >
+                <input type="hidden" name="_id" value={@assignment["id"]} />
+                <input type="hidden" name="_revision" value={@current_draft.revision} />
+                <div
+                  :if={
+                    @current_draft.revision != @assignment["revision"] &&
+                      !MapSet.member?(@stale_ids, @assignment["id"])
+                  }
+                  id="configuration-editor-updated"
+                  class="configuration-inline-feedback"
+                  role="status"
+                >
+                  Saved settings changed while this form was open. Your draft keeps version {@current_draft.revision}; the current saved version is {@assignment[
+                    "revision"
+                  ]}.
+                  <button
+                    type="button"
+                    class="pf-v6-c-button pf-m-secondary"
+                    phx-click="reload"
+                    phx-value-id={@assignment["id"]}
+                  >Reload current values and discard draft</button>
+                </div>
+                <div
+                  :if={@current_error}
+                  id={"error-" <> @assignment["id"]}
+                  class="configuration-inline-feedback"
+                  role="alert"
+                >
+                  {@current_error}
+                  <button
+                    :if={MapSet.member?(@stale_ids, @assignment["id"])}
+                    type="button"
+                    class="pf-v6-c-button pf-m-secondary"
+                    phx-click="reload"
+                    phx-value-id={@assignment["id"]}
+                  >Reload current values and discard draft</button>
+                </div>
+                <ParameterForm.fields
+                  id_prefix={@assignment["id"]}
+                  schema={@assignment["parameter_schema"]}
+                  values={@current_draft.params}
+                  error={@current_error}
+                  error_id={"error-" <> @assignment["id"]}
+                />
+                <div class="configuration-form-actions">
+                  <span class="preview-caption">Reviewing saved version {@current_draft.revision}</span><button
+                    class="pf-v6-c-button pf-m-primary"
+                    phx-disable-with="Reviewing…"
+                  >Review settings for this check</button>
+                </div>
+              </form>
+            </div>
+            <.parameter_values
+              :if={!editable?(@assignment)}
+              assignment={@assignment}
+              values={@assignment["params"] || %{}}
+              label="Saved parameter values"
+            />
+            <section
+              :if={@instance_review && @instance_review["id"] == @assignment["id"]}
+              id="instance-save-review"
+              class="configuration-review"
+            >
+              <h3>Review settings for this check</h3>
+              <p>
+                Save this complete parameter set for this check only. Unchanged values are pinned too; future rules and defaults do not merge field by field. Saving does not mean activation or measurement.
+              </p>
+              <.parameter_values
+                assignment={@assignment}
+                values={@instance_review["proposed_params"]}
+                current={@instance_review["current_params"]}
+                label="Reviewed parameter changes"
+              />
+              <div class="configuration-form-actions">
+                <button
+                  type="button"
+                  class="pf-v6-c-button pf-m-secondary"
+                  phx-click="cancel_instance_review"
+                >Back to editing</button><button
+                  id="confirm-instance-save"
+                  class="pf-v6-c-button pf-m-primary"
+                  phx-click="confirm_instance_save"
+                  phx-disable-with="Saving…"
+                >Save reviewed settings</button>
+              </div>
             </section>
-
             <section
               :if={@exception_review && @exception_review["assignment_id"] == @assignment["id"]}
               id="exception-reset-preview"
-              class="notice notice-copy space-top"
+              class="configuration-review"
             >
               <h3>Remove this instance exception</h3><p>
-                The following values will come from the matching rule or defaults from code. Future rule changes will apply to this check.
+                These complete values will come from the matching rule or defaults from code. Future rule changes will apply to this check.
               </p>
-              <dl class="kv-list">
-                <div
-                  :for={{key, value} <- Enum.sort(@exception_review["proposed_params"] || %{})}
-                  class="kv"
-                >
-                  <dt>
-                    {schema_label(@assignment, key)}<span :if={
-                      get_in(@assignment, ["parameter_schema", "fields", key, "unit"])
-                    }> ({get_in(@assignment, ["parameter_schema", "fields", key, "unit"])})</span>
-                  </dt><dd>{parameter_value(value)}</dd>
-                </div>
-              </dl>
+              <.parameter_values
+                assignment={@assignment}
+                values={@exception_review["proposed_params"] || %{}}
+                label="Values after removing exception"
+              />
               <form id="exception-reset-form" phx-submit="reset_exception">
-                <input type="hidden" name="_review_token" value={@exception_review["review_token"]} /><div class="form-actions">
-                  <button type="button" class="button small" phx-click="cancel_exception_reset">Keep exception</button><button
-                    class="button primary"
+                <input type="hidden" name="_review_token" value={@exception_review["review_token"]} /><div class="configuration-form-actions">
+                  <button
+                    type="button"
+                    class="pf-v6-c-button pf-m-secondary"
+                    phx-click="cancel_exception_reset"
+                  >Keep exception</button><button
+                    class="pf-v6-c-button pf-m-primary"
                     phx-disable-with="Removing…"
                   >Confirm removal</button>
                 </div>
               </form>
             </section>
-            <p
-              :if={editable?(@assignment) && source_check?(@assignment)}
-              class="parameter-intro"
-              id="delegated-parameters"
-            >
-              These values override shared rules for this check until you remove the exception.
-            </p>
-            <p :if={!editable?(@assignment)} class="notice notice-copy" id="source-owned-parameters">
-              {if retired?(@assignment),
-                do: "This check is retired. These are its last saved values.",
-                else:
-                  "This parameter set is owned by the source. Change it in the runner's consumer configuration and publish a new complete inventory."}
-            </p>
-            <form
-              :if={editable?(@assignment)}
-              id={"form-" <> @assignment["id"]}
-              phx-change="edit"
-              phx-submit="save"
-            >
-              <input type="hidden" name="_id" value={@assignment["id"]} />
-              <input
-                type="hidden"
-                name="_revision"
-                value={(@drafts[@assignment["id"]] || draft(@assignment)).revision}
-              />
-              <div
-                :if={
-                  (@drafts[@assignment["id"]] || draft(@assignment)).revision !=
-                    @assignment["revision"] &&
-                    !MapSet.member?(@stale_ids, @assignment["id"])
-                }
-                id="configuration-editor-updated"
-                class="notice warn notice-copy space-bottom"
-                role="status"
-              >
-                <p>
-                  Saved settings changed while this form was open. The fields below retain version {(@drafts[
-                                                                                                       @assignment[
-                                                                                                         "id"
-                                                                                                       ]
-                                                                                                     ] ||
-                                                                                                       draft(
-                                                                                                         @assignment
-                                                                                                       )).revision}; current saved settings
-                  are version {@assignment["revision"]}. Your draft has been kept.
-                </p>
-                <button
-                  type="button"
-                  class="button small"
-                  phx-click="reload"
-                  phx-value-id={@assignment["id"]}
-                >Reload current values and discard draft</button>
-              </div>
-              <div
-                :if={@errors[@assignment["id"]]}
-                id={"error-" <> @assignment["id"]}
-                class="form-error"
-                role="alert"
-              >
-                {@errors[@assignment["id"]]}
-                <div class="space-top">
-                  <button
-                    :if={MapSet.member?(@stale_ids, @assignment["id"])}
-                    type="button"
-                    class="button small"
-                    phx-click="reload"
-                    phx-value-id={@assignment["id"]}
-                  >Reload current values and discard draft</button>
-                </div>
-              </div>
-              <.schema_fields
-                :if={source_check?(@assignment)}
-                assignment={@assignment}
-                draft={@drafts[@assignment["id"]] || draft(@assignment)}
-                error={@errors[@assignment["id"]]}
-              />
-              <div class="form-actions">
-                <p>
-                  Reviewing saved version {(@drafts[@assignment["id"]] || draft(@assignment)).revision}
-                </p>
-                <button class="button primary" phx-disable-with="Saving…">Review settings for this check</button>
-              </div>
-            </form>
-            <section
-              :if={@instance_review && @instance_review["id"] == @assignment["id"]}
-              id="instance-save-review"
-              class="notice space-top"
-            >
-              <h3>Review settings for this check</h3>
-              <p>
-                {measured_target(@assignment)} · {environment_name(@assignment)} · observed by {runner_label(
-                  @assignment
-                )}.
-              </p>
-              <p>
-                This saves the complete parameter set for this check only. Unchanged values are pinned too; future rules and code defaults do not merge field by field. Saving does not mean activation, measurement or accepted discovery inventory.
-              </p>
-              <dl class="kv-list">
-                <div :for={{key, value} <- Enum.sort(@instance_review["proposed_params"])} class="kv">
-                  <dt>
-                    {schema_label(@assignment, key)}<span :if={
-                      get_in(@assignment, ["parameter_schema", "fields", key, "unit"])
-                    }> ({get_in(@assignment, ["parameter_schema", "fields", key, "unit"])})</span>
-                  </dt><dd>
-                    {parameter_value(value)}
-                    <strong :if={value != @instance_review["current_params"][key]}>Changed</strong>
-                  </dd>
-                </div>
-              </dl>
-              <button type="button" class="button" phx-click="cancel_instance_review">Back to editing</button>
-              <button
-                id="confirm-instance-save"
-                class="button primary"
-                phx-click="confirm_instance_save"
-                phx-disable-with="Saving…"
-              >Save reviewed settings</button>
-            </section>
-            <p
-              :if={@feedback[@assignment["id"]]}
-              id={"feedback-" <> @assignment["id"]}
-              role="status"
-              class="notice space-top"
-            >
-              {@feedback[@assignment["id"]]}
-            </p>
             <div
               :if={@feedback[@assignment["id"]]}
-              class="form-actions"
               id="configuration-saved-actions"
+              class="configuration-inline-feedback"
             >
-              <.link :if={@return_to} navigate={@return_to} class="button primary">{return_label(
-                @return_to,
-                "Return to monitoring"
-              )}</.link>
-              <.link navigate="/configuration/history" class="button secondary">View configuration history</.link>
-            </div>
-            <details
-              :if={source_check?(@assignment) && editable?(@assignment)}
-              id="configuration-origin"
-              class="parameter-intro space-top"
-              phx-mounted={JS.ignore_attributes("open")}
-            >
-              <summary>Current settings, shared rules and defaults</summary>
-              <p>
-                <span :if={get_in(@assignment, ["configuration_origin", "kind"]) == "rule"}>From rule <.link navigate={
-                  detail_path(
-                    "/configuration/rules/" <> @assignment["configuration_origin"]["rule_id"],
-                    @return_to
-                  )
-                }>{@assignment["configuration_origin"]["rule_name"]}</.link>.</span>
-                <span :if={get_in(@assignment, ["configuration_origin", "kind"]) == "exception"}>From an instance exception. This check's complete parameter set takes precedence over matching rules.</span>
-                <span :if={
-                  get_in(@assignment, ["configuration_origin", "kind"]) not in ["rule", "exception"]
-                }>Defaults from code. Matching rules can supply reusable settings.</span>
+              <p id={"feedback-" <> @assignment["id"]} role="status">
+                {@feedback[@assignment["id"]]}
               </p>
-              <ConfigurationValues.comparison
-                assignment={@assignment}
-                values={(@inspection || %{})["policy_values"] || %{}}
-              />
-              <details
-                :if={is_map(@assignment["source_defaults"])}
-                id="config-source-defaults"
-                class="space-top"
-                phx-mounted={JS.ignore_attributes("open")}
-              >
-                <summary>Defaults from code</summary><dl class="kv-list">
-                  <div :for={{key, value} <- Enum.sort(@assignment["source_defaults"])} class="kv">
-                    <dt>{schema_label(@assignment, key)}</dt><dd>{parameter_value(value)}</dd>
-                  </div>
-                </dl>
-              </details>
-              <ConfigurationValues.workflow />
-            </details>
-            <dl :if={!editable?(@assignment)} class="kv-list space-top">
-              <div :for={{key, value} <- Enum.sort(@assignment["params"] || %{})} class="kv">
-                <dt>{schema_label(@assignment, key)}</dt><dd>{parameter_value(value)}</dd>
-              </div>
-            </dl>
-          </div>
-        </section><aside class="stack">
-          <section
-            class="panel"
+              <.link navigate="/configuration/history" class="pf-v6-c-button pf-m-link">View configuration history</.link>
+            </div>
+          </PreviewDetail.card>
+          <PreviewDetail.card
             id="configuration-results"
+            title="Results from this check"
+            level={2}
             tabindex="-1"
-            aria-labelledby="configuration-results-heading"
           >
-            <div class="panel-heading">
-              <h2 id="configuration-results-heading">Results from this check</h2>
-            </div><div class="panel-body">
-              <ul class="result-links">
-                <li :for={stream <- @assignment["streams"] || []}>
-                  <.link navigate={detail_path("/checks/" <> stream["id"], @result_return_to)}>{label(
-                    stream
-                  )}</.link><span>{target_label(stream["target"])}</span><.badge value={
-                    knowledge(stream)
-                  } />
-                </li>
-              </ul>
-              <p :if={(@assignment["streams"] || []) == []}>
-                {Enum.join(@assignment["expected_keys"] || [], ", ")}
-              </p>
-              <p class="footnote space-top">
-                These results share one execution and one parameter set. Their names, targets and membership are defined in code.
-              </p>
-              <.link navigate={"/resources/" <> @assignment["id"]} class="text-link space-top">Inspect shared execution and control history</.link>
-            </div>
-          </section>
+            <table class="preview-incident-fact-table" aria-label="Results from this scheduled check">
+              <thead>
+                <tr>
+                  <th scope="col">Result / target</th><th scope="col">Measurement</th>
+                </tr>
+              </thead><tbody>
+                <tr :for={stream <- @assignment["streams"] || []}>
+                  <th scope="row">
+                    <.link patch={investigation_path(@investigation_host, {"result", stream["id"]})}>{label(
+                      stream
+                    )}</.link><span class="preview-caption configuration-secondary">{target_label(
+                      stream["target"]
+                    )}</span>
+                  </th><td><.badge value={knowledge(stream)} /></td>
+                </tr>
+              </tbody>
+            </table>
+            <p :if={(@assignment["streams"] || []) == []} class="configuration-section-note">
+              No measured results yet. Expected: {Enum.join(@assignment["expected_keys"] || [], ", ")}.
+            </p>
+            <p class="configuration-section-note">
+              <.link patch={investigation_path(@investigation_host, {"execution", @assignment["id"]})}>Inspect shared execution and control history</.link>
+            </p>
+          </PreviewDetail.card>
+        </div>
+        <PreviewDetail.card id="configuration-origin" title="Saved values and defaults" level={2}>
+          <PreviewDetail.facts label="Configuration provenance">
+            <tr>
+              <th scope="row">Current values</th><td>
+                <ConfigurationValues.origin value={@assignment["configuration_origin"] || %{}} />
+              </td>
+            </tr><tr>
+              <th scope="row">Precedence</th><td>
+                Instance exception → highest-priority matching rule → defaults from code. Each supplies the complete parameter set.
+              </td>
+            </tr>
+          </PreviewDetail.facts>
+          <ConfigurationValues.comparison
+            assignment={@assignment}
+            values={(@check_inspection || %{})["policy_values"] || %{}}
+          />
           <details
-            id="config-source-context"
-            class="panel disclosure config-source-context"
+            :if={is_map(@assignment["source_defaults"])}
+            id="config-source-defaults"
             phx-mounted={JS.ignore_attributes("open")}
           >
-            <summary>Source, schedule &amp; technical details</summary>
-            <.source_details assignment={@assignment} />
+            <summary>Defaults from code</summary><.parameter_values
+              assignment={@assignment}
+              values={@assignment["source_defaults"]}
+              label="Defaults from code"
+            />
           </details>
-        </aside>
-      </div>
-      <AgentPrompts.library
-        id={"configuration-agent-prompts-" <> @assignment["id"]}
-        kinds={[:check, :retirement]}
-        context={
-          %{
-            "check_id" => @assignment["id"],
-            "check_key" => @assignment["source_key"],
-            "check_name" => label(@assignment),
-            "source_id" => @assignment["source_id"]
+        </PreviewDetail.card>
+        <PreviewDetail.card id="config-source-context" title="Source and execution" level={2}>
+          <PreviewDetail.facts label="Source and execution">
+            <tr>
+              <th scope="row">Source</th><td>{source_label(@assignment)}</td>
+            </tr>
+            <tr>
+              <th scope="row">Check key</th><td>{@assignment["source_key"]}</td>
+            </tr>
+            <tr>
+              <th scope="row">Runs every</th><td>
+                {MondekWeb.Duration.format_seconds(@assignment["interval_seconds"])}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Timeout</th><td>
+                {MondekWeb.Duration.format_seconds(@assignment["timeout_seconds"])}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Freshness limit</th><td>
+                {MondekWeb.Duration.format_seconds(@assignment["freshness_seconds"])}
+              </td>
+            </tr>
+          </PreviewDetail.facts>
+          <details id="check-source-revisions" phx-mounted={JS.ignore_attributes("open")}>
+            <summary>Technical source identity</summary><PreviewDetail.facts label="Technical source identity">
+              <tr>
+                <th scope="row">Assignment</th><td>{@assignment["id"]}</td>
+              </tr><tr>
+                <th scope="row">Source revision</th><td>{@assignment["source_revision"]}</td>
+              </tr><tr>
+                <th scope="row">Definition revision</th><td>{@assignment["definition_revision"]}</td>
+              </tr>
+            </PreviewDetail.facts>
+          </details>
+        </PreviewDetail.card>
+        <AgentPrompts.library
+          id={"configuration-agent-prompts-" <> @assignment["id"]}
+          kinds={[:check, :retirement]}
+          context={
+            %{
+              "check_id" => @assignment["id"],
+              "check_key" => @assignment["source_key"],
+              "check_name" => label(@assignment),
+              "source_id" => @assignment["source_id"]
+            }
           }
-        }
-      />
+        />
+      <% end %>
     </div>
     """
   end
 
+  attr :assignment, :map, required: true
+  attr :values, :map, required: true
+  attr :current, :any, default: nil
+  attr :label, :string, required: true
+
+  defp parameter_values(assigns) do
+    ~H"""
+    <PreviewDetail.facts label={@label}>
+      <tr :for={{key, value} <- Enum.sort(@values)}>
+        <th scope="row">
+          {schema_label(@assignment, key)}<span :if={
+            get_in(@assignment, ["parameter_schema", "fields", key, "unit"])
+          }> ({get_in(@assignment, ["parameter_schema", "fields", key, "unit"])})</span>
+        </th>
+        <td>
+          <span :if={@current}>{parameter_value(@current[key])} → </span>{parameter_value(value)}<strong :if={
+            @current && value != @current[key]
+          }> · Changed</strong>
+        </td>
+      </tr>
+    </PreviewDetail.facts>
+    """
+  end
+
+  defp configuration_subject(assignment) do
+    targets =
+      (assignment["outputs"] || [])
+      |> Enum.map(& &1["target"])
+      |> Enum.filter(&is_map/1)
+      |> Enum.uniq_by(&{&1["kind"], &1["key"]})
+
+    case targets do
+      [target] -> target_label(target)
+      [] -> measured_target(assignment)
+      targets -> "#{length(targets)} declared targets in one shared execution"
+    end
+  end
+
+  defp version(nil), do: "Not yet"
+  defp version(value), do: "v#{value}"
+  defp investigation_path(host, identity), do: InvestigationTrail.path(host, [identity])
+
+  defp configuration_path(filters),
+    do:
+      MondekWeb.InvestigationNavigation.filter_path(
+        :configuration,
+        Map.reject(filters, fn {key, value} -> key == "status" && value == "active" end)
+      )
+
+  defp configuration_fields,
+    do: [
+      {"status", "Inventory", "info"},
+      {"configuration_stage", "Adoption", "clock"},
+      {"environment", "Environment", "globe"},
+      {"runner_id", "Runner", "server"}
+    ]
+
+  defp configuration_filters(params) do
+    filters =
+      for key <- ~w(search environment runner_id page selected_page),
+          value = params[key],
+          is_binary(value) && String.valid?(value) && !String.contains?(value, <<0>>) &&
+            byte_size(value) <= 800 && value != "",
+          into: %{},
+          do: {key, value}
+
+    filters =
+      Map.put(
+        filters,
+        "status",
+        if(params["status"] in ~w(active retired all), do: params["status"], else: "active")
+      )
+
+    if params["configuration_stage"] in ~w(saved prepared active measured),
+      do: Map.put(filters, "configuration_stage", params["configuration_stage"]),
+      else: filters
+  end
+
+  defp configuration_choices("status", _),
+    do: [{"active", "Active checks"}, {"retired", "Retired checks"}, {"all", "All checks"}]
+
+  defp configuration_choices("configuration_stage", _), do: configuration_stage_names()
+
+  defp configuration_choices("runner_id", query),
+    do: Enum.map(Mondek.ObserverFilters.options("runner_id", query), &{&1.key, &1.label})
+
+  defp configuration_choices("environment", query),
+    do:
+      Enum.map(
+        Mondek.OverviewFilters.options("environment", query, nil, :checks),
+        &{&1.key, &1.label}
+      )
+
+  defp configuration_picker(field, value),
+    do:
+      ScalarFilterPicker.draft(
+        configuration_fields(),
+        &configuration_choices(&1, value),
+        field,
+        value
+      )
+
+  defp configuration_selected_label(filters, field) do
+    case field do
+      "runner_id" ->
+        case Mondek.ObserverFilters.options(field, "", {filters[field], ""}) do
+          [item | _] -> item.label
+          _ -> filters[field] || ""
+        end
+
+      "environment" ->
+        case Mondek.OverviewFilters.options(field, "", {filters[field], ""}, :checks) do
+          [item | _] -> item.label
+          _ -> filters[field] || ""
+        end
+
+      _ ->
+        ScalarFilterPicker.label(configuration_choices(field, ""), filters[field])
+    end
+  end
+
+  defp configuration_chips(filters),
+    do:
+      for(
+        {field, name, _} <- configuration_fields(),
+        filters[field] not in [nil, "", "all"],
+        do: %{field: field, name: name, label: configuration_selected_label(filters, field)}
+      )
+
+  defp ready_filters(socket),
+    do: socket |> assign(filter_picker: nil) |> push_event("preview-filter-ready", %{})
+
+  defp patch_configuration_filters(socket, changes),
+    do:
+      {:noreply,
+       push_patch(socket,
+         to:
+           configuration_path(
+             configuration_filters(
+               socket.assigns.filters
+               |> Map.merge(changes)
+               |> Map.delete("page")
+             )
+           )
+       )}
+
   defp configuration_stage_hint("saved"), do: "Waiting for preparation"
   defp configuration_stage_hint("prepared"), do: "Waiting for activation"
   defp configuration_stage_hint("active"), do: "Waiting for measurement"
-  defp configuration_stage_hint("measured"), do: "Complete evidence received"
 
-  defp schema_fields(assigns) do
-    ~H"""
-    <ParameterForm.fields
-      id_prefix={@assignment["id"]}
-      schema={@assignment["parameter_schema"]}
-      values={@draft.params}
-      error={@error}
-      error_id={"error-" <> @assignment["id"]}
-    />
-    """
-  end
+  defp configuration_stage_hint("measured"),
+    do: "Complete evidence arrived; current evidence may be stale"
 
   defp editable?(check),
     do:

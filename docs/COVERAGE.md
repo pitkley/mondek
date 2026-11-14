@@ -2,7 +2,7 @@
 
 ## Operator flow
 
-The Coverage preview at `/next/coverage` starts with declared results and puts gaps first. Add the **Coverage: Needs attention** filter to show results whose coverage is incomplete. Remove the chip to see all declared results. Open a row to see which runners declared it, why a runner was excluded, and whether selected runners are reporting. When a runner has a result, open it directly from that panel. Expand **Runner diagnostics** below the table if you expected a runner to perform one of the listed checks.
+Coverage at `/coverage` starts with declared results and puts gaps first. Add the **Coverage: Needs attention** filter to show results whose coverage is incomplete. Remove the chip to see all declared results. Open a row to see which runners declared it, why a runner was excluded, and whether selected runners are reporting. When a runner has a result, open it directly from that panel. Expand **Runner diagnostics** below the table if you expected a runner to perform one of the listed checks.
 
 Open **Coverage → Intended results** to compare what your code declares with actual measurements, including checks that every runner excludes. Each row represents one intended result for a target and monitored environment. Search or filter by source, monitored environment and coverage state. Open a result to see each declaring runner's placement decision, exclusion reason, measurement state and result/configuration links. A runner filter selects relevant declarations while retaining all observers in their counts. Fresh evidence and healthy results are different: a fresh Critical measurement establishes observation coverage while its incident still needs attention.
 

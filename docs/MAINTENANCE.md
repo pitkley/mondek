@@ -2,9 +2,9 @@
 
 Use **Maintenance** to plan one window over selected checks or targets, or choose **Schedule maintenance** from a check or incident. Give the work a common name, reason, start and end, and review the affected results and exact times before saving. Checks continue collecting evidence throughout. Maintenance holds failure notifications; it does not declare a target healthy, close incidents or pause a runner.
 
-The preview at `/next/maintenance` lists active and upcoming windows by default. Use the search box to find a window or switch to history. Scheduling from an individual incident starts with its scheduled check selected. From a shared incident or monitoring-loss incident, choose the affected checks or targets before reviewing the window. Saved windows and recurring series open in a fly-over. **Open as page** gives the same settings, review controls and history more room. Switching between the two keeps the current draft in the same browser view.
+The page at `/maintenance` lists active and upcoming windows by default. Use the search box to find a window or switch to history. Scheduling from an individual incident starts with its scheduled check selected. From a shared incident or monitoring-loss incident, choose the affected checks or targets before reviewing the window. Saved windows and recurring series open in a fly-over. **Open as page** gives the same settings, review controls and history more room. Switching between the two keeps the current draft in the same browser view.
 
-In the preview's chooser, search and chips narrow the table. Checkboxes and bulk selection add concrete checks or targets to the draft. A selected choice stays visible under **Selected outside this view** when it is off the current page or filtered out. The search itself is not saved as a maintenance rule. You can fill in the window settings before making a selection, and you need at least one selection before previewing a window from the chooser.
+In the maintenance chooser, search and chips narrow the table. Checkboxes and bulk selection add concrete checks or targets to the draft. A selected choice stays visible under **Selected outside this view** when it is off the current page or filtered out. The search itself is not saved as a maintenance rule. You can fill in the window settings before making a selection, and you need at least one selection before previewing a window from the chooser.
 
 ## Choose the scope deliberately
 
@@ -22,7 +22,7 @@ A single target selection can cover several scheduled checks, provided their res
 
 ## Select several checks or targets
 
-The global scheduling page lets you search scheduled checks or monitored targets, with source, monitored-environment and runner filters. Select individual rows, select the current page, or add all matching choices. Changing filters or pages keeps the selection. **Review selected** shows the complete selection across those pages and allows removal. A single-check draft offers **Include more checks or targets** to keep its existing scope while extending the window.
+The global scheduling page lets you search scheduled checks or monitored targets, with source, monitored-environment and runner filters. Select individual rows, select the current page, or add all matching choices. Changing filters or pages keeps the selection. Selected rows outside the current filters or page remain in the same table under **Selected outside this view**, with checkboxes to remove them. A single-check draft offers **Include more checks or targets** to keep its existing scope while extending the window.
 
 **Add all** captures the identities matching at that moment. The search is not a continuing rule. Each captured check or target keeps the membership behavior described above. A runner filter narrows target discovery only: a selected target still includes matching results from other runners. Zero-match selections remain visible after disappearance. A target selection covers later exact matches from replacement observers; a retired check instance stays inspectable and does not automatically select its replacement.
 
@@ -43,6 +43,8 @@ Saved UTC instants define execution. Controller restarts and browser timezone ch
 Active and upcoming windows appear in the maintenance list; completed and cancelled windows remain in history. A saved window's scope is fixed; cancel it and create another window to change its scope. Upcoming windows can be rescheduled. Once a window has started, its start and timezone are also fixed; adjust its end, name or reason, or end it early. Every change records the local operator, revision and reason.
 
 Saving requires a reviewed preview. If the window or affected membership changed, review the current state again. Drafts survive live updates and reconnect, but a previous preview does not silently authorize a changed proposal. Cancellation also checks the reviewed revision.
+
+Open a matching result to inspect its evidence, incident or runner without leaving the maintenance editor. The related evidence uses the shared investigation stack. An originating maintenance fly-over temporarily becomes the background editor; closing the investigation restores that fly-over, its list filters and the original draft. Related evidence can also be expanded as a page while the maintenance form remains retained and inactive. Returning preserves the captured review; a remote revision still requires another review. Reconnect restores the bounded proposal and its original revision but requires a new preview. Changing the seeded check, result or copied series starts a separate draft.
 
 Overlapping windows remain independent. Ending one does not end another window or an incident acknowledgement. Held delivery work is reconsidered after changes, using its existing occurrence, payload and retry budget. Exhausted or already delivered notifications are not automatically restarted. An HTTP attempt already underway can finish.
 

@@ -22,7 +22,7 @@ Manual retry requires a reason and reuses the original immutable notification an
 
 ## URLs and verification
 
-The canonical pages are `/runners`, `/runners/:id`, `/notifications` and `/notifications/:id`. Older `/runners?runner_id=…` links redirect to the exact runner. Old notification status/page query links redirect to Notifications. An old fragment-only `/runners#notifications` bookmark opens Runners; use the Notifications navigation link.
+The inventories are `/runners` and `/notifications`. A row opens its typed investigation over the current host; direct details also have `/runners/:id` and `/notifications/:id` with `/full` for dedicated pages. Their canonical bodies and controls are shared. Browser URLs may change during this experimental phase; obsolete fragment or query redirects are not retained.
 
 Read-only API endpoints mirror these inventories and exact details at `/api/v1/runners`, `/api/v1/runners/:id`, `/api/v1/notifications` and `/api/v1/notifications/:id`. Runner lists now return pages (25 by default, maximum 50) with complete counts, rather than an unpaged first-100 subset. Follow `page` and `page_size`; collection and contact have separate fields. Runner telemetry is an allowlisted, bounded projection. Missing details return HTTP 404.
 
