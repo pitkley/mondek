@@ -667,11 +667,11 @@ Apache License
    limitations under the License.
 ```
 
-## hex:ecto 3.14.2
+## hex:ecto 3.14.3
 
 License: (Apache-2.0). Scope: controller.
 
-Source: https://repo.hex.pm/tarballs/ecto-3.14.2.tar (sha256:25d60b8c816a07d19d85b80bdf60978bd8b102209dda198d768cd7c6745339a6)
+Source: https://repo.hex.pm/tarballs/ecto-3.14.3.tar (sha256:da2548bd3ced0f56c27d54255389bbbb8f110150ce15cffc95ec0cafa364465c)
 
 ### README.md#license
 
