@@ -458,3 +458,33 @@ button,input { font: inherit; }
   border-radius: 6px;
 }
 .preview-ack-effect { margin: 0 0 8px; }
+
+.preview-check-details {
+  display: flow-root;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.preview-check-details > * + * { margin-block-start: 8px; }
+.preview-check-details :is(h1,h2,h3,h4,h5,h6,strong) { font-weight: 600; }
+.preview-check-details :is(ol,ul) { padding-inline-start: 1.5em; }
+.preview-check-details ol { list-style: decimal; }
+.preview-check-details ul { list-style: disc; }
+.preview-check-details blockquote {
+  border-inline-start: 3px solid var(--preview-line);
+  padding-inline-start: 10px;
+}
+.preview-check-details :is(code,pre) {
+  font: 13px/1.5 ui-monospace, monospace;
+  background: var(--preview-muted);
+  border-radius: 4px;
+}
+.preview-check-details code { padding-inline: 3px; }
+.preview-check-details pre { padding: 8px; white-space: pre-wrap; }
+.preview-check-details pre code { padding: 0; }
+.preview-check-details table { border-collapse: collapse; }
+.preview-check-details table :is(th,td) {
+  width: auto;
+  padding: 4px 8px;
+  border: 1px solid var(--preview-line);
+}
+.preview-check-details table th { background: var(--preview-muted); }

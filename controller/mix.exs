@@ -26,6 +26,7 @@ defmodule Mondek.MixProject do
       {:phoenix, "~> 1.8.0"},
       {:phoenix_live_view, "~> 1.1"},
       {:phoenix_html, "~> 4.4"},
+      {:earmark_parser, "~> 1.4.46"},
       {:phoenix_ecto, "~> 4.6"},
       {:ecto_sql, "~> 3.13"},
       {:postgrex, ">= 0.0.0"},
