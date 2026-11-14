@@ -1,33 +1,25 @@
-# Mondek 0.0.1a3
+# Mondek 0.0.1
 
-This experimental alpha adds optional PostgreSQL TLS and production webhooks, and improves database configuration and packaged startup. The Python SDK version is `0.0.1a3`, the controller version is `0.0.1-alpha.3`, and the intended Git/image tags are `v0.0.1a3` and `0.0.1a3`. Use matching controller/SDK releases or build both from the same reviewed source revision. Mondek remains experimental, with no stable compatibility or production-readiness guarantee.
+This release replaces the operator interface with the Pearl design. The Python SDK and controller versions are both `0.0.1`; the intended Git tag is `v0.0.1` and controller image tag is `0.0.1`. These notes describe the release candidate until publication completes. Mondek remains experimental, with no stable compatibility or production-readiness guarantee; removing the prerelease suffix does not change that scope.
 
-## Security updates
+## Operator interface
 
-The controller now requires Bandit 1.14.1 and Phoenix HTML 4.4.0 or compatible newer versions, addressing the advisories reported against the previous locked versions. Updated dependency notices and source evidence are included. Keep the dependency security audit in the release qualification gates.
+The new interface replaces the legacy UI at the root URL. A compact overview combines results, monitoring gaps and open incidents. Incidents, checks, coverage, maintenance, configuration, discovery, runners and notification delivery use consistent tables, status colors, filters and pagination.
 
-## PostgreSQL connections
+Search accepts plain text and editable filter chips, with keyboard navigation. Related incidents, contributing results and evidence open in stacked investigation panels. Panels and full detail pages share their entity content, including acknowledgement controls, maintenance settings, delivery evidence and histories. Check details support rendered Markdown with unsafe HTML and links excluded.
 
-The controller supports plain PostgreSQL and optional TLS through `PGSSLMODE=disable|require|verify-ca|verify-full`. Plain connections remain the default. Verified modes support a private CA through `PGSSLROOTCERT`; `require` enforces encryption without authenticating the server, while `verify-full` verifies both the certificate chain and hostname. TLS modes never fall back to plaintext. Outside deployment mode, Ecto's `DATABASE_URL` `ssl=true` option remains available; conflicting TLS settings and unsupported URL `sslmode` are rejected. See [database setup](../deploy/README.md#optional-postgresql-tls).
+Coverage separates declared results from runner diagnostics so unresolved declarations can be reviewed without mistaking them for measurements. Current health, monitoring freshness, retained evidence and notification controls remain distinct. Webhook destination secrets are excluded from operator views.
 
-`MONDEK_DATABASE_POOL_SIZE` now configures connections per controller instance, with the existing default of 12. It must be a positive integer. Production builds default to the standard PostgreSQL port 5432 and require an explicit database name through `PGDATABASE` or, outside deployment mode, `DATABASE_URL`. Development and test database defaults remain unchanged.
+## Security update
 
-## Webhooks and Microsoft Teams
+The locked Ecto dependency is updated to 3.14.3 to address CVE-2026-118391, unbounded query-cache growth from interpolated JSON paths, `splice/1` lists and `constant/1` values. Dependency notices and inventories are regenerated for the patched version. The dependency advisory audit remains a release gate.
 
-Production notifications can use a generic webhook destination with a versioned Mondek JSON document or a custom JSON template. A shipped Microsoft Teams Adaptive Card template uses the same renderer and transport. Templates support typed field references, string concatenation, conditionals and bounded iteration, with JSON escaping and rendering limits; they do not execute application code. A local preview command renders lifecycle examples or supplied documents without starting services or sending requests. See [webhooks and Teams](WEBHOOK-NOTIFICATIONS.md).
+## Upgrading
 
-One installation-level destination receives new notifications. Destination IDs and frozen delivery snapshots provide a foundation for future routing, but this release does not add routing, fan-out or target management. Credentials and secret webhook URLs stay in private runtime configuration. Queued notifications retain their original body and destination binding; old destination definitions can remain configured while those queues drain. Template failures preserve admitted monitoring evidence and become inspectable exhausted deliveries. Delivery is bounded and at least once, so duplicate delivery remains possible. HTTP acceptance does not prove that a downstream workflow posted a card or that a person read it.
+Back up PostgreSQL and each runner's durable state before replacing artifacts. Use matching controller/SDK releases or build both from the same reviewed source revision. Preserve runner installation/state identities and verify fresh adopted measurements after the update. This release adds no database schema migration; packaged startup continues to apply pending migrations automatically. See [upgrading](UPGRADING.md).
 
-## Packaged startup and documentation
+Browser routes have changed. The legacy interface and `/next` prefix are removed rather than redirected. Existing bookmarks and links in previously sent notifications may no longer resolve; open the root interface and find the relevant entity again. Stored measurements, incidents and configuration history are retained.
 
-Packaged startup logs a concise migration count at INFO; detailed migration instructions move to DEBUG. The runtime image includes the SCTP library expected by Erlang, removing the missing `libsctp.so.1` warning. Migration errors continue to prevent startup.
+For installations upgrading from 0.0.1a2, the already published [0.0.1a3 release](https://github.com/pitkley/mondek/releases/tag/v0.0.1a3) also introduced PostgreSQL TLS, production webhooks and explicit production database defaults. Directly launched controllers must supply the intended database name and port; retain old webhook destination definitions and credentials until queued work drains. The [upgrade guide](UPGRADING.md) records these requirements.
 
-Installation documentation now reflects published GHCR images and PyPI packages, keeps local builds as a contributor alternative, and uses generic infrastructure and gateway examples.
-
-## Upgrade notes
-
-Back up PostgreSQL and each runner's durable state before upgrading. This release introduces no database schema migration. Startup continues to apply pending migrations automatically. Keep runner installation/state identities and verify fresh adopted measurements after replacing matching controller/SDK artifacts; see [upgrading](UPGRADING.md).
-
-Directly launched production controllers that previously relied on development defaults must explicitly set `PGPORT=55432` and `PGDATABASE=mondek_dev` if those remain their intended database settings. Otherwise set the actual database name and use the production port default of 5432. The maintained Compose recipes already supply both settings.
-
-Existing SMTP and local recording-webhook occurrences retain their formats and destinations. Keep inactive transport credentials and old webhook destination definitions available until their queued work drains. Authentication gateways remain necessary for externally accessible installations: Mondek has no built-in operator authentication or permission management. Review the [controller access boundary](CONTROLLER-AUTH.md) and the [acceptance coverage map](ACCEPTANCE-COVERAGE.md) for operational and verification limits. The sample runner image remains a demo, not a generic consumer deployment base.
+Externally accessible installations still require an authentication gateway: Mondek has no built-in operator authentication or permission management. Review the [access boundary](CONTROLLER-AUTH.md) and [acceptance coverage](ACCEPTANCE-COVERAGE.md). Notification routing and fan-out remain outside this release. The sample runner image remains a demo, not a generic consumer deployment base.
