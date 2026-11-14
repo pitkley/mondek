@@ -1,6 +1,6 @@
 # Install the Mondek server
 
-Use Docker with Compose. This recipe runs only the controller and PostgreSQL, with persistent database storage and no demo checks or test receiver. It needs no source build, Nix or Python on the controller host. The recipe uses the published 0.0.1a2 image. Set MONDEK_IMAGE to select another version or a locally built controller image.
+Use Docker with Compose. This recipe runs only the controller and PostgreSQL, with persistent database storage and no demo checks or test receiver. It needs no source build, Nix or Python on the controller host. The recipe uses the published 0.0.1 image. Set MONDEK_IMAGE to select another version or a locally built controller image.
 
 Copy compose.yaml and .env.example into an installation directory, then:
 
