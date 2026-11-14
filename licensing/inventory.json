@@ -124,11 +124,11 @@
       "scope": "controller",
       "sources": [
         {
-          "integrity": "sha256:25d60b8c816a07d19d85b80bdf60978bd8b102209dda198d768cd7c6745339a6",
-          "url": "https://repo.hex.pm/tarballs/ecto-3.14.2.tar"
+          "integrity": "sha256:da2548bd3ced0f56c27d54255389bbbb8f110150ce15cffc95ec0cafa364465c",
+          "url": "https://repo.hex.pm/tarballs/ecto-3.14.3.tar"
         }
       ],
-      "version": "3.14.2"
+      "version": "3.14.3"
     },
     {
       "ecosystem": "hex",

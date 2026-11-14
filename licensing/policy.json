@@ -14,7 +14,7 @@
       "license": "Apache-2.0",
       "reason": "Hex includes an explicit README License section and copyright but omits the full license file."
     },
-    "ecto@3.14.2": {
+    "ecto@3.14.3": {
       "readme_section": true,
       "license": "Apache-2.0",
       "reason": "Hex includes an explicit README License section and copyright but omits the full license file."
