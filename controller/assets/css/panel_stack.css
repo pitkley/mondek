@@ -1,0 +1,76 @@
+/*! Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com> */
+/*! SPDX-License-Identifier: Apache-2.0 */
+.preview-panel { position: fixed; z-index: 20; inset: 0 0 0 auto; width: min(520px, calc(100% - 24px)); background: var(--pf-t--global--background--color--primary--default, #fff); overflow-y: auto; overscroll-behavior: contain; box-shadow: -8px 0 28px rgb(0 0 0 / 18%); min-width: 0; border: 1px solid var(--pf-t--global--border--color--default, #d6d9df); }
+.preview-panel[data-panel-path] { width: min(var(--panel-stack-width, 680px), calc(100% - 24px)); }
+.preview-panel-tools { position: sticky; top: 0; z-index: 1; padding: 8px 0; margin-bottom: 12px; background: var(--pf-t--global--background--color--primary--default, #fff); }
+.preview-panel-back { margin: 0; }
+.preview-panel-stack { display: flex; flex-wrap: wrap; gap: 6px; }
+.preview-panel-stack a {
+  display: grid;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--pf-t--global--border--color--default, #d6d9df);
+  border-radius: 6px;
+  background: var(--pf-t--global--background--color--primary--default, #fff);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.preview-panel-stack a span { color: var(--pf-t--global--text--color--subtle, #4d5563); }
+@media (max-width: 700px) {
+  .preview-panel, .preview-panel[data-panel-path] { width: 100%; }
+}
+.preview-panel-back-stack { display: none; }
+.preview-panel-exit { z-index: 21; pointer-events: none; }
+@media (min-width: 960px) {
+  @media (prefers-reduced-motion: no-preference) {
+    #overview-panel[data-panel-path],
+    .preview-panel-back-card { transition: translate 140ms ease-out; }
+    .preview-panel-snapshot,
+    #overview-panel[data-panel-path] > .pf-v6-c-card__body { transition: filter 140ms ease-out; }
+  }
+  .preview-panel-stack { display: none; }
+  .preview-panel-back-stack { display: block; }
+  .preview-panel-back-card {
+    position: fixed;
+    z-index: calc(20 - var(--depth));
+    inset-block: calc(8px * var(--depth));
+    inset-inline-end: calc(var(--panel-stack-step, 48px) * var(--depth));
+    width: var(--panel-stack-width, 680px);
+    border: 1px solid var(--pf-t--global--border--color--default, #d6d9df);
+    border-radius: 8px;
+    background: var(--pf-t--global--background--color--primary--default, #fff);
+    box-shadow: -5px 0 18px rgb(0 0 0 / 14%);
+    text-decoration: none;
+    overflow: hidden;
+  }
+  .preview-panel-snapshot {
+    height: 100%;
+    overflow: hidden;
+  }
+  .preview-panel-snapshot:empty { display: none; }
+  .preview-panel-back-card > .preview-panel-snapshot {
+    filter: blur(2px);
+  }
+  .preview-panel-back-hit { position: absolute; z-index: 2; inset: 0; border-radius: inherit; }
+  .preview-panel-back-hit > span { display: none; }
+  .preview-panel-back-hit:focus-visible { outline-offset: -2px; }
+  .preview-panel-back-card:has(.preview-panel-back-hit[data-revealed]) {
+    z-index: 19;
+  }
+  .preview-panel-back-card:has(.preview-panel-back-hit[data-revealed])
+    > .preview-panel-snapshot { filter: none; }
+  .preview-panel-back-stack:has(.preview-panel-back-hit[data-revealed]) + #overview-panel {
+    translate: calc(var(--panel-stack-width, 680px) - var(--panel-stack-step, 48px)) 0;
+  }
+  .preview-panel-back-stack:has(.preview-panel-back-hit[data-revealed]) + #overview-panel > .pf-v6-c-card__body {
+    filter: blur(2px);
+    pointer-events: none;
+  }
+  .preview-panel-back-stack:has(.preview-panel-back-card:nth-child(2) .preview-panel-back-hit[data-revealed]) > .preview-panel-back-card:first-child {
+    translate: calc(var(--panel-stack-width, 680px) - var(--panel-stack-step, 48px)) 0;
+  }
+}
+@media (max-width: 959px) {
+  .preview-incident-panel .preview-panel-tools:has(.preview-panel-stack) { flex-wrap: wrap; }
+  .preview-panel-stack { flex-basis: 100%; order: 1; }
+}
