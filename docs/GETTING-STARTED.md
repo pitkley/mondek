@@ -4,10 +4,10 @@ This walkthrough starts an empty local Mondek server, creates your own Python mo
 
 ## Installed artifacts
 
-Start the published alpha server using [the two-service image recipe](../deploy/README.md), then use Python 3.13+ and uv on the runner host:
+Start the published server using [the two-service image recipe](../deploy/README.md), then use Python 3.13+ and uv on the runner host:
 
 ```sh
-uv tool install mondek==0.0.1a2
+uv tool install mondek==0.0.1
 mondek-runner init my-monitoring
 cd my-monitoring
 uv sync
@@ -50,14 +50,14 @@ export MONDEK_PROJECT="$HOME/my-monitoring"
 uv build --project runner --out-dir .local/sdk
 uv run --project runner --locked mondek-runner init "$MONDEK_PROJECT" --sdk-path ./runner
 mkdir -p "$MONDEK_PROJECT/vendor"
-cp .local/sdk/mondek-0.0.1a2-py3-none-any.whl "$MONDEK_PROJECT/vendor/"
+cp .local/sdk/mondek-0.0.1-py3-none-any.whl "$MONDEK_PROJECT/vendor/"
 ```
 
 Generation creates `src/monitoring/app.py`, tests and a `sample-backlog.txt` input. It starts no runner or registration. The generator initially selects an editable SDK checkout for development. For this portable installation, replace its entire `[tool.uv.sources.mondek]` block in your project's pyproject.toml with:
 
 ```toml
 [tool.uv.sources.mondek]
-path = "vendor/mondek-0.0.1a2-py3-none-any.whl"
+path = "vendor/mondek-0.0.1-py3-none-any.whl"
 ```
 
 Remove the generated `editable = true` line from that block. Then install the project and its retained SDK wheel:

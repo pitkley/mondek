@@ -1,6 +1,6 @@
 # Mondek 0.0.1
 
-This release replaces the operator interface with the Pearl design. The Python SDK and controller versions are both `0.0.1`; the intended Git tag is `v0.0.1` and controller image tag is `0.0.1`. These notes describe the release candidate until publication completes. Mondek remains experimental, with no stable compatibility or production-readiness guarantee; removing the prerelease suffix does not change that scope.
+This release replaces the operator interface with the Pearl design. The Python SDK and controller versions are both `0.0.1`; the Git tag is `v0.0.1` and controller image tag is `0.0.1`. Mondek remains experimental, with no stable compatibility or production-readiness guarantee; removing the prerelease suffix does not change that scope.
 
 ## Operator interface
 
