@@ -12,6 +12,7 @@ defmodule MondekWeb.PreviewResultDetail do
   attr :incident_path, :any, required: true
   attr :peer_path, :any, required: true
   attr :full_result_path, :string, default: nil
+  attr :full_result_patch, :boolean, default: false
   attr :full_page, :boolean, default: false
   attr :heading_id, :string, default: "overview-panel-title"
   attr :id_prefix, :string, default: ""
@@ -117,7 +118,10 @@ defmodule MondekWeb.PreviewResultDetail do
           label="Older measurements"
         />
         <div class="preview-recorded-actions">
-          <.link navigate={@full_result_path}>View more measurements</.link>
+          <.link
+            patch={if @full_result_patch, do: @full_result_path}
+            navigate={if !@full_result_patch, do: @full_result_path}
+          >View more measurements</.link>
         </div>
       </details>
     </PreviewDetail.card>

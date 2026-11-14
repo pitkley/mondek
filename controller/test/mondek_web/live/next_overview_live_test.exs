@@ -49,7 +49,7 @@ defmodule MondekWeb.NextOverviewLiveTest do
 
     assert has_element?(
              view,
-             "#overview-panel a[href='/next/checks/#{id}/full#{query}']",
+             "#overview-panel a[href*='surface=page']",
              "Open as page"
            )
 
@@ -95,7 +95,7 @@ defmodule MondekWeb.NextOverviewLiveTest do
              "Measured CRIT"
            )
 
-    assert has_element?(fly_over, "a[href='#{full_path}']", "View more measurements")
+    assert has_element?(fly_over, "a[href*='surface=page']", "View more measurements")
 
     {:ok, full, _} = live(build_conn(), full_path)
     assert has_element?(full, table <> " tr:nth-child(6)")
@@ -150,7 +150,7 @@ defmodule MondekWeb.NextOverviewLiveTest do
 
     assert has_element?(
              view,
-             "a[href='/next/results/#{group["id"]}/full?search=Parcel']",
+             "a[href*='surface=page']",
              "Open as page"
            )
 
@@ -173,7 +173,7 @@ defmodule MondekWeb.NextOverviewLiveTest do
     [incident] = Monitoring.list_incidents(%{}, now).items
     id = incident["id"]
     assert has_element?(view, "#preview-open-incidents", "Unacknowledged")
-    overview_incident = "/next?incident=health%3A#{id}&search=Parcel"
+    overview_incident = MondekWeb.InvestigationTrail.path("/next?search=Parcel", [{"health", id}])
     view |> element("#overview-incident-health-#{id}") |> render_click()
     assert_patch(view, overview_incident)
     assert has_element?(view, "#preview-overview-card")
@@ -182,7 +182,10 @@ defmodule MondekWeb.NextOverviewLiveTest do
 
     assert_patch(
       view,
-      overview_incident |> String.replace("&search=", "&result=#{group["id"]}&search=")
+      MondekWeb.InvestigationTrail.path("/next?search=Parcel", [
+        {"health", id},
+        {"result", group["id"]}
+      ])
     )
 
     assert has_element?(view, "#overview-panel", "Check result")
