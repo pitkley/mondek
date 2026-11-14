@@ -79,7 +79,7 @@ defmodule MondekWeb.PreviewFilters do
             >×</button>
           </span>
         <% end %>
-        <span :if={@search} class="preview-filter-chip">
+        <span :if={@search not in [nil, ""]} class="preview-filter-chip">
           <span class="preview-search-token" title={@search}>{@search}</span>
           <.link
             :if={@clear_search}
