@@ -4,6 +4,8 @@ This inventory maps the maintained commands in [scripts/mondek](../scripts/monde
 
 See [the CI entry guide](CI.md) for job failures, retained evidence and the image build graph.
 
+The native controller suite includes `test/mondek_web/mcp_test.exs`, which runs the read-only MCP protocol against PostgreSQL and a real HTTP server with a Python stdio subprocess. Runner `test_mcp.py` exercises EOF, bounded input/output and refused redirects. These tests are part of ordinary native CI; they do not exercise hosted ChatGPT/Claude accounts. See [agent integration](AGENT-INTEGRATION.md).
+
 ## Default CI
 
 The **Unit tests and checks** (`checks`) job runs locked Python and PostgreSQL tests, static/installed-SDK checks, license/credit policy and Hex advisory auditing in one cached `ci` devenv profile, with the pinned language runtimes and editor servers disabled. It uses devenv 2.3.1 and a 35-minute limit. See [license collection](LICENSING.md).

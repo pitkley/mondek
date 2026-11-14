@@ -16,6 +16,7 @@ defmodule MondekWeb.Endpoint do
   plug Plug.Static, at: "/", from: :mondek, gzip: false, only: ~w(assets favicon.ico)
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
+  plug MondekWeb.MCPPlug
 
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
