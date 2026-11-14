@@ -174,6 +174,15 @@ defmodule MondekWeb.MaintenanceSeriesLiveTest do
     assert has_element?(view, "#maintenance-repeat-start-fold")
     refute has_element?(view, "#maintenance-start-mode option[value='now']")
 
+    render_change(view, "edit", %{
+      "repeat" => "none",
+      "recurrence" => %{"interval" => "1", "_unused_interval" => ""}
+    })
+
+    refute has_element?(view, "#maintenance-repeat-ending")
+    assert has_element?(view, "#maintenance-start-mode option[value='now']")
+    view |> form("#maintenance-form", repeat: "weekly") |> render_change()
+
     view
     |> form("#maintenance-form", window: values(), recurrence: %{count: "26"})
     |> render_submit()
@@ -311,6 +320,41 @@ defmodule MondekWeb.MaintenanceSeriesLiveTest do
     recovered |> form("#maintenance-form") |> render_submit()
     assert has_element?(recovered, "#maintenance-series-preview-summary", "4 windows")
     save(recovered)
+  end
+
+  test "the preview series shares copy, occurrence and reviewed cancellation controls" do
+    series = series(3)
+    base = "/next/maintenance/series/#{series["id"]}"
+    query = "?status=all"
+    {:ok, view, _} = live(build_conn(), base <> query)
+
+    assert has_element?(view, "#overview-panel #maintenance-series-copy")
+    assert has_element?(view, "#overview-panel #maintenance-series-windows")
+    view |> element("#maintenance-series-cancel") |> render_click()
+
+    view
+    |> form("#maintenance-series-cancel-form", reason: "Postpone upcoming work")
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "#overview-panel #maintenance-series-cancel-summary",
+             "3 upcoming windows"
+           )
+
+    view |> element("#overview-panel a", "Open as page") |> render_click()
+    assert_patch(view, base <> "/full" <> query)
+    refute has_element?(view, "#overview-panel")
+    assert has_element?(view, "#maintenance-series-cancel-summary", "3 upcoming windows")
+
+    view |> element("a", "Open fly-over") |> render_click()
+    assert_patch(view, base <> query)
+
+    assert has_element?(
+             view,
+             "#overview-panel #maintenance-series-cancel-summary",
+             "3 upcoming windows"
+           )
   end
 
   test "upcoming cancellation preserves draft across recovery and rejects an edited child" do

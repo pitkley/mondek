@@ -39,8 +39,11 @@ defmodule Mondek.OverviewFilters do
   def put(filters, "target", {key, kind}),
     do: Map.merge(filters, %{"target_key" => key, "target_kind" => kind})
 
-  def options(field, search, selected \\ nil) do
-    streams = from(s in ResultStream, where: is_nil(s.retired_at))
+  def options(field, search, selected \\ nil, mode \\ :overview) do
+    streams =
+      if mode == :checks,
+        do: from(s in ResultStream),
+        else: from(s in ResultStream, where: is_nil(s.retired_at))
 
     declarations =
       from(d in CoverageDeclaration,
@@ -84,8 +87,10 @@ defmodule Mondek.OverviewFilters do
           }
       end
 
+    entries = if mode == :checks, do: streams, else: union_all(streams, ^declarations)
+
     query =
-      from(o in subquery(union_all(streams, ^declarations)),
+      from(o in subquery(entries),
         where: not is_nil(o.key) and not is_nil(o.kind)
       )
 

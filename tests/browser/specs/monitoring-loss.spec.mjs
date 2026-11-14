@@ -314,10 +314,11 @@ test('overview keeps independently unacknowledged health and monitoring problems
     await expect(lossRow.getByRole('link')).toBeFocused();
     await lossRow.getByRole('link').click();
     await expect(page.locator('main')).toContainText('Collection unavailable');
-    await page.getByRole('link', {name: 'Open current result evidence'}).click();
+    const lossURL = page.url();
+    await incidentPanel.getByRole('link', {name: 'View latest check result'}).click();
     await expect(page.locator('#overview-panel')).toContainText('Collection unavailable');
-    await page.getByRole('link', {name: /Back to incident/}).click();
-    await expect(page).toHaveURL(new RegExp(`/next/incidents/loss/${loss.id}\\?type=loss$`));
+    await page.locator('#overview-panel [data-overview-close]').click();
+    await expect(page).toHaveURL(lossURL);
     await connected(page);
     await page.getByRole('link', {name: /Back to incidents/}).click();
     const typeChip = page.getByRole('button', {name: 'Edit Type filter: Monitoring loss'});

@@ -55,7 +55,23 @@ defmodule MondekWeb.Router do
     pipe_through [:browser, :preview]
     live "/", NextOverviewLive, :index
     live "/results/:id", NextOverviewLive, :result
+    live "/results/:id/full", NextOverviewLive, :result_page
     live "/expected/:id", NextOverviewLive, :expected
+    live "/expected/:id/full", NextOverviewLive, :expected
+    live "/checks", NextOverviewLive, :checks
+    live "/checks/:id", NextOverviewLive, :checks_result
+    live "/checks/:id/full", NextOverviewLive, :checks_result_page
+    live "/coverage", NextOverviewLive, :coverage
+    live "/coverage/diagnostics/:id", NextOverviewLive, :coverage_diagnostic
+    live "/coverage/diagnostics/:id/full", NextOverviewLive, :coverage_diagnostic
+    live "/coverage/:id", NextOverviewLive, :coverage_result
+    live "/coverage/:id/full", NextOverviewLive, :coverage_result
+    live "/maintenance", MaintenanceLive, :index
+    live "/maintenance/new", MaintenanceLive, :new
+    live "/maintenance/series/:id/full", MaintenanceLive, :series
+    live "/maintenance/series/:id", MaintenanceLive, :series
+    live "/maintenance/:id/full", MaintenanceLive, :edit
+    live "/maintenance/:id", MaintenanceLive, :edit
     live "/incidents", NextIncidentsLive, :index
     live "/incidents/health/:id", NextIncidentsLive, :health
     live "/incidents/loss/:id", NextIncidentsLive, :loss

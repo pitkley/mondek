@@ -76,3 +76,9 @@ Source-defined check groups organize browsing only; exact targets remain visible
 ## Page ownership
 
 OverviewLive, ChecksLive, ResultLive, IncidentsLive, IncidentLive, ConfigurationLive and GuideLive own their respective route state, event handlers and bounded refresh queries. Shared evidence/presentation functions live in MonitoringUI and the existing domain components. Keep page-specific drafts and controls in their owning LiveView rather than growing another multipage dispatcher. Pages intentionally refresh on a one-second timer; they do not subscribe to the high-volume monitoring broadcast only to discard it. Explicit actions still refresh immediately, and clock/freshness updates remain independent of source traffic.
+
+## Detail surfaces
+
+Use the same entity detail body in the fly-over and full page. Shells own headings, layout, focus and navigation. The entity body owns facts, relationships, errors and actions. Entity state and permissions determine which actions are available. A compact fly-over may start with fewer history rows if the rest are reachable in place. Preserve the owning LiveView’s draft and validated return context when switching presentation. Keep only the active body interactive.
+
+Every new or changed preview detail pair must include a LiveView parity test against the same persisted entity in both routes. Scope assertions to the active detail body and assert the expected sections, evidence, relationship links and eligible actions in each. Include a representative actionable state when the entity supports actions. Assert intentional differences separately, including how to reach any rows collapsed initially. Compare capabilities rather than whole HTML, route strings that legitimately differ, or volatile timestamps. When adding a capability to a shared body, extend the corresponding parity test.

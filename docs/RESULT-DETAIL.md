@@ -1,6 +1,6 @@
 # Reading a result
 
-Result detail starts with the monitored target, its environment and the runner that observes it. The main panel presents the last confirmed measurement: its verdict, the check author's summary, the original measurement age and any diagnostic details. Details are expanded and rendered as plain text, preserving line breaks without executing HTML or interpreting Markdown. Long explanations wrap and have a keyboard-accessible scrolling area.
+Result detail starts with the monitored target, its environment and the runner that observes it. The main panel presents the last confirmed measurement: its verdict, the check author's summary, the original measurement age and any diagnostic details. Details are expanded by default. The original UI shows them as plain text with preserved line breaks and a keyboard-accessible scrolling area for long explanations. In the preview, check details support Markdown formatting. Links and images appear as text, and raw HTML stays inert. The fly-over initially shows four previous measurements and can expand older measurements in place. The full result page shows the recent history together.
 
 ## Health and collection are separate
 

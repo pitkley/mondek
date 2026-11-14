@@ -272,7 +272,8 @@ defmodule Mondek.Coverage do
       (NOT ($1::jsonb ? 'target_key') OR target_key=$1::jsonb->>'target_key') AND
       (NOT ($1::jsonb ? 'runner_id') OR matches_runner) AND
       (NOT ($1::jsonb ? 'id') OR id=$1::jsonb->>'id') AND
-      (NOT ($1::jsonb ? 'status') OR status=$1::jsonb->>'status') AND
+      (NOT ($1::jsonb ? 'status') OR status=$1::jsonb->>'status' OR
+        ($1::jsonb->>'status'='attention' AND status<>'observed')) AND
       (NOT ($1::jsonb ? 'search') OR matches_search)
   )
   """
@@ -399,6 +400,16 @@ defmodule Mondek.Coverage do
       )
 
     %{"items" => rows, "page" => page, "page_size" => @page_size, "total" => count["total"]}
+  end
+
+  def diagnostic(id, at) do
+    case query(
+           @declarations <> "SELECT * FROM classified WHERE NOT scope_resolved AND id::text=$3",
+           [%{}, at, id]
+         ) do
+      [item] -> observer_public(item)
+      [] -> nil
+    end
   end
 
   def diagnostics(filters \\ %{}, at \\ Monitoring.now()) do

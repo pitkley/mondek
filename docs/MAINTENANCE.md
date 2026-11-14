@@ -2,6 +2,10 @@
 
 Use **Maintenance** to plan one window over selected checks or targets, or choose **Schedule maintenance** from a check or incident. Give the work a common name, reason, start and end, and review the affected results and exact times before saving. Checks continue collecting evidence throughout. Maintenance holds failure notifications; it does not declare a target healthy, close incidents or pause a runner.
 
+The preview at `/next/maintenance` lists active and upcoming windows by default. Use the search box to find a window or switch to history. Scheduling from an individual incident starts with its scheduled check selected. From a shared incident or monitoring-loss incident, choose the affected checks or targets before reviewing the window. Saved windows and recurring series open in a fly-over. **Open as page** gives the same settings, review controls and history more room. Switching between the two keeps the current draft in the same browser view.
+
+In the preview's chooser, search and chips narrow the table. Checkboxes and bulk selection add concrete checks or targets to the draft. A selected choice stays visible under **Selected outside this view** when it is off the current page or filtered out. The search itself is not saved as a maintenance rule. You can fill in the window settings before making a selection, and you need at least one selection before previewing a window from the chooser.
+
 ## Choose the scope deliberately
 
 - **This scheduled check.**

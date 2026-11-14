@@ -395,6 +395,122 @@ defmodule Mondek.Inspection do
     }
   end
 
+  defmacrop result_urgency(retired, health, freshness) do
+    quote do
+      fragment(
+        "CASE WHEN ? THEN 0 WHEN ? = 'CRIT' THEN 5 WHEN ? = 'WARN' THEN 4 WHEN ? <> 'fresh' OR ? IS NULL THEN 3 WHEN ? = 'UNKNOWN' THEN 2 ELSE 1 END",
+        unquote(retired),
+        unquote(health),
+        unquote(health),
+        unquote(freshness),
+        unquote(health),
+        unquote(health)
+      )
+    end
+  end
+
+  def preview_checks(filters, at, page_size \\ 30) do
+    query = base_streams() |> stream_filters(filters, at)
+
+    query =
+      Enum.reduce(
+        [{"target_kind", "kind"}, {"target_key", "key"}],
+        query,
+        fn {filter, key}, query ->
+          if value = filters[filter],
+            do:
+              from([s, a, r] in query, where: fragment("?->>?::text", s.target, ^key) == ^value),
+            else: query
+        end
+      )
+
+    query =
+      if group = filters["group"] do
+        from([s, a, r] in query, where: browse_identity_id(browse_identity(s, a)) == ^group)
+      else
+        query
+      end
+
+    {page, size, total} = page(query, Map.put(filters, "page_size", page_size))
+
+    items =
+      Repo.all(
+        from [s, a, r] in query,
+          order_by: [
+            desc:
+              result_urgency(
+                not is_nil(s.retired_at),
+                measured_health(s),
+                knowledge(s, a, r, ^at)
+              ),
+            asc:
+              fragment("lower(COALESCE(?->>'label', ?->>'key', ?))", s.target, s.target, s.label),
+            asc: a.label,
+            asc: s.label,
+            asc: r.label,
+            asc: s.id
+          ],
+          offset: ^((page - 1) * size),
+          limit: ^size,
+          select: {s, a, r, knowledge(s, a, r, ^at)}
+      )
+      |> public_streams()
+      |> with_runner_display()
+
+    %{items: items, total: total, page: page, page_size: size}
+  end
+
+  def check_group_options(search, selected) do
+    groups =
+      from [s, a, r] in base_streams(),
+        select: %{
+          key: browse_identity_id(browse_identity(s, a)),
+          label:
+            fragment(
+              "COALESCE(?->>'label', ?->>'label', ?->>'key', ?)",
+              s.check_group,
+              s.target,
+              s.target,
+              s.label
+            ),
+          environment: coalesce(s.environment_label, s.environment),
+          source: a.source_id
+        }
+
+    options =
+      case selected do
+        {key, ""} ->
+          from(g in subquery(groups), where: g.key == ^key)
+
+        nil ->
+          from(g in subquery(groups),
+            where:
+              fragment(
+                "strpos(lower(concat_ws(' ', ?, ?, ?)), lower(?)) > 0",
+                g.label,
+                g.environment,
+                g.source,
+                ^search
+              )
+          )
+      end
+
+    Repo.all(
+      from g in options,
+        group_by: g.key,
+        order_by: [asc: min(g.label), asc: min(g.environment), asc: min(g.source), asc: g.key],
+        limit: 20,
+        select: {g.key, min(g.label), min(g.environment), min(g.source)}
+    )
+    |> Enum.map(fn {key, label, environment, source} ->
+      %{
+        key: key,
+        kind: "",
+        label: Enum.join(Enum.reject([label, environment, source], &is_nil/1), " · ")
+      }
+    end)
+  end
+
   # Exact scope matching is only for optional related-result investigation.
   # Ordinary overview rows retain their native stream identity.
   defmacrop overview_identity(s, a) do
@@ -417,7 +533,7 @@ defmodule Mondek.Inspection do
   end
 
   @doc "Bounded native result rows, with independent health and freshness for each runner."
-  def overview_results(filters, at) do
+  def overview_results(filters, at, page_size \\ 30) do
     classified =
       from([s, a, r] in base_streams(),
         where: is_nil(s.retired_at),
@@ -483,18 +599,18 @@ defmodule Mondek.Inspection do
 
     %{
       health: health,
-      attention: overview_page(matching, filters["page"], true, at),
-      healthy: overview_page(matching, filters["healthy_page"], false, at)
+      attention: overview_page(matching, filters["page"], true, at, page_size),
+      healthy: overview_page(matching, filters["healthy_page"], false, at, page_size)
     }
   end
 
-  defp overview_page(results, requested_page, attention?, at) do
+  defp overview_page(results, requested_page, attention?, at, size) do
     matching =
       from c in results,
         where: (c.freshness != "fresh" or is_nil(c.health) or c.health != "OK") == ^attention?
 
     total = Repo.aggregate(matching, :count)
-    page = min(number(requested_page, 1, 1_000_000), max(1, ceil(total / 30)))
+    page = min(number(requested_page, 1, 1_000_000), max(1, ceil(total / size)))
 
     ids =
       Repo.all(
@@ -506,8 +622,8 @@ defmodule Mondek.Inspection do
             asc: c.runner_label,
             asc: c.stream_id
           ],
-          offset: ^((page - 1) * 30),
-          limit: 30,
+          offset: ^((page - 1) * size),
+          limit: ^size,
           select: c.stream_id
       )
 
@@ -519,6 +635,11 @@ defmodule Mondek.Inspection do
       )
       |> public_streams()
 
+    rows = Map.new(with_runner_display(rows), &{&1["id"], &1})
+    %{items: Enum.map(ids, &Map.fetch!(rows, &1)), total: total, page: page, page_size: size}
+  end
+
+  defp with_runner_display(rows) do
     labels = Enum.map(rows, & &1["runner_label"])
 
     ambiguous =
@@ -530,14 +651,11 @@ defmodule Mondek.Inspection do
           select: r.label
       )
 
-    rows =
-      Map.new(rows, fn row ->
-        label = row["runner_label"] || "Runner"
-        display = if label in ambiguous, do: label <> " (" <> row["runner_id"] <> ")", else: label
-        {row["id"], Map.put(row, "runner_display", display)}
-      end)
-
-    %{items: Enum.map(ids, &Map.fetch!(rows, &1)), total: total, page: page, page_size: 30}
+    Enum.map(rows, fn row ->
+      label = row["runner_label"] || "Runner"
+      display = if label in ambiguous, do: label <> " (" <> row["runner_id"] <> ")", else: label
+      Map.put(row, "runner_display", display)
+    end)
   end
 
   defp overview_identity_value(stream) do
@@ -749,16 +867,7 @@ defmodule Mondek.Inspection do
 
     from c in subquery(classified),
       select_merge: %{
-        urgency:
-          fragment(
-            "CASE WHEN ? = 0 THEN 0 WHEN ? = 'CRIT' THEN 5 WHEN ? = 'WARN' THEN 4 WHEN ? <> 'fresh' OR ? IS NULL THEN 3 WHEN ? = 'UNKNOWN' THEN 2 ELSE 1 END",
-            c.active,
-            c.health,
-            c.health,
-            c.knowledge,
-            c.health,
-            c.health
-          ),
+        urgency: result_urgency(c.active == 0, c.health, c.knowledge),
         health_rank:
           fragment(
             "CASE ? WHEN 'CRIT' THEN 3 WHEN 'WARN' THEN 2 WHEN 'UNKNOWN' THEN 1 ELSE 0 END",

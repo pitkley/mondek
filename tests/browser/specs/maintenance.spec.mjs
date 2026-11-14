@@ -613,3 +613,69 @@ test('finite count schedules expose every reviewed date through bounded pages an
     body: JSON.stringify({ saved, lastPage, ended }, null, 2), contentType: 'application/json',
   });
 });
+
+test('preview chooser and shared window editor retain selections, drafts and actions across surfaces', async ({ page, request }, testInfo) => {
+  await page.goto('/next/maintenance/new');
+  await connected(page);
+  await expect(page.locator('#maintenance-choice-search-chip-kind')).toContainText('Scheduled checks');
+  await expect(page.locator('#maintenance-name')).toBeVisible();
+  await expect(page.locator('#maintenance-preview-button')).toBeDisabled();
+
+  await page.locator('#maintenance-name').fill('Preview component parity');
+  await page.locator('#maintenance-reason').fill('Verify shared maintenance forms');
+  const selection = page.locator('#maintenance-selection-form input[type="checkbox"]').first();
+  const key = await selection.getAttribute('value');
+  await selection.check();
+  await expect(page.locator('#maintenance-preview-button')).toBeEnabled();
+
+  const search = page.locator('#maintenance-choice-search-input');
+  await search.fill('no matching choice for parity');
+  await search.press('Enter');
+  await expect(page.locator('.preview-maintenance-pinned input[type="checkbox"]')).toBeChecked();
+  await expect(page.locator('#maintenance-name')).toHaveValue('Preview component parity');
+  await page.getByRole('button', {name: 'Clear search text', exact: true}).click();
+  await expect(page.locator(`#maintenance-selection-form input[value="${key}"]`)).toBeChecked();
+  await search.press('Escape');
+
+  await page.locator('#maintenance-start-mode').selectOption('scheduled');
+  await page.locator('#maintenance-timezone').fill('UTC');
+  const start = new Date(Date.now() + 2 * 86400_000);
+  const end = new Date(start.getTime() + 3600_000);
+  await page.locator('#maintenance-start').fill(start.toISOString().slice(0, 19));
+  await page.locator('#maintenance-end').fill(end.toISOString().slice(0, 19));
+  await page.locator('#maintenance-preview-button').click();
+  await expect(page.locator('#maintenance-preview-summary')).toBeVisible();
+  await page.locator('#maintenance-save').click();
+  await expect(page).toHaveURL(/\/next\/maintenance\/[0-9a-f-]{36}\/full$/);
+  const fullURL = page.url();
+  const id = new URL(fullURL).pathname.split('/').at(-2);
+
+  await page.getByRole('link', {name: 'Open fly-over', exact: true}).click();
+  await expect(page.locator('#overview-panel #maintenance-form')).toBeVisible();
+  await page.locator('#maintenance-name').fill('Unsaved parity edit');
+  await page.locator('#overview-panel').getByRole('link', {name: 'Open as page', exact: true}).click();
+  await expect(page).toHaveURL(fullURL);
+  await expect(page.locator('#maintenance-name')).toHaveValue('Unsaved parity edit');
+  await page.getByRole('link', {name: 'Open fly-over', exact: true}).click();
+  await expect(page.locator('#maintenance-name')).toHaveValue('Unsaved parity edit');
+  expect((await maintenanceJSON(request, `/api/v1/maintenance/${id}`)).name).toBe('Preview component parity');
+
+  await page.setViewportSize({width: 390, height: 844});
+  await expect(page.locator('#overview-panel')).toHaveAttribute('aria-modal', 'true');
+  await formFits(page);
+  await checkpoint(page, testInfo, 'preview-maintenance-shared-editor-390');
+  await page.locator('#maintenance-preview-button').click();
+  await expect(page.locator('#overview-panel #maintenance-preview-summary')).toBeVisible();
+  await page.locator('#maintenance-save').click();
+  await expect(page.locator('#overview-panel').getByRole('heading', {name: 'Unsaved parity edit', exact: true})).toBeVisible();
+  await expect(page.locator('#overview-panel #maintenance-saved')).toContainText('Upcoming');
+  await expect.poll(async () => (await maintenanceJSON(request, `/api/v1/maintenance/${id}`)).name).toBe('Unsaved parity edit');
+
+  await page.locator('#maintenance-cancel').click();
+  await page.locator('#maintenance-cancel-reason').fill('Preview parity verification complete');
+  await page.locator('#maintenance-confirm-cancel').click();
+  await expect(page.locator('#overview-panel #maintenance-saved')).toContainText('Cancelled');
+  const cancelled = await maintenanceJSON(request, `/api/v1/maintenance/${id}`);
+  expect(cancelled.status).toBe('cancelled');
+  expect(cancelled.cancellation_reason).toBe('Preview parity verification complete');
+});

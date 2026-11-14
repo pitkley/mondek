@@ -20,6 +20,8 @@ Use real transactions/constraints for activation, ingestion, current state and d
 
 Use idiomatic Elixir/Python and native formatters. Test meaningful behavior, especially time boundaries, concurrent writes, replay, partial collection, outages and restart. Use controlled clocks/events plus real process/HTTP/database coverage where relevant. For operator UI changes, preserve clear action scope, current versus historical evidence, consistent vocabulary and usable desktop/narrow layouts; walk through the real app. Fixture-only tests do not establish end-to-end behavior.
 
+For every preview migration that offers both a fly-over and a full detail page, render one shared entity body and add a LiveView parity test for the same entity in both routes. See [UI conventions](docs/UI-CONVENTIONS.md#detail-surfaces) for allowed presentation differences and test scope.
+
 Use isolated Compose projects for destructive acceptance work. Stop/remove only resources owned by the current task; preserve ordinary development volumes and unrelated workloads. Never use broad Docker prune commands as test cleanup. Keep real secrets, consumer environments, runtime state, browser profiles and generated evidence out of Git and Nix env/store outputs. Do not send real notifications or change external deployments without authorization.
 
 Use concise result summaries and human-readable findings alongside structured measurement data. Keep errors useful without disclosing credentials or raw private responses. Add dependencies only when needed, preserve upstream notices and regenerate/review the existing third-party credits when dependencies change. Do not add speculative license/source fingerprint gates; follow docs/LICENSING.md.

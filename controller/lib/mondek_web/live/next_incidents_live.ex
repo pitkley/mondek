@@ -2,9 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.NextIncidentsLive do
   use MondekWeb, :live_view
+  import MondekWeb.CheckDetails, only: [check_details: 1]
   import MondekWeb.EvidencePresentation, only: [age: 2, time: 1, badge_text: 1, target_label: 1]
   alias Mondek.{Maintenance, Monitoring, MonitoringLoss}
-  alias MondekWeb.{NextOverviewLive, NotificationRetry, PreviewIncidentSections}
+
+  alias MondekWeb.{
+    NextOverviewLive,
+    NotificationRetry,
+    PanelStack,
+    PreviewDetail,
+    PreviewIncidentSections
+  }
 
   @types [{"all", "All types"}, {"health", "Health failure"}, {"loss", "Monitoring loss"}]
   @groupings [
@@ -59,32 +67,73 @@ defmodule MondekWeb.NextIncidentsLive do
 
   @impl true
   def handle_params(params, uri, socket) do
-    socket =
-      if socket.assigns[:id] != params["id"] || !Map.has_key?(socket.assigns, :control_review) do
-        assign(socket,
-          control_review: nil,
-          control_draft: %{},
-          control_replacing: false,
-          control_feedback: nil,
-          delivery_feedback: nil,
-          retry_drafts: %{}
-        )
-      else
-        socket
-      end
+    full_page = String.ends_with?(URI.parse(uri).path, "/full")
+    root = if full_page, do: {to_string(socket.assigns.live_action), params["id"]}
 
     {:noreply,
      socket
      |> assign(
        filters: filters(params),
        filter_picker: nil,
-       id: params["id"],
-       full_page: String.ends_with?(URI.parse(uri).path, "/full"),
-       detail_filters: detail_filters(params)
+       full_page: full_page,
+       incident_root: root
      )
-     |> refresh()
-     |> load_shared_rear_detail()}
+     |> setup_detail(
+       params,
+       if(root, do: path(elem(root, 0), elem(root, 1), filters(params), true))
+     )
+     |> refresh()}
   end
+
+  def setup_detail(socket, params, host_path) do
+    root = socket.assigns[:incident_root]
+    selection = if host_path, do: parse_incident(params["incident"])
+    {kind, id} = selection || root || {to_string(socket.assigns.live_action), params["id"]}
+    detail_filters = detail_filters(params)
+    full_detail = root != nil && selection == nil && detail_filters["result"] == nil
+
+    socket =
+      if {socket.assigns[:kind], socket.assigns[:id]} != {kind, id} ||
+           !Map.has_key?(socket.assigns, :control_review) do
+        reset_detail_controls(socket)
+      else
+        socket
+      end
+
+    assign(socket,
+      id: id,
+      kind: kind,
+      incident_host: host_path,
+      incident_selection: selection,
+      full_detail: full_detail,
+      detail_filters: detail_filters
+    )
+  end
+
+  defp parse_incident(value) when is_binary(value) do
+    with [kind, id] when kind in ["health", "loss"] <- String.split(value, ":", parts: 2),
+         {:ok, id} <- Ecto.UUID.cast(id) do
+      {kind, id}
+    else
+      _ -> nil
+    end
+  end
+
+  defp parse_incident(_), do: nil
+
+  defp reset_detail_controls(socket) do
+    assign(socket,
+      control_review: nil,
+      control_draft: %{},
+      control_replacing: false,
+      control_feedback: nil,
+      delivery_feedback: nil,
+      retry_drafts: %{}
+    )
+  end
+
+  def incident_layer_path(host, kind, id),
+    do: detail_path(host, %{"incident" => "#{kind}:#{id}"})
 
   @impl true
   def handle_info(:tick, socket) do
@@ -96,17 +145,14 @@ defmodule MondekWeb.NextIncidentsLive do
   def handle_event(
         "filter_incident_detail",
         %{"notification_status" => value},
-        %{assigns: %{incident: %{}, kind: kind, id: id}} = socket
+        %{assigns: %{incident: %{}}} = socket
       ) do
-    query =
-      socket.assigns.filters
-      |> Map.merge(socket.assigns.detail_filters)
-      |> Map.merge(%{
-        "notification_status" => choice(value, @delivery_statuses),
-        "notification_page" => "1"
-      })
+    query = %{
+      "notification_status" => choice(value, @delivery_statuses),
+      "notification_page" => "1"
+    }
 
-    {:noreply, push_patch(socket, to: path(kind, id, query, socket.assigns.full_page))}
+    {:noreply, push_patch(socket, to: detail_path(current_detail_path(socket.assigns), query))}
   end
 
   def handle_event("search", %{"search" => search}, socket) do
@@ -193,10 +239,9 @@ defmodule MondekWeb.NextIncidentsLive do
   def handle_event(
         "save_acknowledgement",
         params,
-        %{assigns: %{control_review: %{} = review, id: id, kind: kind, live_action: action}} =
+        %{assigns: %{control_review: %{} = review, id: id, kind: kind}} =
           socket
-      )
-      when action in [:health, :loss] do
+      ) do
     draft = acknowledgement_draft(params)
     socket = assign(socket, control_draft: draft)
     note = Map.get(params, "note", "")
@@ -222,12 +267,10 @@ defmodule MondekWeb.NextIncidentsLive do
             control_review: %{} = review,
             id: id,
             kind: kind,
-            live_action: action,
             incident: %{} = incident
           }
         } = socket
-      )
-      when action in [:health, :loss] do
+      ) do
     if Monitoring.acknowledgement_active?(incident) do
       result =
         apply_acknowledgement(kind, id, Map.put(review, "mode", "end"), "Ended by operator.")
@@ -241,9 +284,8 @@ defmodule MondekWeb.NextIncidentsLive do
   def handle_event(
         "retry_delivery",
         %{"_id" => id, "reason" => reason},
-        %{assigns: %{live_action: action, detail: %{} = detail}} = socket
-      )
-      when action in [:health, :loss] do
+        %{assigns: %{detail: %{} = detail}} = socket
+      ) do
     occurrences = detail["occurrences"] || []
     drafts = NotificationRetry.keep_draft(socket.assigns.retry_drafts, occurrences, id, reason)
 
@@ -256,7 +298,7 @@ defmodule MondekWeb.NextIncidentsLive do
              retry_drafts: Map.delete(drafts, id),
              delivery_feedback: {:ok, NotificationRetry.success_message()}
            )
-           |> refresh()}
+           |> refresh_detail(Monitoring.now())}
 
         {:error, error} ->
           {:noreply,
@@ -265,7 +307,7 @@ defmodule MondekWeb.NextIncidentsLive do
              retry_drafts: drafts,
              delivery_feedback: {:error, NotificationRetry.error_message(error)}
            )
-           |> refresh()}
+           |> refresh_detail(Monitoring.now())}
       end
     else
       {:noreply,
@@ -294,7 +336,7 @@ defmodule MondekWeb.NextIncidentsLive do
            control_replacing: false,
            control_feedback: {:ok, message}
          )
-         |> refresh()}
+         |> refresh_detail(Monitoring.now())}
 
       {:error, :stale} ->
         {:noreply,
@@ -302,7 +344,7 @@ defmodule MondekWeb.NextIncidentsLive do
          |> assign(
            control_feedback: {:error, "The incident changed. Review it again before saving."}
          )
-         |> refresh()}
+         |> refresh_detail(Monitoring.now())}
 
       {:error, reason} ->
         {:noreply,
@@ -437,10 +479,45 @@ defmodule MondekWeb.NextIncidentsLive do
     uri = URI.parse(value)
 
     if uri.scheme == nil && uri.authority == nil && uri.fragment == nil &&
-         is_binary(uri.path) &&
-         Regex.match?(~r"\A/next/incidents/(health|loss)/[0-9a-f-]{36}(?:/full)?\z", uri.path) do
+         is_binary(uri.path) do
       params = URI.decode_query(uri.query || "")
-      with_query(uri.path, Map.merge(filters(params), detail_filters(params)))
+      selection = if parse_incident(params["incident"]), do: params["incident"]
+      detail = Map.put(detail_filters(params), "incident", selection)
+
+      cond do
+        String.starts_with?(uri.path, "/next/maintenance/") ->
+          MondekWeb.MaintenanceLive.preview_return_path(uri.path, params)
+
+        Regex.match?(~r"\A/next/(?:coverage|expected)/[a-f0-9]{64}(?:/full)?\z", uri.path) ->
+          filter_module =
+            if String.starts_with?(uri.path, "/next/coverage/"),
+              do: Mondek.CoverageFilters,
+              else: Mondek.OverviewFilters
+
+          runner_page = params["runner_page"]
+
+          query =
+            if is_binary(runner_page) && Regex.match?(~r"\A[1-9][0-9]{0,6}\z", runner_page),
+              do: %{"runner_page" => runner_page},
+              else: %{}
+
+          query = Map.put(query, "observer_result", valid_result_id(params["observer_result"]))
+          with_query(uri.path, Map.merge(filter_module.params(params), query))
+
+        result_host?(uri.path) && selection ->
+          filter_module =
+            if String.starts_with?(uri.path, "/next/checks"),
+              do: Mondek.ChecksFilters,
+              else: Mondek.OverviewFilters
+
+          with_query(uri.path, Map.merge(filter_module.params(params), detail))
+
+        Regex.match?(~r"\A/next/incidents/(health|loss)/[0-9a-f-]{36}(?:/full)?\z", uri.path) ->
+          with_query(uri.path, Map.merge(filters(params), detail))
+
+        true ->
+          nil
+      end
     end
   rescue
     ArgumentError -> nil
@@ -501,10 +578,25 @@ defmodule MondekWeb.NextIncidentsLive do
   defp refresh(socket) do
     now = Monitoring.now()
     socket = if socket.assigns.full_page, do: socket, else: refresh_listing(socket, now)
-    refresh_detail(socket, now)
+
+    socket
+    |> refresh_detail(now)
+    |> refresh_root(now)
+  end
+
+  def open_summary(now) do
+    listing = incident_listing(filters(%{}), now)
+    %{rows: Enum.take(listing.rows, 4), total: listing.totals["health"] + listing.totals["loss"]}
   end
 
   defp refresh_listing(%{assigns: %{filters: filters}} = socket, now) do
+    assign(
+      socket,
+      Map.merge(incident_listing(filters, now), %{now: now, filter_fields: @filter_fields})
+    )
+  end
+
+  defp incident_listing(filters, now) do
     severity = filters["severity"]
     health_only? = severity != "all" || filters["grouping"] not in ["top", "all"]
     type = if filters["type"] == "all" && health_only?, do: "health", else: filters["type"]
@@ -543,32 +635,18 @@ defmodule MondekWeb.NextIncidentsLive do
           nil
       end
 
-    assign(socket,
-      now: now,
-      filter_fields: @filter_fields,
+    %{
       rows: rows,
       page: page,
       totals: %{"health" => health && health.total, "loss" => loss && loss["total"]},
       shown: %{"health" => length(health_rows), "loss" => length(loss_rows)}
-    )
+    }
   end
 
-  defp refresh_detail(%{assigns: %{live_action: :index}} = socket, _now), do: socket
-
-  defp refresh_detail(socket, now) do
-    %{live_action: action, id: id, detail_filters: filters} = socket.assigns
-
-    {kind, detail, incident} =
-      case action do
-        :health ->
-          detail = health_detail(id, now, filters)
-
-          {"health", detail, detail && detail["incident"]}
-
-        :loss ->
-          detail = MonitoringLoss.detail(id, now, %{"members_page" => filters["member_page"]})
-          {"loss", detail, detail}
-      end
+  def refresh_detail(%{assigns: %{kind: kind, id: id}} = socket, now)
+      when kind in ["health", "loss"] and is_binary(id) do
+    filters = socket.assigns.detail_filters
+    {detail, incident} = load_detail(kind, id, now, filters)
 
     review =
       socket.assigns.control_review ||
@@ -581,12 +659,47 @@ defmodule MondekWeb.NextIncidentsLive do
       incident: incident,
       maintenance_windows: active_maintenance(kind, incident, now),
       result_panel:
-        if(!socket.assigns.full_page && filters["result"],
+        if(filters["result"],
           do: NextOverviewLive.load_result_panel(filters["result"], now)
         ),
       control_review: review
     )
+    |> load_shared_rear_detail()
   end
+
+  def refresh_detail(socket, _now), do: assign(socket, incident: nil, detail: nil)
+
+  defp load_detail("health", id, now, filters) do
+    detail = health_detail(id, now, filters)
+    {detail, detail && detail["incident"]}
+  end
+
+  defp load_detail("loss", id, now, filters) do
+    detail = MonitoringLoss.detail(id, now, %{"members_page" => filters["member_page"]})
+    {detail, detail}
+  end
+
+  defp refresh_root(%{assigns: %{incident_root: {kind, id}, full_detail: false}} = socket, now) do
+    assigns = socket.assigns
+    filters = Map.drop(assigns.detail_filters, ~w(result from_shared))
+    {detail, incident} = load_detail(kind, id, now, filters)
+
+    root =
+      assigns
+      |> rear_panel(kind, detail, incident, assigns.incident_host, [])
+      |> assign(
+        full_page: true,
+        full_detail: true,
+        incident_selection: nil,
+        detail_filters: filters,
+        result_panel: nil,
+        maintenance_windows: active_maintenance(kind, incident, now)
+      )
+
+    assign(socket, :root_panel, root)
+  end
+
+  defp refresh_root(socket, _now), do: assign(socket, :root_panel, nil)
 
   defp health_detail(id, now, filters) do
     Monitoring.incident_detail(id, now, %{
@@ -601,8 +714,8 @@ defmodule MondekWeb.NextIncidentsLive do
   defp load_shared_rear_detail(socket) do
     detail =
       with %{
-             full_page: false,
-             live_action: :health,
+             full_detail: false,
+             kind: "health",
              incident: %{"condition_incident_id" => id},
              detail_filters: %{"from_shared" => "1"} = filters,
              now: now
@@ -685,13 +798,21 @@ defmodule MondekWeb.NextIncidentsLive do
       class="preview-shell"
       id="incidents-preview"
       phx-hook="OverviewPanel"
-      data-selection={if @id, do: "#{@live_action}-#{@id}-#{@full_page}-#{@detail_filters["result"]}"}
-      data-panel-heading="incidents-heading"
+      data-selection={if @id && !@full_detail, do: "#{@kind}-#{@id}-#{@detail_filters["result"]}"}
+      data-panel-heading={if @full_page, do: "incident-heading", else: "incidents-heading"}
     >
       <MondekWeb.PreviewLayouts.navigation active={:incidents} />
       <main id="main-content" class="preview-main" tabindex="-1">
         <.listing :if={!@full_page} {assigns} />
-        <.detail :if={@live_action != :index} {assigns} />
+        <div :if={@full_page} id="incident-page-background" inert={!@full_detail}>
+          <.detail {if @full_detail, do: assigns, else: @root_panel} full_page={true} />
+        </div>
+        <.detail
+          :if={@id && !@full_detail}
+          {assigns}
+          full_page={false}
+          id_prefix={if @full_page, do: "overlay-", else: ""}
+        />
         <div class="preview-connection" role="status">
           Connection interrupted. Displayed evidence may be out of date. Reconnecting…
         </div>
@@ -778,14 +899,14 @@ defmodule MondekWeb.NextIncidentsLive do
             </tr>
           </tbody>
         </table>
-        <nav :if={@page} class="preview-pager" aria-label="Incident pages">
-          <.page_links
-            page={@page.page}
-            size={@page.size}
-            total={@page.total}
-            url={fn p -> list_path(Map.put(@filters, "page", to_string(p))) end}
-          />
-        </nav>
+        <MondekWeb.PreviewPagination.pagination
+          :if={@page}
+          page={@page.page}
+          size={@page.size}
+          total={@page.total}
+          label="Incident pages"
+          url={fn p -> list_path(Map.put(@filters, "page", to_string(p))) end}
+        />
         <div :if={!@page && @rows != []} class="preview-pager">
           <span :for={kind <- ~w(health loss)}>
             {@shown[kind]} of {@totals[kind]} {if kind == "health",
@@ -802,91 +923,111 @@ defmodule MondekWeb.NextIncidentsLive do
     """
   end
 
-  defp detail(assigns) do
+  defp current_detail_path(%{incident_host: host} = assigns) when is_binary(host) do
+    selection = assigns.incident_selection
+
+    detail_path(
+      host,
+      Map.put(
+        assigns.detail_filters,
+        "incident",
+        selection && Enum.join(Tuple.to_list(selection), ":")
+      )
+    )
+  end
+
+  defp current_detail_path(assigns) do
+    path(assigns.kind, assigns.id, Map.merge(assigns.filters, assigns.detail_filters))
+  end
+
+  defp detail_back_path(%{full_page: true} = assigns), do: list_path(assigns.filters)
+
+  defp detail_back_path(%{incident_root: {_, _}} = assigns) do
+    detail_path(current_detail_path(assigns), %{
+      "incident" => nil,
+      "result" => nil,
+      "from_shared" => nil
+    })
+  end
+
+  defp detail_back_path(assigns), do: assigns.incident_host || list_path(assigns.filters)
+
+  def detail(assigns) do
     assigns =
-      assign(assigns,
-        back: list_path(assigns.filters),
-        current:
-          path(
-            assigns.kind,
-            assigns.id,
-            Map.merge(assigns.filters, assigns.detail_filters),
-            assigns.full_page
-          ),
+      assigns
+      |> assign_new(:id_prefix, fn -> "" end)
+      |> assign(
+        back: detail_back_path(assigns),
+        current: current_detail_path(assigns),
         title: detail_title(assigns.kind, assigns.detail, assigns.incident),
         delivery_statuses: @delivery_statuses
       )
 
-    assigns = assign(assigns, :ancestors, panel_ancestors(assigns))
+    assigns =
+      assigns
+      |> assign_new(:host_fallback, fn -> [] end)
+      |> assign(:ancestors, Map.get(assigns, :host_ancestors, []) ++ panel_ancestors(assigns))
+
+    host_target =
+      assigns[:host_target] ||
+        if !assigns.full_page && assigns[:incident_root] do
+          {kind, id} = assigns.incident_root
+          %{identity: {kind, id}, path: assigns.back}
+        end
+
+    assigns = assign(assigns, :earlier_targets, List.wrap(host_target) ++ assigns.ancestors)
 
     ~H"""
-    <nav :if={@ancestors != []} class="preview-panel-back-stack" aria-label="Earlier panels">
-      <div
-        :for={{ancestor, depth} <- Enum.with_index(Enum.reverse(@ancestors), 1)}
-        class="preview-panel-back-card preview-incident-panel pf-v6-c-card"
-        style={"--depth: #{depth}"}
-        data-panel-back-path={ancestor.path}
-      >
-        <div
-          id={"preview-panel-snapshot-#{depth}"}
-          phx-update="ignore"
-          class="preview-panel-snapshot"
-          inert
-          aria-hidden="true"
-        />
-        <template data-panel-fallback>{rear_panel_markup(ancestor.panel)}</template>
-        <.link
-          patch={ancestor.path}
-          class="preview-panel-back-hit"
-          aria-label={"Return to #{ancestor.kind}: #{ancestor.title}"}
-        ><span class="pf-v6-u-screen-reader">{ancestor.title}</span></.link>
-      </div>
-    </nav>
-    <section
+    <MondekWeb.PanelStack.rear_cards
+      entries={@ancestors}
+      card_class="preview-incident-panel pf-v6-c-card"
+    >
+      <:fallback :let={ancestor}>
+        <%= if Map.has_key?(ancestor, :panel) do %>
+          <div class="pf-v6-c-card__body">
+            <.incident_panel_tools {ancestor.panel} />
+            <.incident_panel_body {ancestor.panel} />
+          </div>
+        <% else %>
+          {render_slot(@host_fallback, ancestor)}
+        <% end %>
+      </:fallback>
+    </MondekWeb.PanelStack.rear_cards>
+    <PreviewDetail.surface
       id={if @full_page, do: "incident-page", else: "overview-panel"}
-      class={[
-        "preview-incident-panel pf-v6-c-card",
-        if(@full_page, do: "preview-incident-page", else: "preview-panel")
-      ]}
-      data-panel-path={if !@full_page, do: @current}
-      role={if !@full_page, do: "dialog"}
-      aria-modal={if !@full_page, do: "false"}
-      aria-labelledby={
+      dialog={!@full_page}
+      path={if !@full_page, do: @current}
+      heading_id={
         if @detail_filters["result"] && !@full_page,
           do: "overview-panel-title",
-          else: "incident-heading"
+          else: @id_prefix <> "incident-heading"
       }
     >
-      <div class="pf-v6-c-card__body">
-        <.incident_panel_tools {assigns} />
-        <%= if @detail_filters["result"] && !@full_page do %>
-          <NextOverviewLive.result_panel
-            :if={@result_panel}
-            panel={@result_panel}
-            now={@now}
-            current_path={@current}
-            show_incident_links={false}
-            peer_path={fn id -> result_layer_path(@current, id) end}
-          />
-          <h2 :if={!@result_panel} id="overview-panel-title" tabindex="-1">Result unavailable</h2>
-        <% else %>
-          <.incident_panel_body {assigns} />
-        <% end %>
-      </div>
-    </section>
+      <.incident_panel_tools {assigns} />
+      <%= if @detail_filters["result"] && !@full_page do %>
+        <NextOverviewLive.result_panel
+          :if={@result_panel}
+          panel={@result_panel}
+          now={@now}
+          current_path={@current}
+          incident_path={fn id -> incident_destination(@current, @earlier_targets, id, false) end}
+          full_result_path={full_result_path(@current, @detail_filters["result"])}
+          peer_path={fn id -> result_layer_path(@current, @earlier_targets, id) end}
+        />
+        <h2 :if={!@result_panel} id="overview-panel-title" tabindex="-1">Result unavailable</h2>
+      <% else %>
+        <.incident_panel_body {assigns} />
+      <% end %>
+    </PreviewDetail.surface>
     """
   end
 
-  # Keep fallback markup as text until the client removes its live IDs and bindings.
-  defp rear_panel_markup(assigns) do
-    ~H"""
-    <div class="pf-v6-c-card__body">
-      <.incident_panel_tools {assigns} />
-      <.incident_panel_body {assigns} />
-    </div>
-    """
-    |> Phoenix.HTML.Safe.to_iodata()
-    |> IO.iodata_to_binary()
+  defp full_result_path(current, id) do
+    NextOverviewLive.path(
+      %{"incident_return" => detail_path(current, %{"result" => nil})},
+      :result_page,
+      id
+    )
   end
 
   defp incident_panel_tools(assigns) do
@@ -896,7 +1037,11 @@ defmodule MondekWeb.NextIncidentsLive do
         patch={if @ancestors == [], do: @back, else: List.last(@ancestors).path}
         data-overview-close={!@full_page}
         class="pf-v6-c-button pf-m-link"
-      >← {if @ancestors == [], do: "Back to incidents", else: "Back one level"}</.link>
+      >← {cond do
+        @ancestors != [] -> "Back one level"
+        @back == list_path(@filters) -> "Back to incidents"
+        true -> "Back"
+      end}</.link>
       <nav :if={@ancestors != []} class="preview-panel-stack" aria-label="Investigation trail">
         <.link :for={ancestor <- @ancestors} patch={ancestor.path}>
           <strong>{ancestor.kind}</strong>
@@ -904,8 +1049,20 @@ defmodule MondekWeb.NextIncidentsLive do
         </.link>
       </nav>
       <.link
+        :if={!@full_page && @detail_filters["result"]}
+        navigate={full_result_path(@current, @detail_filters["result"])}
+        class="pf-v6-c-button pf-m-link"
+      >Open as page</.link>
+      <.link
         :if={@incident && !@full_page && !@detail_filters["result"]}
-        patch={path(@kind, @id, Map.merge(@filters, @detail_filters), true)}
+        patch={
+          if @incident_host && !assigns[:incident_root],
+            do: nil,
+            else: path(@kind, @id, Map.merge(@filters, @detail_filters), true)
+        }
+        navigate={
+          if @incident_host && !assigns[:incident_root], do: path(@kind, @id, @detail_filters, true)
+        }
         class="pf-v6-c-button pf-m-link"
       >Open as page</.link>
     </div>
@@ -920,12 +1077,12 @@ defmodule MondekWeb.NextIncidentsLive do
           "source_id"
         ]}</span>
       </p>
-      <h1 :if={@full_page} id="incident-heading" tabindex="-1" class="pf-v6-c-title pf-m-2xl">
+      <PreviewDetail.heading
+        level={if @full_page, do: 1, else: 2}
+        id={@id_prefix <> "incident-heading"}
+      >
         {@title}
-      </h1>
-      <h2 :if={!@full_page} id="incident-heading" tabindex="-1" class="pf-v6-c-title pf-m-2xl">
-        {@title}
-      </h2>
+      </PreviewDetail.heading>
       <div :if={@incident} class="preview-incident-meta">
         <.shared_incident_badge
           :if={@detail["contributions"]}
@@ -958,8 +1115,16 @@ defmodule MondekWeb.NextIncidentsLive do
       :if={@incident && @kind == "health"}
       detail={@detail}
       current={@current}
+      id_prefix={@id_prefix}
+      earlier_targets={@earlier_targets}
     />
-    <.loss_evidence :if={@incident && @kind == "loss"} detail={@detail} current={@current} />
+    <.loss_evidence
+      :if={@incident && @kind == "loss"}
+      id_prefix={@id_prefix}
+      detail={@detail}
+      current={@current}
+      earlier_targets={@earlier_targets}
+    />
     <PreviewIncidentSections.sections
       :if={@incident}
       incident={@incident}
@@ -974,10 +1139,12 @@ defmodule MondekWeb.NextIncidentsLive do
       retry_drafts={@retry_drafts}
       maintenance_windows={@maintenance_windows}
       current={@current}
+      id_prefix={@id_prefix}
     >
       <:delivery_filter>
         <.detail_filter
           :if={@detail["notification_page"]}
+          id_prefix={@id_prefix}
           field="notification_status"
           label="Delivery status"
           choices={@delivery_statuses}
@@ -1007,6 +1174,7 @@ defmodule MondekWeb.NextIncidentsLive do
       title: detail_title(kind, detail, incident),
       detail_filters: detail_filters(URI.decode_query(URI.parse(current).query || "")),
       ancestors: ancestors,
+      earlier_targets: ancestors,
       control_review:
         if(incident && incident["status"] == "open", do: acknowledgement_revision(incident)),
       control_draft: %{},
@@ -1025,25 +1193,34 @@ defmodule MondekWeb.NextIncidentsLive do
     parent_id = get_in(assigns.incident, ["condition_incident_id"])
 
     shared =
-      if parent_id && assigns.detail_filters["from_shared"] == "1" do
+      if parent_id && assigns[:incident_root] != {"health", parent_id} &&
+           assigns.detail_filters["from_shared"] == "1" do
         detail = assigns.shared_rear_detail
         incident = detail && detail["incident"]
 
         current =
-          path(
-            "health",
-            parent_id,
-            Map.merge(assigns.filters, Map.drop(assigns.detail_filters, ~w(result from_shared)))
+          detail_path(
+            related_incident_path(assigns.current, parent_id),
+            Map.drop(assigns.detail_filters, ~w(result from_shared))
           )
 
         panel = rear_panel(assigns, "health", detail, incident, current, [])
 
-        [%{kind: "Shared incident", title: panel.title, path: current, panel: panel}]
+        [
+          %{
+            kind: "Shared incident",
+            identity: {"health", parent_id},
+            title: panel.title,
+            path: current,
+            panel: panel
+          }
+        ]
       else
         []
       end
 
-    if assigns.detail_filters["result"] do
+    if assigns.detail_filters["result"] &&
+         !(assigns[:incident_root] && !assigns.incident_selection) do
       shared ++
         [
           %{
@@ -1052,6 +1229,7 @@ defmodule MondekWeb.NextIncidentsLive do
                 do: "Shared incident",
                 else: "Incident"
               ),
+            identity: {assigns.kind, assigns.id},
             title: assigns.title,
             path: detail_path(assigns.current, %{"result" => nil}),
             panel:
@@ -1111,84 +1289,84 @@ defmodule MondekWeb.NextIncidentsLive do
 
   defp render_health_evidence(assigns) do
     ~H"""
-    <section class="preview-table-group preview-incident-section">
-      <h3 class="preview-section-heading">
-        {if @detail["contributions"], do: "Contributing results", else: "Recorded failure"}
-      </h3>
-      <table
+    <PreviewDetail.card
+      id={@id_prefix <> "preview-health-evidence"}
+      title={if @detail["contributions"], do: "Contributing results", else: "Recorded failure"}
+    >
+      <PreviewDetail.facts
         :if={!@detail["contributions"]}
-        class="preview-incident-fact-table"
-        aria-label="Recorded failure"
+        label="Recorded failure"
       >
-        <tbody>
-          <tr>
-            <th scope="row">Finding</th>
-            <td class="preview-incident-finding">
-              <.severity :if={@measured && @measured["health"]} health={@measured["health"]} />
-              {if @measured,
-                do: @measured["summary"],
-                else: "The recorded measurement is unavailable."}
-            </td>
-          </tr>
-          <tr :if={@detail["stream"]}>
-            <th scope="row">Target</th><td>{target_label(@detail["stream"]["target"])}</td>
-          </tr>
-          <tr :if={@detail["stream"]}>
-            <th scope="row">Environment</th>
-            <td>
-              {@detail["stream"]["environment_label"] || @detail["stream"]["environment"] ||
-                "Unscoped"}
-            </td>
-          </tr>
-          <tr :if={@measured && @measured_at}>
-            <th scope="row">Measured</th>
-            <td><time datetime={@measured_at}>{time(@measured_at)}</time></td>
-          </tr>
-          <tr :if={@measured && @measured["details"] not in [nil, ""]}>
-            <th scope="row">Check details</th><td>
-              <pre class="preview-findings">{@measured["details"]}</pre>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+        <tr>
+          <th scope="row">Finding</th>
+          <td class="preview-incident-finding">
+            <.severity :if={@measured && @measured["health"]} health={@measured["health"]} />
+            {if @measured,
+              do: @measured["summary"],
+              else: "The recorded measurement is unavailable."}
+          </td>
+        </tr>
+        <tr :if={@detail["stream"]}>
+          <th scope="row">Target</th><td>{target_label(@detail["stream"]["target"])}</td>
+        </tr>
+        <tr :if={@detail["stream"]}>
+          <th scope="row">Environment</th>
+          <td>
+            {@detail["stream"]["environment_label"] || @detail["stream"]["environment"] ||
+              "Unscoped"}
+          </td>
+        </tr>
+        <tr :if={@measured && @measured_at}>
+          <th scope="row">Measured</th>
+          <td><time datetime={@measured_at}>{time(@measured_at)}</time></td>
+        </tr>
+        <tr :if={@measured && @measured["details"] not in [nil, ""]}>
+          <th scope="row">Check details</th><td>
+            <.check_details text={@measured["details"]} />
+          </td>
+        </tr>
+      </PreviewDetail.facts>
       <div :if={!@detail["contributions"] && @incident["stream_id"]} class="preview-recorded-actions">
-        <.check_result_link current={@current} id={@incident["stream_id"]}>View latest check result →</.check_result_link>
+        <.check_result_link
+          earlier_targets={@earlier_targets}
+          current={@current}
+          id={@incident["stream_id"]}
+        >View latest check result →</.check_result_link>
       </div>
       <div :if={@incident["condition_incident_id"]} class="preview-recorded-actions">
-        <.link patch={related_incident_path(@current, @incident["condition_incident_id"])}>
+        <.link patch={
+          incident_destination(@current, @earlier_targets, @incident["condition_incident_id"], false)
+        }>
           Open shared incident and its notifications
         </.link>
       </div>
-      <table
+      <PreviewDetail.facts
         :if={
           @detail["contributions"] &&
             (@incident["status"] == "open" || (@incident["impacts"] || []) != [])
         }
-        class="preview-incident-fact-table"
-        aria-label="Shared incident summary"
+        label="Shared incident summary"
       >
-        <tbody>
-          <tr :if={(@incident["impacts"] || []) != []}>
-            <th scope="row">Impacts</th>
-            <td>{Enum.map_join(@incident["impacts"], ", ", &(&1["label"] || &1["key"]))}</td>
-          </tr>
-          <tr :if={@incident["status"] == "open"}>
-            <th scope="row">Failure notifications</th>
-            <td>
-              <p>
-                Unpaused for {@detail["counts"]["uncovered"]} of {@detail["counts"]["open"]} failing results
-              </p>
-              <.link
-                :if={
-                  @detail["contribution_page"]["state"] != "uncovered" &&
-                    @detail["counts"]["uncovered"] > 0
-                }
-                patch={detail_path(@current, %{"contributors" => "uncovered", "member_page" => "1"})}
-              >Show results with unpaused notifications</.link>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+        <tr :if={(@incident["impacts"] || []) != []}>
+          <th scope="row">Impacts</th>
+          <td>{Enum.map_join(@incident["impacts"], ", ", &(&1["label"] || &1["key"]))}</td>
+        </tr>
+        <tr :if={@incident["status"] == "open"}>
+          <th scope="row">Failure notifications</th>
+          <td>
+            <p>
+              Unpaused for {@detail["counts"]["uncovered"]} of {@detail["counts"]["open"]} failing results
+            </p>
+            <.link
+              :if={
+                @detail["contribution_page"]["state"] != "uncovered" &&
+                  @detail["counts"]["uncovered"] > 0
+              }
+              patch={detail_path(@current, %{"contributors" => "uncovered", "member_page" => "1"})}
+            >Show results with unpaused notifications</.link>
+          </td>
+        </tr>
+      </PreviewDetail.facts>
       <div
         :if={
           @detail["contributions"] && @incident["status"] == "open" &&
@@ -1222,12 +1400,18 @@ defmodule MondekWeb.NextIncidentsLive do
         <tbody>
           <tr :for={contribution <- @detail["contributions"]}>
             <th scope="row">
-              <.link patch={related_incident_path(@current, contribution["incident"]["id"], true)}>
+              <.link patch={
+                incident_destination(@current, @earlier_targets, contribution["incident"]["id"], true)
+              }>
                 {get_in(contribution, ["stream", "label"]) ||
                   get_in(contribution, ["assignment", "label"])}
               </.link>
               <div :if={contribution["incident"]["stream_id"]} class="preview-caption">
-                <.check_result_link current={@current} id={contribution["incident"]["stream_id"]}>
+                <.check_result_link
+                  earlier_targets={@earlier_targets}
+                  current={@current}
+                  id={contribution["incident"]["stream_id"]}
+                >
                   Latest check result
                 </.check_result_link>
               </div>
@@ -1275,7 +1459,7 @@ defmodule MondekWeb.NextIncidentsLive do
                       </p>
                       <p :for={window <- contribution["coverage"]["maintenance_windows"] || []}>
                         Paused for maintenance:
-                        <.link href={"/maintenance/" <> window["id"]}>{window["name"] ||
+                        <.link href={"/next/maintenance/" <> window["id"]}>{window["name"] ||
                           window["reason"] || "View maintenance"}</.link>
                         <span class="preview-caption"> · Ends {time(window["ends_at"])}</span>
                       </p>
@@ -1296,7 +1480,7 @@ defmodule MondekWeb.NextIncidentsLive do
       />
       <details
         :if={(get_in(@detail, ["contradiction_page", "total"]) || 0) > 0}
-        id={"preview-confirmed-healthy-" <> @incident["id"]}
+        id={@id_prefix <> "preview-confirmed-healthy-" <> @incident["id"]}
         class="preview-incident-history"
         phx-mounted={Phoenix.LiveView.JS.ignore_attributes("open")}
       >
@@ -1305,16 +1489,18 @@ defmodule MondekWeb.NextIncidentsLive do
           <p class="preview-incident-evidence">
             These results share the same condition. Their last confirmed measurements were healthy, but collection may now be stale or unavailable.
           </p>
-          <table class="preview-incident-fact-table" aria-label="Last confirmed healthy results">
-            <tbody>
-              <tr :for={stream <- @detail["contradictions"]}>
-                <th scope="row">
-                  <.link href={evidence_path(:result, stream["id"], @current)}>{stream["label"]}</.link>
-                </th>
-                <td>{get_in(stream, ["current", "summary"])}</td>
-              </tr>
-            </tbody>
-          </table>
+          <PreviewDetail.facts label="Last confirmed healthy results">
+            <tr :for={stream <- @detail["contradictions"]}>
+              <th scope="row">
+                <.check_result_link
+                  earlier_targets={@earlier_targets}
+                  current={@current}
+                  id={stream["id"]}
+                >{stream["label"]}</.check_result_link>
+              </th>
+              <td>{get_in(stream, ["current", "summary"])}</td>
+            </tr>
+          </PreviewDetail.facts>
           <.detail_pages
             listing={@detail["contradiction_page"]}
             current={@current}
@@ -1323,16 +1509,16 @@ defmodule MondekWeb.NextIncidentsLive do
           />
         </div>
       </details>
-    </section>
+    </PreviewDetail.card>
     """
   end
 
   defp loss_evidence(assigns) do
     ~H"""
-    <section class="preview-table-group preview-incident-section">
-      <h3 class="preview-section-heading">
-        {if @detail["status"] == "open", do: "Affected results", else: "Last affected results"}
-      </h3>
+    <PreviewDetail.card
+      id={@id_prefix <> "preview-loss-evidence"}
+      title={if @detail["status"] == "open", do: "Affected results", else: "Last affected results"}
+    >
       <p :if={@detail["status"] == "open"} class="preview-incident-evidence">
         {if @detail["scope_kind"] == "coverage",
           do:
@@ -1357,7 +1543,12 @@ defmodule MondekWeb.NextIncidentsLive do
         <p class="preview-caption">
           {target_label(member["target"])} · {member["environment"] || "Unscoped"}
         </p>
-        <.check_result_link :if={member["stream_id"]} current={@current} id={member["stream_id"]}>View latest check result</.check_result_link>
+        <.check_result_link
+          :if={member["stream_id"]}
+          earlier_targets={@earlier_targets}
+          current={@current}
+          id={member["stream_id"]}
+        >View latest check result</.check_result_link>
         <a
           :if={!member["stream_id"] && member["coverage_id"]}
           href={evidence_path(:expected, member["coverage_id"], @current)}
@@ -1372,33 +1563,53 @@ defmodule MondekWeb.NextIncidentsLive do
         param="member_page"
         label="Affected result pages"
       />
-    </section>
+    </PreviewDetail.card>
     """
   end
 
   defp check_result_link(assigns) do
-    assigns =
-      assign(assigns, :full_page, String.ends_with?(URI.parse(assigns.current).path, "/full"))
-
     ~H"""
-    <.link :if={@full_page} href={evidence_path(:result, @id, @current)}>{render_slot(@inner_block)}</.link>
-    <.link :if={!@full_page} patch={result_layer_path(@current, @id)}>{render_slot(@inner_block)}</.link>
+    <.link patch={result_layer_path(@current, @earlier_targets, @id)}>{render_slot(@inner_block)}</.link>
     """
   end
 
-  defp result_layer_path(current, id), do: detail_path(current, %{"result" => id})
+  defp result_layer_path(current, earlier, id),
+    do: PanelStack.destination(earlier, {:result, id}, detail_path(current, %{"result" => id}))
+
+  defp incident_destination(current, earlier, id, from_shared?),
+    do:
+      PanelStack.destination(
+        earlier,
+        {"health", id},
+        related_incident_path(current, id, from_shared?)
+      )
 
   defp related_incident_path(current, id, from_shared? \\ false) do
     uri = URI.parse(current)
     params = URI.decode_query(uri.query || "")
-    full_page? = String.ends_with?(uri.path, "/full")
 
-    query =
-      if from_shared? && !full_page?,
-        do: Map.put(Map.merge(filters(params), detail_filters(params)), "from_shared", "1"),
-        else: filters(params)
+    parent =
+      if String.starts_with?(uri.path, "/next/incidents/") && String.ends_with?(uri.path, "/full"),
+        do: List.last(Enum.drop(String.split(uri.path, "/"), -1))
 
-    path("health", id, query, full_page?)
+    changes = %{"result" => nil, "from_shared" => if(from_shared?, do: "1")}
+
+    if result_host?(uri.path) || parent do
+      selection = if id != parent, do: "health:#{id}"
+      detail_path(current, Map.put(changes, "incident", selection))
+    else
+      query =
+        if from_shared?,
+          do: Map.merge(filters(params), detail_filters(params)),
+          else: filters(params)
+
+      path("health", id, Map.merge(query, changes))
+    end
+  end
+
+  defp result_host?(path) do
+    path == "/next" ||
+      Regex.match?(~r"\A/next/(?:checks|results)/[a-f0-9-]{36}(?:/full)?\z", path)
   end
 
   defp detail_path(current, changes) do
@@ -1409,13 +1620,13 @@ defmodule MondekWeb.NextIncidentsLive do
   defp detail_filter(assigns) do
     ~H"""
     <form
-      id={"preview-filter-detail-" <> @field}
+      id={@id_prefix <> "preview-filter-detail-" <> @field}
       phx-change="filter_incident_detail"
       phx-auto-recover="ignore"
       class="preview-recorded-actions preview-detail-filter"
     >
-      <label for={"preview-detail-" <> @field}>{@label}</label>
-      <select id={"preview-detail-" <> @field} name={@field}>
+      <label for={@id_prefix <> "preview-detail-" <> @field}>{@label}</label>
+      <select id={@id_prefix <> "preview-detail-" <> @field} name={@field}>
         <option :for={{value, label} <- @choices} value={value} selected={@value == value}>
           {label}
         </option>

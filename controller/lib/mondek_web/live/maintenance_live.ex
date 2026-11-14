@@ -4,13 +4,32 @@ defmodule MondekWeb.MaintenanceLive do
   use MondekWeb, :live_view
 
   alias Mondek.{Maintenance, MaintenanceSchedules, MaintenanceSelection, MaintenanceTime}
+  alias MondekWeb.PreviewDetail
   alias Phoenix.LiveView.JS
 
   @proposal_fields ~w(id revision name reason scope assignment_id source_id environment target_kind target_key selections timezone start_mode starts_local ends_local start_fold end_fold recurrence)
   @editable_fields ~w(name reason timezone start_mode starts_local ends_local start_fold end_fold)
+  @recurrence_fields ~w(frequency interval end_mode count until_date)
+  @recurrence_unused_fields Enum.map(@recurrence_fields, &("_unused_" <> &1))
   @scope_fields ~w(scope assignment_id source_id environment target_kind target_key)
   @selection_filter_fields ~w(kind search environment source_id runner_id)
+  @choice_fields [
+    {"kind", "Choose by", "grid"},
+    {"environment", "Environment", "globe"},
+    {"source_id", "Source", "code"},
+    {"runner_id", "Runner", "server"}
+  ]
   @max_draft_bytes 2_097_152
+  @preview_filters [
+    {"status", "Status", "clock", [{"current", "Active & upcoming"}, {"history", "History"}]},
+    {"scope", "Scope", "map-pin",
+     [
+       {"check", "Scheduled check"},
+       {"target", "Target"},
+       {"selection", "Selected checks and targets"}
+     ]},
+    {"kind", "Type", "grid", [{"window", "One-off window"}, {"series", "Recurring series"}]}
+  ]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -55,8 +74,26 @@ defmodule MondekWeb.MaintenanceLive do
   end
 
   @impl true
-  def handle_params(params, _uri, socket) do
+  def handle_params(params, uri, socket) do
+    preview_ui = String.starts_with?(URI.parse(uri).path, "/next/maintenance")
+
+    socket =
+      assign(socket,
+        preview_ui: preview_ui,
+        preview_drawer:
+          preview_ui && socket.assigns.live_action in [:edit, :series] &&
+            !String.ends_with?(URI.parse(uri).path, "/full"),
+        return_to:
+          if(preview_ui, do: MondekWeb.NextIncidentsLive.return_path(params["return_to"])),
+        window_picker: nil
+      )
+
     if socket.assigns.live_action == :series do
+      socket =
+        if preview_ui,
+          do: socket |> assign(filters: window_filters(params, true)) |> refresh_list(),
+          else: socket
+
       filters = Map.take(params, ~w(occurrence_page result_page))
 
       case MaintenanceSchedules.get(params["id"], filters) do
@@ -72,10 +109,13 @@ defmodule MondekWeb.MaintenanceLive do
              proposal: nil,
              cancel_reason: if(same, do: socket.assigns.cancel_reason, else: ""),
              cancel_open: same && socket.assigns.cancel_open,
-             series_cancel_preview: if(same, do: socket.assigns.series_cancel_preview, else: nil),
-             error: nil
+             cancel_revision: if(same, do: socket.assigns.cancel_revision),
+             series_cancel_preview: if(same, do: socket.assigns.series_cancel_preview),
+             error: if(same, do: socket.assigns.error),
+             notice: if(same, do: socket.assigns.notice)
            )
-           |> load_series_selection()}
+           |> load_series_selection()
+           |> refresh_series_cancel()}
 
         {:error, reason} ->
           {:noreply,
@@ -84,6 +124,13 @@ defmodule MondekWeb.MaintenanceLive do
     else
       regular_params(params, socket)
     end
+  end
+
+  defp regular_params(
+         %{"id" => id} = params,
+         %{assigns: %{preview_ui: true, live_action: :edit, window: %{"id" => id}}} = socket
+       ) do
+    {:noreply, socket |> assign(filters: window_filters(params, true)) |> refresh_current()}
   end
 
   defp regular_params(params, socket) do
@@ -96,12 +143,15 @@ defmodule MondekWeb.MaintenanceLive do
         review_token: nil,
         cancel_open: false,
         cancel_reason: "",
-        cancel_revision: nil
+        cancel_revision: nil,
+        saved_selection_page: 1,
+        settings_recovered: false,
+        selection_recovered: false
       )
 
     case socket.assigns.live_action do
       :index ->
-        filters = Map.take(params, ~w(status assignment_id stream_id page))
+        filters = window_filters(params, socket.assigns.preview_ui)
 
         {:noreply,
          socket |> assign(filters: filters, window: nil, proposal: nil) |> refresh_list()}
@@ -109,6 +159,7 @@ defmodule MondekWeb.MaintenanceLive do
       :new ->
         socket =
           assign(socket,
+            filters: window_filters(params, socket.assigns.preview_ui),
             draft_origin: params["copy_series"] || params["check_id"] || "selection",
             settings_recovered: false,
             selection_recovered: false,
@@ -149,7 +200,7 @@ defmodule MondekWeb.MaintenanceLive do
                  socket
                  |> assign(
                    window: nil,
-                   proposal: Map.take(seed["proposal"], @proposal_fields),
+                   proposal: initial_proposal(seed, socket.assigns.return_to),
                    scope_options: seed["scope_options"] || []
                  )
                  |> load_candidates()}
@@ -171,6 +222,9 @@ defmodule MondekWeb.MaintenanceLive do
         end
 
       :edit ->
+        socket = assign(socket, filters: window_filters(params, socket.assigns.preview_ui))
+        socket = if socket.assigns.preview_drawer, do: refresh_list(socket), else: socket
+
         case Maintenance.get(params["id"]) do
           {:ok, window} ->
             {:noreply, socket |> assign(draft_origin: params["id"]) |> load_window(window)}
@@ -179,6 +233,32 @@ defmodule MondekWeb.MaintenanceLive do
             {:noreply, assign(socket, window: nil, proposal: nil, error: error_message(reason))}
         end
     end
+  end
+
+  defp window_filters(params, false),
+    do: Map.take(params, ~w(status assignment_id stream_id page))
+
+  defp window_filters(params, true) do
+    filters =
+      Map.merge(
+        window_filters(params, false),
+        Mondek.OverviewFilters.params(Map.take(params, ["search"]))
+      )
+
+    Enum.reduce(@preview_filters, filters, fn {field, _, _, choices}, acc ->
+      value = params[field]
+
+      if List.keymember?(choices, value, 0) || {field, value} == {"status", "all"},
+        do: Map.put(acc, field, value),
+        else: Map.delete(acc, field)
+    end)
+  end
+
+  defp initial_proposal(seed, nil), do: Map.take(seed["proposal"], @proposal_fields)
+
+  defp initial_proposal(seed, _return_to) do
+    check = Enum.find(seed["scope_options"], &(&1["scope"] == "check"))
+    seed["proposal"] |> Map.take(@proposal_fields) |> Map.merge(Map.take(check, @scope_fields))
   end
 
   @impl true
@@ -195,6 +275,130 @@ defmodule MondekWeb.MaintenanceLive do
   end
 
   @impl true
+  def handle_event("search", params, %{assigns: %{preview_ui: true, live_action: :new}} = socket) do
+    filter_choices_for_draft(socket, %{
+      "search" => Mondek.OverviewFilters.params(params)["search"]
+    })
+  end
+
+  def handle_event(
+        "filter_remove",
+        %{"field" => field},
+        %{assigns: %{preview_ui: true, live_action: :new}} = socket
+      )
+      when field in @selection_filter_fields do
+    filter_choices_for_draft(socket, %{field => default_choice_filter(field)})
+  end
+
+  def handle_event(
+        "filter_open",
+        %{"field" => field},
+        %{assigns: %{preview_ui: true, live_action: :new}} = socket
+      ) do
+    case List.keyfind(@choice_fields, field, 0) do
+      {^field, _, _} ->
+        picker = choice_picker(socket.assigns, field, "")
+        selected = Enum.find(picker.options, &(&1.key == socket.assigns.selection_filters[field]))
+
+        {:noreply,
+         assign(socket,
+           window_picker: %{picker | value: if(selected, do: selected.label, else: "")}
+         )}
+
+      nil ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event(
+        "search",
+        params,
+        %{assigns: %{preview_ui: true}} = socket
+      ) do
+    search = Mondek.OverviewFilters.params(params)["search"]
+
+    if search == socket.assigns.filters["search"],
+      do: {:noreply, socket},
+      else: patch_preview_list(socket, %{"search" => search})
+  end
+
+  def handle_event("filter_open", %{"field" => field}, %{assigns: %{preview_ui: true}} = socket) do
+    case List.keyfind(@preview_filters, field, 0) do
+      {^field, _, _, choices} ->
+        label =
+          List.keyfind(choices, window_filter_value(socket.assigns.filters, field), 0, {nil, ""})
+          |> elem(1)
+
+        {:noreply, assign(socket, window_picker: %{window_picker(field, "") | value: label})}
+
+      nil ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event(
+        "filter_query",
+        %{"search" => search},
+        %{assigns: %{window_picker: %{field: field}}} = socket
+      )
+      when is_binary(search),
+      do:
+        {:noreply,
+         assign(socket,
+           window_picker: filter_picker(socket.assigns, field, String.slice(search, 0, 100))
+         )}
+
+  def handle_event(
+        "filter_first",
+        %{"search" => search},
+        %{assigns: %{window_picker: %{field: field}}} = socket
+      )
+      when is_binary(search) do
+    case filter_picker(socket.assigns, field, String.slice(search, 0, 100)).options do
+      [%{key: key} | _] -> apply_picker_filter(socket, %{field => key})
+      [] -> {:noreply, socket}
+    end
+  end
+
+  def handle_event(
+        "filter_select",
+        %{"key" => key},
+        %{assigns: %{window_picker: %{field: field, options: options}}} = socket
+      ) do
+    if Enum.any?(options, &(&1.key == key)),
+      do: apply_picker_filter(socket, %{field => key}),
+      else: {:noreply, socket}
+  end
+
+  def handle_event(
+        "filter_remove_edit",
+        _,
+        %{assigns: %{window_picker: %{field: field}}} = socket
+      ),
+      do:
+        apply_picker_filter(socket, %{
+          field =>
+            if(socket.assigns.live_action == :new,
+              do: default_choice_filter(field),
+              else: cleared_window_filter(field)
+            )
+        })
+
+  def handle_event(
+        "filter_close",
+        params,
+        %{assigns: %{preview_ui: true}} = socket
+      ) do
+    socket = assign(socket, :window_picker, nil)
+
+    socket =
+      if params["reopen"],
+        do: push_event(socket, "preview-filter-ready", picker_target(socket.assigns)),
+        else: socket
+
+    {:noreply, socket}
+  end
+
   def handle_event("selection_change", form, socket) do
     {:noreply, change_selection(socket, form)}
   end
@@ -364,9 +568,10 @@ defmodule MondekWeb.MaintenanceLive do
        )
        |> push_navigate(
          to:
-           if(repeating?(socket.assigns.proposal),
-             do: series_path(window["id"]),
-             else: window_path(window["id"])
+           saved_destination(
+             socket.assigns,
+             window["id"],
+             if(repeating?(socket.assigns.proposal), do: :series, else: :window)
            )
        )}
     else
@@ -599,14 +804,145 @@ defmodule MondekWeb.MaintenanceLive do
            :info,
            message <> " Other maintenance windows and acknowledgements remain in effect."
          )
-         |> push_navigate(to: window_path(window["id"]))}
+         |> push_navigate(to: saved_destination(socket.assigns, window["id"], :window))}
 
       {:error, reason} ->
         {:noreply, socket |> refresh_current() |> assign(error: error_message(reason))}
     end
   end
 
+  defp picker_target(%{live_action: :new}), do: %{id: "maintenance-choice-search"}
+  defp picker_target(_), do: %{}
+
+  defp default_choice_filter("kind"), do: "check"
+  defp default_choice_filter(_), do: nil
+
+  defp apply_picker_filter(%{assigns: %{live_action: :new}} = socket, changes),
+    do: filter_choices_for_draft(socket, changes)
+
+  defp apply_picker_filter(socket, changes), do: patch_preview_list(socket, changes)
+
+  defp filter_choices_for_draft(socket, changes) do
+    filters =
+      socket.assigns.selection_filters
+      |> Map.merge(changes)
+      |> Map.reject(fn {_, value} -> is_nil(value) end)
+      |> Map.put("page", 1)
+
+    {:noreply,
+     socket
+     |> assign(selection_filters: filters, window_picker: nil)
+     |> load_candidates()
+     |> push_event("preview-filter-ready", picker_target(socket.assigns))}
+  end
+
+  defp filter_picker(%{live_action: :new} = assigns, field, search),
+    do: choice_picker(assigns, field, search)
+
+  defp filter_picker(_, field, search), do: window_picker(field, search)
+
+  defp choice_picker(assigns, field, search) do
+    {^field, title, _} = List.keyfind(@choice_fields, field, 0)
+
+    options =
+      for {key, label} <- choice_filter_options(assigns.filter_choices || %{}, field),
+          String.contains?(String.downcase(label <> " " <> key), String.downcase(search)) do
+        %{key: key, kind: "", label: label, show_key: false}
+      end
+
+    %{field: field, title: title, value: search, options: options}
+  end
+
+  defp choice_filter_options(_, "kind"),
+    do: [{"check", "Scheduled checks"}, {"target", "Monitored targets"}]
+
+  defp choice_filter_options(choices, field) do
+    key =
+      %{"environment" => "environments", "source_id" => "sources", "runner_id" => "runners"}[
+        field
+      ]
+
+    for choice <- choices[key] || [], do: {choice["id"], choice["label"] || choice["id"]}
+  end
+
+  defp patch_preview_list(socket, changes) do
+    {:noreply,
+     socket
+     |> push_patch(to: preview_list_path(socket.assigns.filters, Map.put(changes, "page", nil)))
+     |> push_event("preview-filter-ready", %{})}
+  end
+
+  defp window_filter_value(filters, "status"), do: filters["status"] || "current"
+  defp window_filter_value(filters, field), do: filters[field]
+  defp cleared_window_filter("status"), do: "all"
+  defp cleared_window_filter(_), do: nil
+
+  defp window_picker(field, search) do
+    {^field, title, _, choices} = List.keyfind(@preview_filters, field, 0)
+
+    options =
+      for {key, label} <- choices,
+          String.contains?(String.downcase(label), String.downcase(search)) do
+        %{key: key, kind: "", label: label, show_key: false}
+      end
+
+    %{field: field, title: title, value: search, options: options}
+  end
+
   @impl true
+  def render(%{preview_ui: true} = assigns) do
+    ~H"""
+    <div
+      id="maintenance-preview-shell"
+      class="preview-shell"
+      phx-hook="MaintenancePanel"
+      data-maintenance-entity={(@window || @series || %{})["id"]}
+      data-maintenance-surface={if @preview_drawer, do: "drawer", else: "page"}
+      data-selection={if @preview_drawer, do: (@window || @series || %{})["id"] || "unavailable"}
+      data-panel-heading="maintenance-heading"
+    >
+      <MondekWeb.PreviewLayouts.navigation active={:maintenance} />
+      <main id="main-content" class="preview-main preview-maintenance" tabindex="-1">
+        <.preview_windows :if={@live_action == :index || @preview_drawer} {assigns} />
+        <PreviewDetail.surface
+          :if={@preview_drawer}
+          path={if @window || @series, do: presentation_path(assigns, :drawer)}
+        >
+          <div class="preview-panel-tools">
+            <.link
+              patch={preview_list_path(@filters, %{})}
+              data-overview-close
+              class="pf-v6-c-button pf-m-link"
+            >Close details ×</.link>
+            <.link
+              :if={@window || @series}
+              patch={presentation_path(assigns, :page)}
+              class="pf-v6-c-button pf-m-link"
+            >Open as page</.link>
+            <.link :if={@return_to} navigate={@return_to} class="pf-v6-c-button pf-m-link">Back to incident</.link>
+          </div>
+          <header class="preview-incident-intro">
+            <PreviewDetail.heading level={2} id="overview-panel-title" size="xl">
+              {(@window || @series || %{})["name"] || "Window unavailable"}
+            </PreviewDetail.heading>
+          </header>
+          <div class="preview-maintenance-workflow">
+            <.maintenance_content {assigns} show_heading={false} />
+          </div>
+        </PreviewDetail.surface>
+        <div :if={@live_action != :index && !@preview_drawer} class="preview-maintenance-workflow">
+          <div class="preview-maintenance-back">
+            <.link patch={preview_list_path(@filters, %{})}>← All maintenance windows</.link>
+            <.link :if={@window || @series} patch={presentation_path(assigns, :drawer)}>Open fly-over</.link>
+            <.link :if={@return_to} navigate={@return_to}>Back to incident</.link>
+          </div>
+          <.maintenance_content {assigns} />
+        </div>
+      </main>
+    </div>
+    """
+  end
+
   def render(assigns) do
     ~H"""
     <MondekWeb.Layouts.app
@@ -618,134 +954,278 @@ defmodule MondekWeb.MaintenanceLive do
       main_class="maintenance-page"
     >
       <.link :if={@live_action != :index} navigate="/maintenance" class="back">All maintenance windows</.link>
-      <div class="page-heading">
-        <div>
-          <div class="eyebrow">Notification maintenance</div><h1>
-            {page_heading(@live_action, @window || @series)}
-          </h1>
-          <p>
-            Hold failure notifications during planned work. Checks, measured health and recovery notifications continue.
-          </p>
-        </div>
-        <.link :if={@live_action == :index} navigate="/maintenance/new" class="button primary">Schedule maintenance</.link>
-      </div>
-      <p :if={@error} id="maintenance-error" class="form-error" role="alert">{@error}</p>
-      <p :if={@notice} id="maintenance-notice" class="notice notice-copy" role="status">
-        {@notice}
-      </p>
-      <div
-        :if={stale?(@window, @proposal)}
-        class="notice notice-copy space-top"
-        id="maintenance-stale"
-      >
-        This window changed after you started editing. Your draft is preserved.
-        <button
-          id="maintenance-review-current"
-          type="button"
-          class="button small"
-          phx-click="review_current"
-        >Review current saved window</button>
-      </div>
-      <.window_list :if={@live_action == :index} listing={@listing} filters={@filters} />
-      <.series_detail
-        :if={@series}
-        series={@series}
-        params={@series_params}
-        cancel_open={@cancel_open}
-        cancel_reason={@cancel_reason}
-        cancel_revision={@cancel_revision}
-        preview={@series_cancel_preview}
-      />
-      <.selection_chooser
-        :if={@live_action == :new && @proposal}
-        candidates={@candidates}
-        filter_choices={@filter_choices || %{}}
-        filters={@selection_filters}
-        proposal={@proposal}
-        selected_rows={@selected_rows}
-        selected_only={@selected_only}
-        selected_page={@selected_page}
-        draft_origin={@draft_origin}
-        preview={@preview}
-      />
-      <.saved_window :if={@window} window={@window} />
-      <.saved_selection
-        :if={
-          (@series && @series["proposal"]["scope"] == "selection") ||
-            (@window && @window["scope"] == "selection") ||
-            (@preview && @proposal["scope"] == "selection")
-        }
-        rows={@selected_rows}
-        page={@saved_selection_page}
-        saved={not is_nil(@window) || not is_nil(@series)}
-      />
-      <.editor
-        :if={@proposal && editable?(@window)}
-        proposal={@proposal}
-        window={@window}
-        scope_options={@scope_options}
-        preview={@preview}
-        token={@review_token}
-        stale={stale?(@window, @proposal)}
-        draft_origin={@draft_origin}
-      />
-      <section
-        :if={@window && editable?(@window)}
-        class="panel space-top"
-        id="maintenance-cancellation"
-      >
-        <div class="panel-body">
-          <button
-            :if={!@cancel_open}
-            id="maintenance-cancel"
-            type="button"
-            class="button danger"
-            phx-click="show_cancel"
-            disabled={stale?(@window, @proposal)}
-          >{cancel_label(@window)}</button>
-          <form
-            id="maintenance-cancel-form"
-            style={if !@cancel_open, do: "display: none"}
-            phx-change="edit_cancel"
-            phx-auto-recover="edit_cancel"
-            phx-submit="cancel"
-          >
-            <input type="hidden" name="_id" value={@window["id"]} />
-            <input type="hidden" name="_open" value={to_string(@cancel_open)} />
-            <input type="hidden" name="revision" value={@cancel_revision} />
-            <h2>{cancel_label(@window)}</h2>
-            <p class="space-top">
-              This ends only this window. Failure notifications become eligible only when no other maintenance window or acknowledgement holds them. An attempt already underway may finish.
-            </p>
-            <div class="field space-top">
-              <label for="maintenance-cancel-reason">Reason for ending or cancelling</label>
-              <textarea id="maintenance-cancel-reason" name="reason" required maxlength="500">{@cancel_reason}</textarea>
-            </div>
-            <div class="form-actions">
-              <button
-                id="maintenance-confirm-cancel"
-                class="button danger"
-                disabled={integer(@cancel_revision) != @window["revision"]}
-                phx-disable-with="Saving…"
-              >Confirm {String.downcase(cancel_label(@window))}</button>
-              <button type="button" class="button" phx-click="hide_cancel">Keep window</button>
-            </div>
-            <p
-              :if={integer(@cancel_revision) != @window["revision"]}
-              role="alert"
-              class="form-error"
-            >
-              The window changed. Review it, then open this action again; your reason is preserved.
-            </p>
-          </form>
-        </div>
-      </section>
-      <.history
-        :if={@window}
-        events={@window["history"] || []}
-        total={@window["history_count"] || 0}
-      />
+      <.maintenance_content {assigns} />
     </MondekWeb.Layouts.app>
+    """
+  end
+
+  defp maintenance_content(assigns) do
+    assigns = assign_new(assigns, :show_heading, fn -> true end)
+
+    ~H"""
+    <header :if={@show_heading && @preview_ui && (@window || @series)} class="preview-incident-intro">
+      <PreviewDetail.heading level={1} size="xl">
+        {(@window || @series)["name"]}
+      </PreviewDetail.heading>
+    </header>
+    <div :if={@show_heading && (!@preview_ui || !(@window || @series))} class="page-heading">
+      <div>
+        <div class="eyebrow">Notification maintenance</div><h1>
+          {page_heading(@live_action, @window || @series)}
+        </h1>
+        <p>
+          Hold failure notifications during planned work. Checks, measured health and recovery notifications continue.
+        </p>
+      </div>
+      <.link :if={@live_action == :index} navigate="/maintenance/new" class="button primary">Schedule maintenance</.link>
+    </div>
+    <p :if={@error} id="maintenance-error" class="form-error" role="alert">{@error}</p>
+    <p :if={@preview_ui && Phoenix.Flash.get(@flash, :info)} class="notice" role="status">
+      {Phoenix.Flash.get(@flash, :info)}
+    </p>
+    <p :if={@notice} id="maintenance-notice" class="notice notice-copy" role="status">
+      {@notice}
+    </p>
+    <div
+      :if={stale?(@window, @proposal)}
+      class="notice notice-copy space-top"
+      id="maintenance-stale"
+    >
+      This window changed after you started editing. Your draft is preserved.
+      <button
+        id="maintenance-review-current"
+        type="button"
+        class="button small"
+        phx-click="review_current"
+      >Review current saved window</button>
+    </div>
+    <.window_list :if={@live_action == :index} listing={@listing} filters={@filters} />
+    <.series_detail
+      :if={@series}
+      series={@series}
+      params={@series_params}
+      cancel_open={@cancel_open}
+      cancel_reason={@cancel_reason}
+      cancel_revision={@cancel_revision}
+      preview={@series_cancel_preview}
+      preview_ui={@preview_ui}
+      return_to={@return_to}
+      list_filters={@filters}
+      series_path={
+        if @preview_ui && @series,
+          do: presentation_path(assigns, if(@preview_drawer, do: :drawer, else: :page))
+      }
+    />
+    <.selection_chooser
+      :if={@live_action == :new && @proposal}
+      candidates={@candidates}
+      filter_choices={@filter_choices || %{}}
+      picker={@window_picker}
+      filters={@selection_filters}
+      proposal={@proposal}
+      selected_rows={@selected_rows}
+      selected_only={@selected_only}
+      selected_page={@selected_page}
+      draft_origin={@draft_origin}
+      preview={@preview}
+      preview_ui={@preview_ui}
+      return_to={@return_to}
+    />
+    <.saved_window :if={@window && !@preview_ui} window={@window} />
+    <.preview_window_details
+      :if={@window && @preview_ui}
+      window={@window}
+      context={navigation_context(assigns, :window)}
+      current_path={presentation_path(assigns, if(@preview_drawer, do: :drawer, else: :page))}
+    />
+    <.saved_selection
+      :if={
+        (@series && @series["proposal"]["scope"] == "selection") ||
+          (@window && @window["scope"] == "selection") ||
+          (@preview && @proposal["scope"] == "selection")
+      }
+      rows={@selected_rows}
+      page={@saved_selection_page}
+      saved={not is_nil(@window) || not is_nil(@series)}
+    />
+    <.editor
+      :if={@proposal && editable?(@window)}
+      proposal={@proposal}
+      window={@window}
+      scope_options={@scope_options}
+      preview={@preview}
+      token={@review_token}
+      stale={stale?(@window, @proposal)}
+      draft_origin={@draft_origin}
+      preview_ui={@preview_ui}
+      return_to={@return_to}
+    />
+    <section
+      :if={@window && editable?(@window)}
+      class="panel space-top"
+      id="maintenance-cancellation"
+    >
+      <div class="panel-body">
+        <button
+          :if={!@cancel_open}
+          id="maintenance-cancel"
+          type="button"
+          class="button danger"
+          phx-click="show_cancel"
+          disabled={stale?(@window, @proposal)}
+        >{cancel_label(@window)}</button>
+        <form
+          id="maintenance-cancel-form"
+          style={if !@cancel_open, do: "display: none"}
+          phx-change="edit_cancel"
+          phx-auto-recover="edit_cancel"
+          phx-submit="cancel"
+        >
+          <input type="hidden" name="_id" value={@window["id"]} />
+          <input type="hidden" name="_open" value={to_string(@cancel_open)} />
+          <input type="hidden" name="revision" value={@cancel_revision} />
+          <h2>{cancel_label(@window)}</h2>
+          <p class="space-top">
+            This ends only this window. Failure notifications become eligible only when no other maintenance window or acknowledgement holds them. An attempt already underway may finish.
+          </p>
+          <div class="field space-top">
+            <label for="maintenance-cancel-reason">Reason for ending or cancelling</label>
+            <textarea id="maintenance-cancel-reason" name="reason" required maxlength="500">{@cancel_reason}</textarea>
+          </div>
+          <div class="form-actions">
+            <button
+              id="maintenance-confirm-cancel"
+              class="button danger"
+              disabled={integer(@cancel_revision) != @window["revision"]}
+              phx-disable-with="Saving…"
+            >Confirm {String.downcase(cancel_label(@window))}</button>
+            <button type="button" class="button" phx-click="hide_cancel">Keep window</button>
+          </div>
+          <p
+            :if={integer(@cancel_revision) != @window["revision"]}
+            role="alert"
+            class="form-error"
+          >
+            The window changed. Review it, then open this action again; your reason is preserved.
+          </p>
+        </form>
+      </div>
+    </section>
+    <.history
+      :if={@window && !@preview_ui}
+      events={@window["history"] || []}
+      total={@window["history_count"] || 0}
+    />
+    """
+  end
+
+  defp preview_windows(assigns) do
+    chips =
+      for {field, name, _, choices} <- @preview_filters,
+          value = window_filter_value(assigns.filters, field),
+          {^value, label} <- List.wrap(List.keyfind(choices, value, 0)),
+          do: %{field: field, name: name, label: label}
+
+    fields = Enum.map(@preview_filters, fn {field, title, icon, _} -> {field, title, icon} end)
+    assigns = assign(assigns, window_chips: chips, window_fields: fields)
+
+    ~H"""
+    <section class="preview-list" aria-labelledby="maintenance-heading">
+      <header class="preview-heading">
+        <h1 id="maintenance-heading" class="pf-v6-c-title pf-m-2xl">Maintenance</h1>
+        <.link navigate="/next/maintenance/new" class="pf-v6-c-button pf-m-primary">Schedule maintenance</.link>
+      </header>
+      <div class="preview-maintenance-filter">
+        <MondekWeb.PreviewFilters.filter_picker
+          picker={@window_picker}
+          chips={@window_chips}
+          fields={@window_fields}
+          search={@filters["search"]}
+          remove={
+            fn field ->
+              preview_list_path(@filters, %{field => cleared_window_filter(field), "page" => nil})
+            end
+          }
+          clear_search={preview_list_path(@filters, %{"search" => nil, "page" => nil})}
+          form_label="Filter maintenance windows"
+          label="Search maintenance windows"
+          placeholder="Search or filter maintenance"
+        />
+        <.link
+          :if={@filters["assignment_id"] || @filters["stream_id"]}
+          patch={preview_list_path(Map.drop(@filters, ~w(assignment_id stream_id page)), %{})}
+        >Show all scopes</.link>
+      </div>
+      <section class="preview-table-group" aria-labelledby="maintenance-windows-heading">
+        <h2 id="maintenance-windows-heading" class="preview-section-heading">
+          Windows and series <span class="pf-v6-c-badge pf-m-read">{@listing["total"] || 0}</span>
+        </h2>
+        <p :if={@listing["windows"] == []} class="preview-empty">No maintenance matches this view.</p>
+        <table
+          :if={@listing["windows"] != []}
+          class="pf-v6-c-table preview-table preview-maintenance-table"
+          aria-label="Maintenance windows and series"
+        >
+          <thead class="pf-v6-c-table__thead">
+            <tr class="pf-v6-c-table__tr">
+              <th class="pf-v6-c-table__th" scope="col">Window</th>
+              <th class="pf-v6-c-table__th" scope="col">Status</th>
+              <th class="pf-v6-c-table__th" scope="col">Scope</th>
+              <th class="pf-v6-c-table__th" scope="col">Schedule</th>
+            </tr>
+          </thead>
+          <tbody class="pf-v6-c-table__tbody">
+            <tr
+              :for={window <- @listing["windows"]}
+              class={[
+                "pf-v6-c-table__tr",
+                (@window || @series || %{})["id"] == window["id"] && "preview-selected"
+              ]}
+              data-overview-row
+            >
+              <td class="pf-v6-c-table__td">
+                <.link
+                  patch={
+                    if (@window || @series || %{})["id"] == window["id"],
+                      do: preview_list_path(@filters, %{}),
+                      else: preview_window_path(window, @filters)
+                  }
+                  id={"open-window-#{window["id"]}"}
+                  data-overview-open
+                  class="preview-result-link"
+                >{window["name"]}</.link>
+                <p class="preview-caption">{window["reason"]}</p>
+              </td>
+              <td class="pf-v6-c-table__td">
+                <span class={[
+                  "pf-v6-c-label",
+                  window["status"] == "active" && "pf-m-green",
+                  window["status"] in ["upcoming", "between"] && "pf-m-blue"
+                ]}>
+                  <span class="pf-v6-c-label__content">{status_label(window)}</span>
+                </span>
+              </td>
+              <td class="pf-v6-c-table__td">{scope_label(window)}</td>
+              <td class="pf-v6-c-table__td">
+                <%= if window["kind"] == "series" do %>
+                  <.series_summary series={window} />
+                <% else %>
+                  <span class="preview-caption">Starts</span> {utc_time(window["starts_at"])}<br />
+                  <span class="preview-caption">Ends</span> {utc_time(window["ends_at"])}
+                <% end %>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <MondekWeb.PreviewPagination.pagination
+          page={@listing["page"]}
+          size={@listing["page_size"]}
+          total={@listing["total"]}
+          label="Maintenance pages"
+          url={fn page -> preview_list_path(@filters, %{"page" => page}) end}
+        />
+      </section>
+    </section>
     """
   end
 
@@ -802,6 +1282,159 @@ defmodule MondekWeb.MaintenanceLive do
         class="button small"
       >Next</.link>
     </nav>
+    """
+  end
+
+  defp selection_chooser(%{preview_ui: true} = assigns) do
+    rows = assigns.candidates["items"] || []
+    visible = MapSet.new(rows, & &1["key"])
+    pinned = Enum.reject(assigns.selected_rows, &MapSet.member?(visible, &1["key"]))
+
+    chips =
+      for {field, name, _} <- @choice_fields,
+          key = assigns.filters[field],
+          key,
+          do: %{
+            field: field,
+            name: name,
+            removable: key != default_choice_filter(field),
+            label:
+              List.keyfind(
+                choice_filter_options(assigns.filter_choices, field),
+                key,
+                0,
+                {key, key}
+              )
+              |> elem(1)
+          }
+
+    assigns =
+      assign(assigns,
+        rows: rows,
+        pinned: pinned,
+        chips: chips,
+        fields: @choice_fields,
+        page: assigns.candidates["page"] || 1,
+        total: assigns.candidates["total"] || 0,
+        selected_keys: MapSet.new(selections(assigns.proposal), &MaintenanceSelection.key/1)
+      )
+
+    ~H"""
+    <section
+      class="panel preview-maintenance-chooser"
+      id="maintenance-check-chooser"
+      style={if @proposal["scope"] != "selection" || @preview, do: "display: none"}
+    >
+      <header class="panel-heading">
+        <h2>Choose checks or targets</h2>
+        <span class="pf-v6-c-badge pf-m-read" id="maintenance-selected-count">{length(@selected_rows)} selected</span>
+      </header>
+      <div class="preview-maintenance-choice-toolbar">
+        <MondekWeb.PreviewFilters.filter_picker
+          id="maintenance-choice-search"
+          picker={@picker}
+          chips={@chips}
+          fields={@fields}
+          search={@filters["search"]}
+          form_label="Filter checks and targets"
+          label="Search checks and targets"
+          placeholder="Search or filter choices"
+        />
+        <p class="footnote">
+          {if @filters["kind"] == "target",
+            do:
+              "A selected target covers matching results across runners. Select child targets separately.",
+            else: "A selected check covers all of its results, including results added later."}
+        </p>
+      </div>
+      <form
+        id="maintenance-selection-form"
+        phx-change="selection_change"
+        phx-auto-recover="recover_selection"
+        phx-submit="selection_change"
+      >
+        <input type="hidden" name="_proposal" value={encoded_draft(@proposal, @draft_origin)} />
+        <input
+          type="hidden"
+          name="_page_selections"
+          value={Jason.encode!(Enum.map(@rows, &selector_identity/1))}
+        />
+        <input type="hidden" name="_filters" value={Jason.encode!(@filters)} />
+        <input type="hidden" name="selected_keys[]" value="" />
+        <table class="pf-v6-c-table pf-m-compact preview-table" aria-label="Checks and targets">
+          <thead class="pf-v6-c-table__thead">
+            <tr class="pf-v6-c-table__tr">
+              <th scope="col" class="pf-v6-c-table__th preview-maintenance-choice-select">Select</th>
+              <th scope="col" class="pf-v6-c-table__th">Check or target</th>
+              <th scope="col" class="pf-v6-c-table__th preview-maintenance-choice-results">
+                Results
+              </th>
+            </tr>
+          </thead>
+          <tbody class="pf-v6-c-table__tbody">
+            <tr :if={@rows == []}>
+              <td colspan="3" class="pf-v6-c-table__td">No choices match these filters.</td>
+            </tr>
+            <.choice_row
+              :for={row <- @rows}
+              row={row}
+              selected={MapSet.member?(@selected_keys, row["key"])}
+              pinned={false}
+            />
+          </tbody>
+          <tbody :if={@pinned != []} class="pf-v6-c-table__tbody preview-maintenance-pinned">
+            <tr>
+              <th colspan="3" scope="rowgroup" class="pf-v6-c-table__th">
+                Selected outside this view
+              </th>
+            </tr>
+            <.choice_row :for={row <- @pinned} row={row} selected={true} pinned={true} />
+          </tbody>
+        </table>
+      </form>
+      <div class="preview-maintenance-choice-toolbar preview-maintenance-choice-actions">
+        <div class="maintenance-selection-actions">
+          <button
+            :if={@rows != []}
+            id="maintenance-select-page"
+            type="button"
+            class="button small"
+            phx-click="select_page"
+          >Select this page</button>
+          <button
+            :if={@total > 0 && @total <= 512}
+            id="maintenance-select-matching"
+            type="button"
+            class="button small"
+            phx-click="select_matching"
+          >Select all {@total} matches</button>
+          <button
+            :if={@selected_rows != []}
+            id="maintenance-clear-selection"
+            type="button"
+            class="button small"
+            phx-click="clear_selection"
+          >Clear selection</button>
+        </div>
+        <nav :if={@total > 25} class="pagination" aria-label="Maintenance selection pages">
+          <button
+            :if={@page > 1}
+            type="button"
+            class="button small"
+            phx-click="selection_page"
+            phx-value-page={@page - 1}
+          >Previous</button>
+          <span>Page {@page} of {ceil(@total / 25)}</span>
+          <button
+            :if={@page * 25 < @total}
+            type="button"
+            class="button small"
+            phx-click="selection_page"
+            phx-value-page={@page + 1}
+          >Next</button>
+        </nav>
+      </div>
+    </section>
     """
   end
 
@@ -1020,7 +1653,7 @@ defmodule MondekWeb.MaintenanceLive do
               </label>
               <.link
                 :if={!@selected_only && row["scope"] == "check" && @selected_rows == []}
-                navigate={new_path(row["assignment_id"])}
+                navigate={new_path(row["assignment_id"], @preview_ui, @return_to)}
                 class="text-link maintenance-single-link"
               >Schedule just this check</.link>
               <button
@@ -1059,6 +1692,40 @@ defmodule MondekWeb.MaintenanceLive do
         </p>
       </div>
     </section>
+    """
+  end
+
+  defp choice_row(assigns) do
+    assigns = assign(assigns, :checkbox_id, "maintenance-select-" <> assigns.row["key"])
+
+    ~H"""
+    <tr
+      class={["pf-v6-c-table__tr preview-maintenance-choice-row", @selected && "preview-selected"]}
+      id={"maintenance-choice-" <> @row["key"]}
+    >
+      <td class="pf-v6-c-table__td">
+        <input
+          id={@checkbox_id}
+          type="checkbox"
+          name={if !@pinned, do: "selected_keys[]"}
+          value={@row["key"]}
+          checked={@selected}
+          phx-click={if @pinned, do: "remove_selection"}
+          phx-value-key={if @pinned, do: @row["key"]}
+          aria-label={(if @pinned, do: "Remove ", else: "Select ") <> @row["label"]}
+        />
+      </td>
+      <th scope="row" class="pf-v6-c-table__th">
+        <label for={@checkbox_id}>
+          {@row["label"]}
+          <span class="preview-caption">{@row["context"]}</span>
+        </label>
+      </th>
+      <td class="pf-v6-c-table__td">
+        {@row["matched_results"] || 0}
+        <p :if={@row["available"] == false} class="preview-caption">Unavailable</p>
+      </td>
+    </tr>
     """
   end
 
@@ -1111,6 +1778,134 @@ defmodule MondekWeb.MaintenanceLive do
         </div>
       </details>
     </section>
+    """
+  end
+
+  defp preview_window_details(assigns) do
+    ~H"""
+    <.preview_saved_window window={@window} context={@context} current_path={@current_path} />
+    <.preview_history events={@window["history"] || []} total={@window["history_count"] || 0} />
+    """
+  end
+
+  defp preview_saved_window(assigns) do
+    ~H"""
+    <PreviewDetail.card id="maintenance-saved" title="Saved window">
+      <PreviewDetail.facts label="Saved window">
+        <tr>
+          <th scope="row">Status</th><td>{status_label(@window)}</td>
+        </tr>
+        <tr>
+          <th scope="row">Reason</th><td>{@window["reason"]}</td>
+        </tr>
+        <tr>
+          <th scope="row">Scope</th><td>{scope_label(@window)}</td>
+        </tr>
+        <tr>
+          <th scope="row">Starts</th><td>{utc_time(@window["starts_at"])}</td>
+        </tr>
+        <tr>
+          <th scope="row">Ends</th><td>{utc_time(@window["ends_at"])}</td>
+        </tr>
+        <tr :if={@window["timezone"] not in [nil, "UTC", "Etc/UTC"]}>
+          <th scope="row">Local schedule</th>
+          <td>
+            {local_time(@window["starts_at"], @window["timezone"])} to {local_time(
+              @window["ends_at"],
+              @window["timezone"]
+            )} · {@window["timezone"]}
+          </td>
+        </tr>
+        <tr :if={@window["cancelled_at"]}>
+          <th scope="row">Cancelled</th><td>
+            {utc_time(@window["cancelled_at"])} · {@window["cancellation_reason"]}
+          </td>
+        </tr>
+        <tr :if={@window["series_id"]}>
+          <th scope="row">Series</th><td>
+            <.link navigate={preview_entity_path(:series, @window["series_id"], :page, @context)}>Inspect the series</.link>
+          </td>
+        </tr>
+      </PreviewDetail.facts>
+    </PreviewDetail.card>
+    <PreviewDetail.card id="maintenance-saved-matches" title="Matching results">
+      <p :if={(@window["current_matches"] || []) == []} class="preview-recorded-actions">
+        No current results match this scope.
+      </p>
+      <table
+        :if={@window["current_matches"] not in [nil, []]}
+        class="pf-v6-c-table preview-table"
+        aria-label="Matching results"
+      >
+        <thead class="pf-v6-c-table__thead">
+          <tr class="pf-v6-c-table__tr">
+            <th scope="col" class="pf-v6-c-table__th">Target and result</th>
+            <th scope="col" class="pf-v6-c-table__th">Runner</th>
+          </tr>
+        </thead>
+        <tbody class="pf-v6-c-table__tbody">
+          <tr :for={row <- @window["current_matches"]} class="pf-v6-c-table__tr">
+            <td class="pf-v6-c-table__td">
+              <.link
+                href={
+                  MondekWeb.NextOverviewLive.path(
+                    %{"incident_return" => @current_path},
+                    :checks_result_page,
+                    row["id"]
+                  )
+                }
+                class="preview-result-link"
+              >{row[
+                "label"
+              ] || row["check_label"]}</.link>
+              <p class="preview-caption">
+                {target_label(row["target"] || %{})} · {row["environment"] || "Unscoped"}
+              </p>
+            </td>
+            <td class="pf-v6-c-table__td">{row["runner_label"] || row["runner_id"]}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p
+        :if={(@window["match_count"] || 0) > length(@window["current_matches"] || [])}
+        class="preview-recorded-actions preview-caption"
+      >
+        Showing {length(@window["current_matches"] || [])} of {@window["match_count"]} current matches.
+      </p>
+    </PreviewDetail.card>
+    """
+  end
+
+  defp preview_history(assigns) do
+    ~H"""
+    <PreviewDetail.card id="maintenance-history" title="Window history">
+      <p :if={@events == []} class="preview-recorded-actions">No recorded changes.</p>
+      <PreviewDetail.facts :if={@events != []} label="Window history">
+        <tr :for={event <- @events}>
+          <th scope="row">{event_label(event)}</th>
+          <td>
+            <p>{event["reason"]}</p>
+            <p class="preview-caption">
+              {utc_time(event["inserted_at"] || event["at"])} · {event["actor"] || "Local operator"} · Revision {event[
+                "revision"
+              ]}
+            </p>
+            <details
+              :if={is_map(event["snapshot"])}
+              id={"preview-window-revision-#{event["revision"]}"}
+              class="preview-maintenance-revision"
+              phx-mounted={JS.ignore_attributes("open")}
+            >
+              <summary>Window at this revision</summary>
+              <.revision_facts window={event["snapshot"]} />
+            </details>
+          </td>
+        </tr>
+      </PreviewDetail.facts>
+      <p :if={@total > length(@events)} class="preview-recorded-actions preview-caption">
+        Showing {length(@events)} of {@total} recorded changes.
+      </p>
+    </PreviewDetail.card>
     """
   end
 
@@ -1174,9 +1969,12 @@ defmodule MondekWeb.MaintenanceLive do
 
     ~H"""
     <section
-      class="panel space-top"
+      class={["panel space-top", @preview_ui && "preview-maintenance-settings"]}
       id="maintenance-settings"
-      style={if @proposal["scope"] == "selection" && selections(@proposal) == [], do: "display: none"}
+      style={
+        if !@preview_ui && @proposal["scope"] == "selection" && selections(@proposal) == [],
+          do: "display: none"
+      }
     >
       <div class="panel-heading">
         <h2>{if @preview, do: "Review maintenance", else: "Window settings"}</h2>
@@ -1189,25 +1987,12 @@ defmodule MondekWeb.MaintenanceLive do
         >
           <input type="hidden" name="_proposal" value={encoded_draft(@proposal, @draft_origin)} />
           <input :if={@preview} type="hidden" name="_review_token" value={@token} />
-          <div :if={!@preview}>
-            <div class="form-grid">
-              <div class="field full">
-                <label for="maintenance-name">Window name</label><input
-                  id="maintenance-name"
-                  name="window[name]"
-                  value={@proposal["name"]}
-                  maxlength="200"
-                  required
-                />
-              </div>
-              <div class="field full">
-                <label for="maintenance-reason">Reason</label><textarea
-                  id="maintenance-reason"
-                  name="window[reason]"
-                  maxlength="500"
-                  required
-                >{@proposal["reason"]}</textarea>
-              </div>
+          <div :if={!@preview} class="maintenance-settings-fields">
+            <section
+              :if={!@preview_ui || (is_nil(@window) && @proposal["scope"] != "selection")}
+              class="maintenance-settings-group"
+            >
+              <h3 :if={@preview_ui}>What to cover</h3>
               <div :if={@proposal["scope"] != "selection"} class="field full">
                 <label for="maintenance-scope">Notification scope</label><select
                   id="maintenance-scope"
@@ -1221,134 +2006,176 @@ defmodule MondekWeb.MaintenanceLive do
                   >
                     {option["label"] || scope_label(option)}
                   </option>
-                </select><small>{scope_label(@proposal, @scope_options)}</small>
+                </select><small :if={!@preview_ui}>{scope_label(@proposal, @scope_options)}</small>
               </div>
               <div :if={@proposal["scope"] == "selection"} class="field full">
                 <span class="field-label">Notification scope</span><p id="maintenance-selection-scope">
                   {scope_label(@proposal)}. All matching results are counted once, even when selections overlap.
                 </p>
               </div>
-            </div>
-            <button
-              :if={is_nil(@window) && @proposal["scope"] != "selection"}
-              id="maintenance-include-more"
-              type="button"
-              class="button small space-top"
-              phx-click="include_more"
-            >Include more checks or targets</button>
-            <p
-              :if={@proposal["scope"] == "target"}
-              class="notice notice-copy space-top"
-              id="maintenance-dynamic-scope"
-            >
-              Only results for this exact monitored environment and target from the same source are covered, wherever they run. Future matching results join automatically; other results from a shared execution remain eligible.
-            </p>
-            <p :if={@proposal["scope"] == "check"} class="footnote space-top">
-              All results of this scheduled check are covered. Other checks, including checks of the same target, are unaffected.
-            </p>
-            <p :if={@proposal["scope"] == "selection"} class="footnote space-top">
-              Scheduled-check selections include future results of those same check instances. Target selections follow their exact source and monitored environment across observers. Separately named child targets are not included automatically.
-            </p>
-            <p :if={@window} class="footnote space-top">
-              A saved window's scope is fixed. To cover something else, create another window.
-            </p>
-            <p :if={@active} class="notice notice-copy space-top">
-              This window has started. Its scope, timezone and start time are fixed; you can change its name, reason and end time.
-            </p>
-            <div class="form-grid space-top">
-              <div :if={is_nil(@window)} class="field full">
-                <label for="maintenance-repeat">Repeat</label>
-                <select id="maintenance-repeat" name="repeat">
-                  <option value="none" selected={!repeating?(@proposal)}>Does not repeat</option>
-                  <option value="weekly" selected={repeating?(@proposal)}>Weekly series</option>
-                </select>
+              <button
+                :if={is_nil(@window) && @proposal["scope"] != "selection"}
+                id="maintenance-include-more"
+                type="button"
+                class="button small space-top"
+                phx-click="include_more"
+              >Include more checks or targets</button>
+              <p
+                :if={@proposal["scope"] == "target"}
+                class={if @preview_ui, do: "footnote space-top", else: "notice notice-copy space-top"}
+                id="maintenance-dynamic-scope"
+              >
+                Only results for this exact monitored environment and target from the same source are covered, wherever they run. Future matching results join automatically; other results from a shared execution remain eligible.
+              </p>
+              <p :if={@proposal["scope"] == "check"} class="footnote space-top">
+                All results of this scheduled check are covered. Other checks, including checks of the same target, are unaffected.
+              </p>
+              <p :if={@proposal["scope"] == "selection"} class="footnote space-top">
+                Scheduled-check selections include future results of those same check instances. Target selections follow their exact source and monitored environment across observers. Separately named child targets are not included automatically.
+              </p>
+              <p :if={@window} class="footnote space-top">
+                A saved window's scope is fixed. To cover something else, create another window.
+              </p>
+            </section>
+            <section class={["maintenance-settings-group", !@preview_ui && "space-top"]}>
+              <h3 :if={@preview_ui}>Window details</h3>
+              <div class={["form-grid", @preview_ui && is_nil(@window) && "maintenance-new-details"]}>
+                <div class={["field", (!@preview_ui || @window) && "full"]}>
+                  <label for="maintenance-name">Window name</label><input
+                    id="maintenance-name"
+                    name="window[name]"
+                    value={@proposal["name"]}
+                    maxlength="200"
+                    required
+                  />
+                </div>
+                <div class={["field", (!@preview_ui || @window) && "full"]}>
+                  <label for="maintenance-reason">Reason</label><textarea
+                    id="maintenance-reason"
+                    name="window[reason]"
+                    maxlength="500"
+                    required
+                  >{@proposal["reason"]}</textarea>
+                </div>
               </div>
-              <.recurrence_fields :if={repeating?(@proposal)} proposal={@proposal} />
-              <div class="field full">
-                <label for="maintenance-timezone">Timezone</label><input
-                  id="maintenance-timezone"
-                  name="window[timezone]"
-                  value={@proposal["timezone"]}
-                  list="maintenance-timezones"
-                  maxlength="100"
-                  required
-                  readonly={@active}
-                /><small>Use UTC or an IANA name. Both date fields use this timezone, regardless of your device settings.</small>
-                <datalist id="maintenance-timezones"><option
-                  :for={
-                    zone <- [
-                      "UTC",
-                      "Europe/Berlin",
-                      "Europe/London",
-                      "America/New_York",
-                      "America/Los_Angeles",
-                      "Asia/Tokyo",
-                      "Australia/Sydney"
-                    ]
-                  }
-                  value={zone}
-                /></datalist>
-              </div>
-              <div class="field full">
-                <label for="maintenance-start-mode">Start</label><select
-                  id="maintenance-start-mode"
-                  name="window[start_mode]"
-                  disabled={@active}
-                ><option value="scheduled" selected={@proposal["start_mode"] == "scheduled"}>
-                  At a date and time
-                </option><option
-                  :if={!repeating?(@proposal)}
-                  value="now"
-                  selected={@proposal["start_mode"] == "now"}
+            </section>
+            <section class={["maintenance-settings-group", !@preview_ui && "space-top"]}>
+              <h3 :if={@preview_ui}>Schedule</h3>
+              <p :if={@active && !@preview_ui} class="notice notice-copy space-top">
+                This window has started. Enter the new end time in {@proposal["timezone"]}.
+              </p>
+              <div class={[
+                "form-grid maintenance-schedule-grid",
+                @preview_ui && @active && "maintenance-active-schedule"
+              ]}>
+                <div :if={!@preview_ui || !@active} class="field">
+                  <label for="maintenance-start-mode">Start</label><select
+                    id="maintenance-start-mode"
+                    name="window[start_mode]"
+                    disabled={@active}
+                  ><option value="scheduled" selected={@proposal["start_mode"] == "scheduled"}>
+                    {if @preview_ui, do: "Scheduled", else: "At a date and time"}
+                  </option><option
+                    :if={!repeating?(@proposal)}
+                    value="now"
+                    selected={@proposal["start_mode"] == "now"}
+                  >
+                    Now
+                  </option></select>
+                </div>
+                <div :if={!@preview_ui || !@active} class="field">
+                  <label for="maintenance-timezone">Timezone</label><input
+                    id="maintenance-timezone"
+                    name="window[timezone]"
+                    value={@proposal["timezone"]}
+                    list="maintenance-timezones"
+                    maxlength="100"
+                    required
+                    readonly={@active}
+                  /><small>Use UTC or an IANA name, such as Europe/Berlin.</small>
+                  <datalist id="maintenance-timezones"><option
+                    :for={
+                      zone <- [
+                        "UTC",
+                        "Europe/Berlin",
+                        "Europe/London",
+                        "America/New_York",
+                        "America/Los_Angeles",
+                        "Asia/Tokyo",
+                        "Australia/Sydney"
+                      ]
+                    }
+                    value={zone}
+                  /></datalist>
+                </div>
+                <div
+                  :if={@proposal["start_mode"] != "now" && (!@preview_ui || !@active)}
+                  class="field"
                 >
-                  Now
-                </option></select>
+                  <label for="maintenance-start">{if repeating?(@proposal),
+                    do: "First window: start date and time",
+                    else: "Start date and time"}</label><input
+                    id="maintenance-start"
+                    type="datetime-local"
+                    name="window[starts_local]"
+                    value={form_time(@proposal["starts_local"])}
+                    step="1"
+                    max="9999-12-31T23:59:59"
+                    required
+                    readonly={@active}
+                  />
+                  <.fold_choice
+                    :if={!@active && !repeating?(@proposal) && @start_choices != []}
+                    field="start"
+                    choices={@start_choices}
+                    selected={@proposal["start_fold"]}
+                  />
+                </div>
+                <div class="field">
+                  <label for="maintenance-end">{if repeating?(@proposal),
+                    do: "First window: end date and time",
+                    else: "End date and time"}</label><input
+                    id="maintenance-end"
+                    type="datetime-local"
+                    name="window[ends_local]"
+                    value={form_time(@proposal["ends_local"])}
+                    step="1"
+                    max="9999-12-31T23:59:59"
+                    required
+                  />
+                  <.fold_choice
+                    :if={!repeating?(@proposal) && @end_choices != []}
+                    field="end"
+                    choices={@end_choices}
+                    selected={@proposal["end_fold"]}
+                  />
+                </div>
+                <p :if={@preview_ui && @active} class="footnote">
+                  This window has started. Enter the new end time in {@proposal["timezone"]}.
+                </p>
               </div>
-              <div :if={@proposal["start_mode"] != "now"} class="field">
-                <label for="maintenance-start">{if repeating?(@proposal),
-                  do: "First window: start date and time",
-                  else: "Start date and time"}</label><input
-                  id="maintenance-start"
-                  type="datetime-local"
-                  name="window[starts_local]"
-                  value={form_time(@proposal["starts_local"])}
-                  step="1"
-                  max="9999-12-31T23:59:59"
-                  required
-                  readonly={@active}
-                />
-                <.fold_choice
-                  :if={!@active && !repeating?(@proposal) && @start_choices != []}
-                  field="start"
-                  choices={@start_choices}
-                  selected={@proposal["start_fold"]}
-                />
+              <div :if={is_nil(@window)} class="form-grid maintenance-repeat-fields">
+                <div class="field full">
+                  <label for="maintenance-repeat">Repeat</label>
+                  <select id="maintenance-repeat" name="repeat">
+                    <option value="none" selected={!repeating?(@proposal)}>Does not repeat</option>
+                    <option value="weekly" selected={repeating?(@proposal)}>Weekly series</option>
+                  </select>
+                </div>
+                <.recurrence_fields :if={repeating?(@proposal)} proposal={@proposal} />
               </div>
-              <div class="field">
-                <label for="maintenance-end">{if repeating?(@proposal),
-                  do: "First window: end date and time",
-                  else: "End date and time"}</label><input
-                  id="maintenance-end"
-                  type="datetime-local"
-                  name="window[ends_local]"
-                  value={form_time(@proposal["ends_local"])}
-                  step="1"
-                  max="9999-12-31T23:59:59"
-                  required
-                />
-                <.fold_choice
-                  :if={!repeating?(@proposal) && @end_choices != []}
-                  field="end"
-                  choices={@end_choices}
-                  selected={@proposal["end_fold"]}
-                />
-              </div>
-            </div>
+            </section>
             <div class="form-actions">
-              <p>Preview exact times, current matches and overlapping windows before saving.</p><button
+              <p>
+                {if @proposal["scope"] == "selection" && selections(@proposal) == [],
+                  do: "Select a check or target to preview this window.",
+                  else: "Review the times, matching results and overlaps before saving."}
+              </p><button
                 id="maintenance-preview-button"
                 class="button primary"
-                disabled={@stale}
+                disabled={
+                  @stale || (@proposal["scope"] == "selection" && selections(@proposal) == [])
+                }
                 phx-disable-with="Previewing…"
               >Preview maintenance</button>
             </div>
@@ -1383,6 +2210,7 @@ defmodule MondekWeb.MaintenanceLive do
             </p>
             <details
               id="maintenance-preview-matches"
+              open={@preview_ui}
               class="space-top maintenance-results-disclosure"
               phx-mounted={JS.ignore_attributes("open")}
             >
@@ -1416,14 +2244,20 @@ defmodule MondekWeb.MaintenanceLive do
               </p>
               <ul :if={(@preview["overlaps"] || []) != []} class="maintenance-candidates">
                 <li :for={window <- @preview["overlaps"]}>
-                  <.link navigate={window_path(window["id"])} class="text-link">{window["name"]}</.link><small>{utc_time(
-                    window["starts_at"]
-                  )} – {utc_time(window["ends_at"])}</small>
+                  <.link
+                    navigate={window_path(window["id"], @preview_ui, @return_to)}
+                    class="text-link"
+                  >{window["name"]}</.link><small>{utc_time(window["starts_at"])} – {utc_time(
+                    window["ends_at"]
+                  )}</small>
                 </li>
               </ul>
               <p :if={(@preview["overlap_omitted"] || 0) > 0} class="footnote">
                 Showing {length(@preview["overlaps"] || [])} of {@preview["overlap_total"]} overlapping windows.
-                <.link navigate="/maintenance" class="text-link">Inspect maintenance</.link>
+                <.link
+                  navigate={if @preview_ui, do: "/next/maintenance", else: "/maintenance"}
+                  class="text-link"
+                >Inspect maintenance</.link>
                 for other saved windows.
               </p>
               <p class="footnote space-top">
@@ -1441,7 +2275,7 @@ defmodule MondekWeb.MaintenanceLive do
           </div>
         </form>
       </div><div class="panel-footer">
-        Only failure notifications are held. Checks and recovery notifications continue. An attempt already underway may finish.
+        Maintenance pauses failure notifications. Checks and recovery notifications continue. Notifications already sending may still be delivered.
       </div>
     </section>
     """
@@ -1615,6 +2449,8 @@ defmodule MondekWeb.MaintenanceLive do
   end
 
   defp occurrence_rows(assigns) do
+    assigns = assign_new(assigns, :preview_ui, fn -> false end)
+
     ~H"""
     <ol class="maintenance-series-dates">
       <li :for={row <- @rows} data-window-index={row["index"] || row["series_index"]}>
@@ -1633,13 +2469,13 @@ defmodule MondekWeb.MaintenanceLive do
         <p :if={(row["overlap_count"] || 0) > 0}>
           {count_label(row["overlap_count"], "overlapping independent window")}.
         </p>
-        <.link :if={@saved && row["id"]} navigate={window_path(row["id"])} class="text-link">{if editable?(
-                                                                                                   row
-                                                                                                 ),
-                                                                                                 do:
-                                                                                                   "Inspect or change this window",
-                                                                                                 else:
-                                                                                                   "Inspect this window"}</.link>
+        <.link
+          :if={@saved && row["id"]}
+          navigate={window_path(row["id"], @preview_ui)}
+          class="text-link"
+        >{if editable?(row),
+          do: "Inspect or change this window",
+          else: "Inspect this window"}</.link>
       </li>
     </ol>
     """
@@ -1665,7 +2501,7 @@ defmodule MondekWeb.MaintenanceLive do
         <div class="form-actions">
           <.link
             id="maintenance-series-copy"
-            navigate={"/maintenance/new?copy_series=" <> @series["id"]}
+            navigate={maintenance_base(@preview_ui) <> "/new?" <> URI.encode_query(Map.reject(Map.merge(@list_filters, %{"copy_series" => @series["id"], "return_to" => @return_to}), fn {_, value} -> is_nil(value) end))}
             class="button"
           >Copy into a new schedule</.link>
           <button
@@ -1793,6 +2629,7 @@ defmodule MondekWeb.MaintenanceLive do
           rows={@series["occurrences"] || []}
           timezone={@series["timezone"]}
           saved={true}
+          preview_ui={@preview_ui}
         />
         <nav
           :if={(@series["occurrence_pages"] || 1) > 1}
@@ -1802,7 +2639,11 @@ defmodule MondekWeb.MaintenanceLive do
           <.link
             :if={@series["occurrence_page"] > 1}
             patch={
-              series_page_path(@series, @params, "occurrence_page", @series["occurrence_page"] - 1)
+              series_page_path(
+                @series_path || series_path(@series["id"]) <> "?" <> URI.encode_query(@params),
+                "occurrence_page",
+                @series["occurrence_page"] - 1
+              )
             }
             class="button small"
           >Previous dates</.link>
@@ -1810,7 +2651,11 @@ defmodule MondekWeb.MaintenanceLive do
           <.link
             :if={@series["occurrence_page"] < @series["occurrence_pages"]}
             patch={
-              series_page_path(@series, @params, "occurrence_page", @series["occurrence_page"] + 1)
+              series_page_path(
+                @series_path || series_path(@series["id"]) <> "?" <> URI.encode_query(@params),
+                "occurrence_page",
+                @series["occurrence_page"] + 1
+              )
             }
             class="button small"
           >Next dates</.link>
@@ -1845,13 +2690,25 @@ defmodule MondekWeb.MaintenanceLive do
           >
             <.link
               :if={@series["result_page"] > 1}
-              patch={series_page_path(@series, @params, "result_page", @series["result_page"] - 1)}
+              patch={
+                series_page_path(
+                  @series_path || series_path(@series["id"]) <> "?" <> URI.encode_query(@params),
+                  "result_page",
+                  @series["result_page"] - 1
+                )
+              }
               class="button small"
             >Previous results</.link>
             <span>Page {@series["result_page"]} of {@series["result_pages"]}</span>
             <.link
               :if={@series["result_page"] < @series["result_pages"]}
-              patch={series_page_path(@series, @params, "result_page", @series["result_page"] + 1)}
+              patch={
+                series_page_path(
+                  @series_path || series_path(@series["id"]) <> "?" <> URI.encode_query(@params),
+                  "result_page",
+                  @series["result_page"] + 1
+                )
+              }
               class="button small"
             >Next results</.link>
           </nav>
@@ -1883,6 +2740,45 @@ defmodule MondekWeb.MaintenanceLive do
         </article>
       </div>
     </section>
+    """
+  end
+
+  defp revision_facts(assigns) do
+    ~H"""
+    <PreviewDetail.facts label="Window at this revision">
+      <tr>
+        <th scope="row">Name</th><td>{@window["name"]}</td>
+      </tr>
+      <tr>
+        <th scope="row">Scope</th><td>{scope_label(@window)}</td>
+      </tr>
+      <tr>
+        <th scope="row">Starts</th><td>{utc_time(@window["starts_at"])}</td>
+      </tr>
+      <tr>
+        <th scope="row">Ends</th><td>{utc_time(@window["ends_at"])}</td>
+      </tr>
+      <tr :if={@window["timezone"] not in [nil, "UTC", "Etc/UTC"]}>
+        <th scope="row">Local schedule</th>
+        <td>
+          {local_time(@window["starts_at"], @window["timezone"])} to {local_time(
+            @window["ends_at"],
+            @window["timezone"]
+          )}
+        </td>
+      </tr>
+      <tr>
+        <th scope="row">Timezone</th><td>{@window["timezone"] || "UTC"}</td>
+      </tr>
+      <tr>
+        <th scope="row">Duration</th><td>{duration(@window["starts_at"], @window["ends_at"])}</td>
+      </tr>
+      <tr :if={@window["cancelled_at"]}>
+        <th scope="row">{cancellation_label(@window)} at</th><td>
+          {utc_time(@window["cancelled_at"])}
+        </td>
+      </tr>
+    </PreviewDetail.facts>
     """
   end
 
@@ -2034,6 +2930,7 @@ defmodule MondekWeb.MaintenanceLive do
 
   defp change_selection(socket, form, page_rows \\ nil) do
     keys = form["selected_keys"] || []
+    restore_filters = !socket.assigns.preview_ui || is_list(page_rows)
 
     with {:ok, page_rows} <-
            if(is_list(page_rows),
@@ -2057,15 +2954,20 @@ defmodule MondekWeb.MaintenanceLive do
         Enum.filter(page_rows, &MapSet.member?(chosen, MaintenanceSelection.key(&1)))
         |> Enum.map(&Map.take(&1, @scope_fields))
 
-      socket
-      |> put_selections(retained ++ added)
-      |> assign(
-        selection_filters: filters,
-        selected_only: form["_selected_only"] == "true",
-        selected_page: positive_integer(form["_selected_page"] || socket.assigns.selected_page)
-      )
-      |> load_candidates()
-      |> load_selected()
+      socket = put_selections(socket, retained ++ added)
+
+      if restore_filters do
+        socket
+        |> assign(
+          selection_filters: filters,
+          selected_only: form["_selected_only"] == "true",
+          selected_page: positive_integer(form["_selected_page"] || socket.assigns.selected_page)
+        )
+        |> load_candidates()
+        |> load_selected()
+      else
+        socket
+      end
     else
       _ ->
         assign(socket,
@@ -2202,6 +3104,8 @@ defmodule MondekWeb.MaintenanceLive do
         refresh_list(socket)
 
       socket.assigns.series ->
+        socket = if socket.assigns.preview_drawer, do: refresh_list(socket), else: socket
+
         case MaintenanceSchedules.get(socket.assigns.series["id"], socket.assigns.series_params) do
           {:ok, series} ->
             socket |> assign(series: series) |> load_series_selection() |> refresh_series_cancel()
@@ -2211,6 +3115,8 @@ defmodule MondekWeb.MaintenanceLive do
         end
 
       socket.assigns.window ->
+        socket = if socket.assigns.preview_drawer, do: refresh_list(socket), else: socket
+
         case Maintenance.get(socket.assigns.window["id"]) do
           {:ok, window} ->
             socket |> assign(window: window) |> load_selected() |> refresh_preview()
@@ -2262,6 +3168,15 @@ defmodule MondekWeb.MaintenanceLive do
   defp keep_draft(%{assigns: %{proposal: nil}} = socket, _), do: socket
 
   defp keep_draft(socket, form) do
+    form =
+      case form do
+        %{"recurrence" => fields} when is_map(fields) ->
+          Map.put(form, "recurrence", Map.drop(fields, @recurrence_unused_fields))
+
+        _ ->
+          form
+      end
+
     values =
       case form["window"] do
         nil -> %{}
@@ -2454,7 +3369,7 @@ defmodule MondekWeb.MaintenanceLive do
     do:
       map_size(rule) <= 5 &&
         Enum.all?(rule, fn {k, v} ->
-          k in ~w(frequency interval end_mode count until_date) &&
+          k in @recurrence_fields &&
             (is_nil(v) || is_integer(v) || (is_binary(v) && byte_size(v) <= 100))
         end)
 
@@ -2580,8 +3495,11 @@ defmodule MondekWeb.MaintenanceLive do
   defp entry_path(entry), do: window_path(entry["id"])
   defp series_path(id), do: "/maintenance/series/" <> id
 
-  defp series_page_path(series, params, key, page),
-    do: series_path(series["id"]) <> "?" <> URI.encode_query(Map.put(params, key, page))
+  defp series_page_path(path, key, page) do
+    uri = URI.parse(path)
+    query = URI.decode_query(uri.query || "") |> Map.put(key, page) |> URI.encode_query()
+    uri.path <> "?" <> query
+  end
 
   defp load_series_selection(socket) do
     rows = MaintenanceSelection.describe(selections(socket.assigns.series["proposal"]))
@@ -2634,8 +3552,108 @@ defmodule MondekWeb.MaintenanceLive do
     end
   end
 
-  defp new_path(id), do: "/maintenance/new?" <> URI.encode_query(%{"check_id" => id})
-  defp window_path(id), do: "/maintenance/" <> id
+  defp new_path(id, preview_ui, return_to) do
+    params = %{"check_id" => id}
+    params = if return_to, do: Map.put(params, "return_to", return_to), else: params
+    maintenance_base(preview_ui) <> "/new?" <> URI.encode_query(params)
+  end
+
+  defp window_path(id, preview_ui \\ false, return_to \\ nil) do
+    maintenance_base(preview_ui) <>
+      "/" <>
+      id <>
+      if(preview_ui, do: "/full", else: "") <>
+      if(return_to, do: "?" <> URI.encode_query(%{"return_to" => return_to}), else: "")
+  end
+
+  defp maintenance_base(true), do: "/next/maintenance"
+  defp maintenance_base(_), do: "/maintenance"
+
+  defp saved_destination(%{preview_ui: false}, id, :series), do: series_path(id)
+  defp saved_destination(%{preview_ui: false}, id, :window), do: window_path(id)
+
+  defp saved_destination(assigns, id, kind) do
+    surface = if assigns.preview_drawer, do: :drawer, else: :page
+    preview_entity_path(kind, id, surface, navigation_context(assigns, kind))
+  end
+
+  defp presentation_path(assigns, surface) do
+    {kind, id} =
+      if assigns.series,
+        do: {:series, assigns.series["id"]},
+        else: {:window, assigns.window["id"]}
+
+    preview_entity_path(kind, id, surface, navigation_context(assigns, kind))
+  end
+
+  defp navigation_context(assigns, kind) do
+    params = Map.put(assigns.filters, "return_to", assigns.return_to)
+
+    if kind == :series,
+      do: Map.merge(params, Map.filter(assigns.series_params, fn {_, value} -> value > 1 end)),
+      else: params
+  end
+
+  defp preview_entity_path(kind, id, surface, filters) do
+    prefix = if kind == :series, do: "/next/maintenance/series/", else: "/next/maintenance/"
+    query = filters |> Map.reject(fn {_, value} -> is_nil(value) end) |> URI.encode_query()
+
+    prefix <>
+      id <>
+      if(surface == :page, do: "/full", else: "") <>
+      if(query == "", do: "", else: "?" <> query)
+  end
+
+  def preview_return_path(path, params) do
+    case Regex.run(~r"\A/next/maintenance/(?:(series)/)?([a-f0-9-]{36})(/full)?\z", path,
+           capture: :all_but_first
+         ) do
+      [kind, id | suffix] ->
+        kind = if kind == "series", do: :series, else: :window
+        surface = if suffix == ["/full"], do: :page, else: :drawer
+        filters = window_filters(params, true)
+
+        pages =
+          if kind == :series do
+            params
+            |> Map.take(~w(occurrence_page result_page))
+            |> Map.filter(fn {_, value} -> Regex.match?(~r"\A[1-9][0-9]{0,6}\z", value) end)
+          else
+            %{}
+          end
+
+        return_to =
+          case params["return_to"] do
+            "/next/maintenance/" <> _ -> nil
+            path -> MondekWeb.NextIncidentsLive.return_path(path)
+          end
+
+        preview_entity_path(
+          kind,
+          id,
+          surface,
+          Map.put(Map.merge(filters, pages), "return_to", return_to)
+        )
+
+      _ ->
+        nil
+    end
+  end
+
+  defp preview_window_path(window, filters) do
+    kind = if window["kind"] == "series", do: :series, else: :window
+    preview_entity_path(kind, window["id"], :drawer, filters)
+  end
+
+  defp preview_list_path(filters, changes) do
+    query =
+      filters
+      |> Map.merge(changes)
+      |> Map.reject(fn {key, value} -> is_nil(value) || {key, value} == {"status", "current"} end)
+      |> URI.encode_query()
+
+    "/next/maintenance" <> if(query == "", do: "", else: "?" <> query)
+  end
 
   defp list_path(filters, changes),
     do: "/maintenance?" <> URI.encode_query(Map.merge(filters, changes))
