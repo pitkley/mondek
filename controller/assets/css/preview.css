@@ -20,9 +20,8 @@
   --pf-t--global--font--family--body: system-ui, -apple-system, "Segoe UI", sans-serif;
   --pf-t--global--font--family--heading: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
-/* Mondek-authored light palettes. Only color roles change; component geometry
-   and status colors remain shared. No external palette assets are imported. */
-:root:not([data-preview-theme="original"]) {
+/* Mondek Pearl semantic color roles. */
+:root {
   --preview-canvas: #ffffff;
   --preview-sidebar: #ffffff;
   --preview-surface: #ffffff;
@@ -59,40 +58,6 @@
   --preview-muted: #eff2f5;
   --preview-muted-ink: #465767;
 }
-:root[data-preview-theme="mist"] {
-  --preview-canvas: #f2f7fc;
-  --preview-ink: #1d3048;
-  --preview-subtle: #4d627b;
-  --preview-accent: #205eaa;
-  --preview-line: #d4e2f0;
-  --preview-hover: #eaf2fb;
-  --preview-selected: #dcecff;
-  --preview-muted: #eaf2fa;
-  --preview-muted-ink: #405b78;
-}
-:root[data-preview-theme="linen"] {
-  --preview-canvas: #fbf8f1;
-  --preview-sidebar: #fffdf9;
-  --preview-surface: #fffefb;
-  --preview-ink: #263b39;
-  --preview-subtle: #53655f;
-  --preview-accent: #0f6b61;
-  --preview-line: #e2e4d9;
-  --preview-hover: #f0f7f3;
-  --preview-selected: #e1f2ed;
-  --preview-muted: #eef2e9;
-  --preview-muted-ink: #435950;
-}
-.preview-theme-picker { position: relative; }
-.preview-theme-picker > summary { display: flex; gap: 6px; align-items: center; list-style: none; cursor: pointer; }
-.preview-theme-picker > summary::-webkit-details-marker { display: none; }
-.preview-theme-menu { position: absolute; z-index: 40; top: calc(100% + 6px); left: 0; width: 252px; margin: 0; padding: 10px; border: 1px solid var(--pf-t--global--border--color--default); border-radius: 8px; background: var(--pf-t--global--background--color--primary--default); box-shadow: 0 8px 24px rgb(0 0 0 / 12%); }
-.preview-theme-menu legend { float: left; width: 100%; font-size: 12px; font-weight: 600; padding: 2px 6px 8px; }
-.preview-theme-menu label { display: flex; gap: 10px; align-items: center; padding: 8px 6px; cursor: pointer; border-radius: 4px; }
-.preview-theme-menu label:hover { background: var(--pf-t--global--background--color--primary--hover); }
-.preview-theme-menu input { margin: 0; accent-color: var(--pf-t--global--color--brand--default); }
-.preview-theme-menu label > span { display: grid; }
-.preview-theme-menu strong { font-size: 13px; font-weight: 600; }
 * { box-sizing: border-box; }
 html { scrollbar-gutter: stable; }
 body { margin: 0; background: var(--pf-t--global--background--color--secondary--default); color: var(--pf-t--global--text--color--regular); font: 14px/1.5 var(--pf-t--global--font--family--body); }
@@ -212,8 +177,7 @@ button,input { font: inherit; }
   .preview-sidebar .pf-v6-c-nav__link { gap: 6px; padding: 8px; font-size: 12px; }
   .preview-sidebar .pf-v6-c-nav__link svg { width: 16px; height: 16px; flex-basis: 16px; }
   .preview-masthead { padding: 10px 16px; gap: 10px; flex-wrap: wrap; }
-  .preview-masthead > .preview-caption,.preview-theme-title { display: none; }
-  .preview-theme-menu { position: fixed; top: 64px; left: auto; right: 12px; width: min(280px, calc(100% - 24px)); }
+  .preview-masthead > .preview-caption { display: none; }
   .preview-main { --preview-content-inset: 12px; padding: 16px; }
   .preview-summary { grid-template-columns: 1fr; }
   .preview-summary > div { padding-block: 12px; }
@@ -732,3 +696,7 @@ button,input { font: inherit; }
 }
 .preview-maintenance-settings textarea { font: inherit; }
 .preview-maintenance-settings .maintenance-new-details textarea { min-height: 3rem; }
+
+.ui-feedback { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 16px; margin-bottom: 10px; background: var(--preview-surface); border: 1px solid var(--preview-line); border-radius: 6px; }
+.ui-feedback.ui-error { border-color: #b13842; }
+.ui-feedback button { border: 0; background: transparent; color: inherit; cursor: pointer; }
