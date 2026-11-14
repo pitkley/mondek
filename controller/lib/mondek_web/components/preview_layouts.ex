@@ -69,7 +69,10 @@ defmodule MondekWeb.PreviewLayouts do
             :for={
               {page, label, href, icon} <- [
                 {:overview, "Overview", @overview_path, "grid"},
-                {:incidents, "Incidents", "/next/incidents", "pulse"}
+                {:incidents, "Incidents", "/next/incidents", "pulse"},
+                {:checks, "Checks", "/next/checks", "check"},
+                {:coverage, "Coverage", "/next/coverage", "shield"},
+                {:maintenance, "Maintenance", "/next/maintenance", "clock"}
               ]
             }
             class="pf-v6-c-nav__item"
@@ -86,8 +89,6 @@ defmodule MondekWeb.PreviewLayouts do
           <li
             :for={
               {label, href, icon} <- [
-                {"Checks", "/checks", "check"},
-                {"Maintenance", "/maintenance", "clock"},
                 {"Configuration", "/configuration", "sliders"},
                 {"Runners", "/runners", "server"},
                 {"Notifications", "/notifications", "send"}

@@ -8,6 +8,123 @@ defmodule MondekWeb.MaintenanceLiveTest do
 
   @endpoint MondekWeb.Endpoint
 
+  test "preview schedules, filters and cancels a reviewed incident maintenance window" do
+    incident_path = "/next/incidents/health/#{Ecto.UUID.generate()}"
+
+    path =
+      "/next/maintenance/new?" <>
+        URI.encode_query(%{
+          "check_id" => "10000000-0000-4000-8000-000000000001",
+          "return_to" => incident_path
+        })
+
+    {:ok, draft, _} = live(build_conn(), path)
+    assert has_element?(draft, "a[href='#{incident_path}']", "Back to incident")
+    draft |> form("#maintenance-form", window: %{start_mode: "scheduled"}) |> render_change()
+    draft |> form("#maintenance-form", window: future_values()) |> render_submit()
+    assert Repo.aggregate(MaintenanceWindow, :count) == 0
+
+    assert has_element?(
+             draft,
+             "#maintenance-preview-summary",
+             "1 result across 1 scheduled check"
+           )
+
+    assert has_element?(draft, "#maintenance-preview-matches[open]")
+    saved = save_preview(draft)
+    assert has_element?(saved, "#maintenance-preview-shell")
+    assert has_element?(saved, "#maintenance-saved", "Upcoming")
+    assert has_element?(saved, "a[href='#{incident_path}']", "Back to incident")
+
+    {:ok, listing, _} = live(build_conn(), "/next/maintenance")
+
+    assert has_element?(
+             listing,
+             "table[aria-label='Maintenance windows and series']",
+             "Sunday storage work"
+           )
+
+    render_submit(element(listing, "#overview-search"), %{"search" => "no matching name"})
+    assert_patch(listing, "/next/maintenance?search=no+matching+name")
+    assert has_element?(listing, "main", "No maintenance matches this view.")
+
+    saved |> element("a", "Open fly-over") |> render_click()
+    assert has_element?(saved, "#overview-panel #maintenance-form")
+
+    saved
+    |> form("#maintenance-form", window: %{name: "Unsaved replacement"})
+    |> render_change()
+
+    saved |> element("#overview-panel a", "Open as page") |> render_click()
+    refute has_element?(saved, "#overview-panel")
+    assert has_element?(saved, "#maintenance-form input[value='Unsaved replacement']")
+
+    saved |> element("a", "Open fly-over") |> render_click()
+
+    assert has_element?(
+             saved,
+             "#overview-panel #maintenance-form input[value='Unsaved replacement']"
+           )
+
+    assert has_element?(saved, "#overview-panel a[href='#{incident_path}']", "Back to incident")
+
+    saved |> element("#maintenance-cancel") |> render_click()
+
+    navigation =
+      saved |> form("#maintenance-cancel-form", reason: "Work postponed") |> render_submit()
+
+    {:ok, cancelled, _} = follow_redirect(navigation, build_conn())
+    assert has_element?(cancelled, "#maintenance-preview-shell")
+    assert has_element?(cancelled, "#overview-panel #maintenance-saved", "Cancelled")
+
+    render_patch(listing, "/next/maintenance?status=history")
+    render_hook(listing, "filter_open", %{"field" => "scope"})
+    render_hook(listing, "filter_select", %{"key" => "check", "kind" => ""})
+    history_path = "/next/maintenance?scope=check&status=history"
+    assert_patch(listing, history_path)
+    listing |> element("a", "Sunday storage work") |> render_click()
+    assert has_element?(listing, "#overview-panel table[aria-label='Saved window']", "Cancelled")
+
+    assert has_element?(
+             listing,
+             "#overview-panel table[aria-label='Window history']",
+             "Work postponed"
+           )
+
+    listing |> element("[data-overview-close]") |> render_click()
+    assert_patch(listing, history_path)
+    refute has_element?(listing, "#overview-panel")
+  end
+
+  test "preview chooser retains selections and settings when filters hide a row" do
+    {:ok, view, _} = live(build_conn(), "/next/maintenance/new")
+    assert has_element?(view, "#maintenance-choice-search-chip-kind", "Scheduled checks")
+    assert has_element?(view, "#maintenance-name")
+    assert has_element?(view, "#maintenance-preview-button[disabled]")
+
+    view |> form("#maintenance-form", window: %{name: "Planned storage work"}) |> render_change()
+    view |> element("#maintenance-select-page") |> render_click()
+    refute has_element?(view, "#maintenance-preview-button[disabled]")
+
+    render_hook(view, "filter_open", %{"field" => "kind"})
+    render_hook(view, "filter_select", %{"key" => "target"})
+    assert has_element?(view, "#maintenance-choice-search-chip-kind", "Monitored targets")
+
+    render_hook(view, "filter_open", %{"field" => "kind"})
+    render_hook(view, "filter_select", %{"key" => "check"})
+    assert has_element?(view, "#maintenance-choice-search-chip-kind", "Scheduled checks")
+
+    render_submit(element(view, "#maintenance-choice-search"), %{"search" => "no such check"})
+    assert has_element?(view, "table[aria-label='Checks and targets']", "No choices match")
+    assert has_element?(view, ".preview-maintenance-pinned", "Linux filesystem")
+    assert has_element?(view, "#maintenance-name[value='Planned storage work']")
+
+    view |> element("#maintenance-clear-selection") |> render_click()
+    refute has_element?(view, ".preview-maintenance-pinned")
+    assert has_element?(view, "#maintenance-preview-button[disabled]")
+    assert has_element?(view, "#maintenance-name[value='Planned storage work']")
+  end
+
   test "global creation searches checks and check pages lead to reviewed maintenance" do
     {:ok, chooser, _} = live(build_conn(), "/maintenance/new")
     assert has_element?(chooser, "#maintenance-check-chooser")
@@ -665,6 +782,24 @@ defmodule MondekWeb.MaintenanceLiveTest do
     assert has_element?(view, "#maintenance-start[readonly]")
     assert has_element?(view, "#maintenance-timezone[readonly]")
     ends = Monitoring.now() |> DateTime.add(3 * 86_400) |> MaintenanceTime.local("UTC")
+
+    for {suffix, root} <- [{"", "#overview-panel"}, {"/full", "#maintenance-preview-shell"}] do
+      {:ok, surface, _} = live(build_conn(), "/next/maintenance/#{window["id"]}" <> suffix)
+
+      assert has_element?(
+               surface,
+               root <> " #maintenance-settings",
+               "Enter the new end time"
+             )
+
+      assert has_element?(surface, root <> " #maintenance-end")
+      refute has_element?(surface, root <> " #maintenance-scope")
+      refute has_element?(surface, root <> " #maintenance-start")
+      refute has_element?(surface, root <> " #maintenance-timezone")
+      surface |> form("#maintenance-form", window: %{ends_local: ends}) |> render_submit()
+      assert has_element?(surface, root <> " #maintenance-preview-summary")
+    end
+
     view |> form("#maintenance-form", window: %{ends_local: ends}) |> render_submit()
     saved = save_preview(view)
     assert has_element?(saved, "#maintenance-cancel", "End maintenance now")

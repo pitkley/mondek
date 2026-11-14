@@ -668,6 +668,25 @@ defmodule Mondek.Maintenance do
           from w in MaintenanceWindow, where: is_nil(w.cancelled_at) and w.ends_at > ^at
       end
 
+    query =
+      if is_binary(params["search"]) && params["search"] != "" do
+        from w in query,
+          where:
+            fragment(
+              "strpos(lower(concat_ws(' ', ?, ?)), lower(?)) > 0",
+              w.name,
+              w.reason,
+              ^params["search"]
+            )
+      else
+        query
+      end
+
+    query =
+      if params["scope"] in ["check", "target", "selection"],
+        do: from(w in query, where: w.scope == ^params["scope"]),
+        else: query
+
     cond do
       is_binary(params["stream_id"]) and uuid(params["stream_id"]) ->
         selected =

@@ -272,3 +272,140 @@ test('real contributor returns paginate history without losing reviewed drafts o
   expect(after.notification_counts.total).toBe(populated.notification_counts.total);
   await reset(request);
 });
+
+test('preview incident fly-overs preserve the earlier panels and hand off a real pointer reveal', async ({ page, request }) => {
+  const preview = await request.get('/next/incidents');
+  test.skip(preview.status() === 404, 'The incident preview route is unavailable');
+  expect(preview.ok()).toBe(true);
+
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await reset(request);
+  await samples(request, { used_percent: 96 }, { used_percent: 92 });
+  const volume = await measured(request, 'linux-volume-monitoring', 'CRIT');
+  await measured(request, 'elasticsearch-monitoring', 'WARN');
+  const group = await opened(request, 2);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/next/incidents');
+  await connected(page);
+
+  const panel = page.locator('#overview-panel');
+  const trail = page.getByRole('navigation', { name: 'Earlier panels' });
+  // Observe the first render at each depth. Reading only after Playwright's
+  // stability checks could miss a short animation entirely.
+  await page.evaluate(() => {
+    window.stackMotion = [];
+    let previous;
+    const observer = new MutationObserver(() => {
+      const panel = document.querySelector('#overview-panel');
+      const path = panel?.dataset.panelPath;
+      if (!path || path === previous) return;
+      previous = path;
+      const settled = document.documentElement.clientWidth - panel.offsetWidth;
+      window.stackMotion.push({ path, start: panel.getBoundingClientRect().left - settled });
+    });
+    observer.observe(document.querySelector('#incidents-preview'), {
+      attributes: true, attributeFilter: ['data-panel-path'], childList: true, subtree: true,
+    });
+  });
+  const groupOpener = page.getByRole('link', { name: 'Search storage capacity', exact: true });
+  await groupOpener.click();
+  await expect(panel).toHaveAttribute('data-panel-path', new RegExp(group.id));
+  const entryMotion = await page.evaluate(() => window.stackMotion[0]?.start);
+  expect(entryMotion).toBeGreaterThan(0);
+  const memberOpener = panel.getByRole('link', { name: 'Search volume used space', exact: true });
+  await memberOpener.click();
+
+  const resultOpener = panel.getByRole('link', { name: /View latest check result/ });
+  const history = panel.locator('details').filter({ has: page.getByText('Measurement history', { exact: true }) });
+  await expect(resultOpener).toBeVisible();
+  await history.locator('summary').click();
+  await expect(history).toHaveAttribute('open', '');
+  // Activating the focused link by keyboard lets us leave the panel scrolled.
+  await resultOpener.focus();
+  const scrollBefore = await panel.evaluate((el) => {
+    el.scrollTop = 125;
+    return el.scrollTop;
+  });
+  expect(scrollBefore).toBeGreaterThan(0);
+  await page.keyboard.press('Enter');
+  await expect(panel.getByRole('heading', { name: volume.label === volume.check_label ? volume.label : `${volume.check_label} · ${volume.label}`, exact: true })).toBeVisible();
+  const resultUrl = page.url();
+  const sharedBack = trail.getByRole('link', { name: /Return to Shared incident/ });
+  const memberBack = trail.getByRole('link', { name: /Return to Incident: Search volume capacity/ });
+  const sharedCard = sharedBack.locator('..');
+  const memberCard = memberBack.locator('..');
+  const sharedCopy = sharedCard.locator('.preview-panel-snapshot');
+  const memberCopy = memberCard.locator('.preview-panel-snapshot');
+  await expect(sharedCopy).toContainText('Contributing results');
+  await expect(memberCopy.locator('details').filter({ hasText: 'Measurement history' })).toHaveAttribute('open', '');
+  await expect.poll(() => memberCopy.evaluate((el) => el.scrollTop)).toBe(scrollBefore);
+
+  // Traverse both exposed edges quickly. Passing over them must not reveal either card.
+  const ready = async (locator, predicate) => expect.poll(async () => {
+    const bounds = await locator.boundingBox();
+    return bounds && predicate(bounds);
+  }).toBeTruthy();
+  await expect.poll(() => panel.evaluate(el => getComputedStyle(el).transform)).toBe('none');
+  const initialShared = await sharedBack.boundingBox();
+  const initialMember = await memberBack.boundingBox();
+  await page.mouse.move(initialShared.x + 12, 180);
+  await page.mouse.move(initialMember.x + 12, 180);
+  await page.mouse.move(700, 180);
+  await expect(sharedCopy).toHaveCSS('filter', 'blur(2px)');
+  await expect(memberCopy).toHaveCSS('filter', 'blur(2px)');
+
+  // A deliberate hover reveals the bottom card and leaves both upper edges exposed.
+  await page.mouse.move(initialShared.x + 12, 180);
+  await expect(sharedCopy).toHaveCSS('filter', 'none');
+  await expect(panel.locator(':scope > .pf-v6-c-card__body')).toHaveCSS('filter', 'blur(2px)');
+  await ready(memberCard, (box) => box.x > 1100);
+  const sharedBox = await sharedCard.boundingBox();
+  const shiftedMember = await memberBack.boundingBox();
+
+  // Go through the physical border seam, not straight from one hover target to another.
+  await page.mouse.move(Math.floor(sharedBox.x + sharedBox.width), 180);
+  await page.mouse.move(shiftedMember.x + 12, 180);
+  await expect(memberCopy).toHaveCSS('filter', 'none');
+  await expect(sharedCopy).toHaveCSS('filter', 'blur(2px)');
+
+  const revealedMember = await memberBack.boundingBox();
+  await page.mouse.click(revealedMember.x + 12, 180);
+  await expect(panel.getByRole('heading', { name: 'Search volume capacity', exact: true })).toBeVisible();
+  const returnMotion = await page.evaluate(() => window.stackMotion.at(-1)?.start);
+  expect(returnMotion).toBeLessThan(0);
+  await expect(history).toHaveAttribute('open', '');
+  await expect.poll(() => panel.evaluate((el) => el.scrollTop)).toBe(scrollBefore);
+
+  // A fresh load has no snapshots, so both rear panels need complete server-backed content.
+  await page.goto(resultUrl);
+  await connected(page);
+  await expect(sharedCopy).toContainText('Contributing results');
+  await expect(memberCopy).toContainText('Measurement history');
+  await page.setViewportSize({ width: 390, height: 740 });
+  await expect(trail).toBeHidden();
+  const narrowTrail = panel.getByRole('navigation', { name: 'Investigation trail' });
+  await narrowTrail.getByRole('link', { name: /Shared incident/ }).click();
+  await expect(panel.getByRole('heading', { name: 'Search storage capacity', exact: true })).toBeVisible();
+  // The reverse direction uses the same stack, with Checks as the host.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const checksResult = `/next/checks/${volume.id}?health=CRIT`;
+  await page.goto(checksResult);
+  await connected(page);
+  await panel.getByRole('link', { name: 'View shared incident' }).click();
+  await expect(page.locator('#checks-heading')).toBeVisible();
+  await expect(panel.getByText('Contributing results', { exact: true })).toBeVisible();
+  const resultBack = trail.getByRole('link', { name: /Return to Check result/ });
+  await expect(resultBack).toHaveAttribute('href', checksResult);
+  await expect(resultBack.locator('..').locator('.preview-panel-snapshot')).toContainText('Latest measurement');
+  await page.reload();
+  await connected(page);
+  await expect(resultBack.locator('..').locator('.preview-panel-snapshot')).toContainText('Latest measurement');
+  await panel.getByRole('link', { name: 'Latest check result' }).and(panel.locator(`a[href="${checksResult}"]`)).click();
+  await expect(page).toHaveURL(new URL(checksResult, page.url()).href);
+  await expect(trail).toHaveCount(0);
+  await expect(panel.getByText('Check result', { exact: true })).toBeVisible();
+
+  expect(errors).toEqual([]);
+  await reset(request);
+});

@@ -219,9 +219,9 @@ test('LiveView overview preserves independent evidence and missing declarations 
   await expect(page).toHaveURL(selectedURL);
   await expect(page.locator('#overview-panel')).toBeVisible();
 
-  await page.locator('#overview-panel').getByRole('link', {name: 'Full result and configuration'}).first().click();
+  await page.locator('#overview-panel').getByRole('link', {name: 'View check configuration'}).first().click();
   await connected(page);
-  await page.getByRole('link', {name: 'Back to overview preview', exact: true}).click();
+  await page.getByRole('link', {name: 'Back to check result', exact: true}).click();
   await expect(page).toHaveURL(selectedURL);
   await connected(page);
 
@@ -236,9 +236,10 @@ test('LiveView overview preserves independent evidence and missing declarations 
   await expect(page.locator('#overview-panel')).toContainText('No runner is selected');
   await expect(page.locator('#overview-panel a[href^="/checks/"]')).toHaveCount(0);
   const expectedURL = page.url();
-  await page.getByRole('link', {name: 'Full declaration and placement details'}).click();
+  await page.getByRole('link', {name: 'View in Coverage'}).click();
   await connected(page);
-  await page.getByRole('link', {name: 'Back to overview preview', exact: true}).click();
+  await expect(page.locator('#coverage-heading')).toBeVisible();
+  await page.goBack();
   await expect(page).toHaveURL(expectedURL);
   await page.reload();
   await connected(page);
@@ -306,6 +307,9 @@ test('light themes preserve geometry, evidence and local preference', async ({pa
   await page.locator('[data-overview-open]').first().click();
   await expect(page.locator('#overview-panel')).toBeVisible();
   const selectedURL = page.url();
+  await page.locator('#overview-panel').evaluate(async el => {
+    await Promise.all(el.getAnimations().map(animation => animation.finished));
+  });
   const panelBox = await page.locator('#overview-panel').boundingBox();
   await choose('pearl');
   await expect(page).toHaveURL(selectedURL);
@@ -361,10 +365,13 @@ test('thirty real alerts remain compact and page without dropping evidence', asy
   for (const box of await rows.evaluateAll(nodes => nodes.map(node => ({height: node.getBoundingClientRect().height})))) {
     expect(box.height, 'Desktop rows should remain a single compact scan line').toBeLessThanOrEqual(28);
   }
+  // The Overview also contains incidents above Results. Measure the result
+  // list's scan density from the first result row.
+  const firstRowTop = (await rows.first().boundingBox()).y;
   const twentieth = await rows.nth(19).boundingBox();
-  expect(twentieth.y + twentieth.height, 'Twenty alerts should fit within 900px of viewport height').toBeLessThanOrEqual(900);
+  expect(twentieth.y + twentieth.height - firstRowTop, 'Twenty rows should retain compact list density').toBeLessThanOrEqual(20 * 28 + 2);
   const last = await rows.last().boundingBox();
-  expect(last.y + last.height, 'Thirty alerts should fit in the tall desktop viewport').toBeLessThanOrEqual(1100);
+  expect(last.y + last.height - firstRowTop, 'Thirty rows should retain compact list density').toBeLessThanOrEqual(30 * 28 + 2);
   await checkpoint(page, testInfo, 'overview-thirty-alerts');
   await page.getByRole('navigation', {name: 'Results needing attention', exact: true}).getByRole('link', {name: 'Next', exact: true}).click();
   await expect(rows).toHaveCount(1);

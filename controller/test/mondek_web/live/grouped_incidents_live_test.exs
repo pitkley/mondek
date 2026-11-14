@@ -523,6 +523,67 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
     assert has_element?(view, "#contribution-#{first.id}", "Maintenance:")
   end
 
+  test "shared incident links stack over check results on either preview host and full result pages" do
+    [one, two] = inventory(2)
+    sample(one, "CRIT", 1)
+    sample(two, "WARN", 1)
+    group = Repo.one!(ConditionIncident)
+    child = Repo.get_by!(Incident, assignment_id: one.id)
+
+    for {prefix, full?} <- [
+          {"/next/checks", false},
+          {"/next/results", false},
+          {"/next/checks", true}
+        ] do
+      base = prefix <> "/#{child.stream_id}" <> if(full?, do: "/full", else: "")
+      host = base <> "?search=volume"
+      incident = base <> "?incident=health%3A#{group.id}&search=volume"
+      {:ok, view, _} = live(build_conn(), host)
+
+      root = if full?, do: "#preview-result-page", else: "#overview-panel"
+      assert has_element?(view, root <> " table[aria-label='Latest measurement']", "Critical")
+      assert has_element?(view, root <> " table[aria-label='Collection']")
+
+      assert has_element?(
+               view,
+               root <> " table[aria-label='Open incidents'] a",
+               "View shared incident"
+             )
+
+      view |> element("a", "View shared incident") |> render_click()
+      assert_patch(view, incident)
+      assert has_element?(view, "#overview-panel", "Contributing results")
+
+      if full? do
+        assert has_element?(view, "#preview-result-page[inert]")
+      else
+        assert has_element?(view, "[data-panel-back-path='#{host}']")
+      end
+
+      view |> element("[data-overview-close]") |> render_click()
+      assert_patch(view, host)
+
+      {:ok, direct, _} = live(build_conn(), incident)
+      assert has_element?(direct, "#overview-panel", "Contributing results")
+      view_path = base <> "?from_shared=1&incident=health%3A#{child.id}&search=volume"
+      direct |> element("#overview-panel a[href='#{view_path}']") |> render_click()
+      assert_patch(direct, view_path)
+      assert has_element?(direct, "#overview-panel", "Recorded failure")
+      assert has_element?(direct, "[data-panel-back-path='#{incident}']")
+
+      direct |> element("#overview-panel a", "View latest check result") |> render_click()
+      assert_patch(direct, host)
+      refute has_element?(direct, "[data-panel-back-path]")
+
+      if full? do
+        refute has_element?(direct, "#overview-panel")
+        assert has_element?(direct, "#preview-result-page")
+      else
+        assert has_element?(direct, "#overview-panel", "Latest measurement")
+      end
+    end
+  end
+
   test "preview filters maintained contributors and links their individual incidents" do
     [one, two] = inventory(2)
     sample(one, "CRIT", 1, [@impact])
@@ -537,7 +598,7 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
     assert has_element?(view, "#preview-incident-health-#{group.id}")
     refute has_element?(view, "#preview-incident-health-#{first.id}")
     assert has_element?(view, "#preview-maintenance-heading + table", "1 of 2")
-    assert has_element?(view, "a[href='/maintenance/#{window["id"]}']")
+    assert has_element?(view, "a[href^='/next/maintenance/#{window["id"]}?']")
     assert has_element?(view, "a[href='/next/incidents/health/#{first.id}?from_shared=1']")
     assert has_element?(view, "summary", "Original notification payload")
 
@@ -557,11 +618,27 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
       String.replace(child_path, "?from_shared=1", "?contributors=uncovered&from_shared=1")
 
     assert_patch(view, child_path)
-    assert has_element?(view, "a[href='#{path}']", "Open shared incident and its notifications")
+
+    assert has_element?(
+             view,
+             "a[href='#{path}?contributors=uncovered']",
+             "Open shared incident and its notifications"
+           )
 
     view |> element("a", "View latest check result") |> render_click()
     result_path = child_path <> "&result=#{second.stream_id}"
     assert_patch(view, result_path)
+
+    configuration_href =
+      view
+      |> element("#overview-panel a", "View check configuration")
+      |> render()
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("a")
+      |> LazyHTML.attribute("href")
+      |> hd()
+
+    assert URI.decode_query(URI.parse(configuration_href).query)["return_to"] == result_path
     assert has_element?(view, "#overview-panel-title")
     assert has_element?(view, "nav[aria-label='Investigation trail'] a[href='#{child_path}']")
     assert has_element?(view, "#incidents-heading")
@@ -603,11 +680,22 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
     refute has_element?(view, "a", "Show historical contributors")
     sample(one, "OK", 2)
     send(view.pid, :tick)
-    refute has_element?(view, "a[href*='/health/#{first.id}/full']")
+    refute has_element?(view, "a[href*='incident=health%3A#{first.id}']")
     view |> element("a", "Show historical contributors") |> render_click()
     assert_patch(view, full <> "?contributors=history&grouping=shared")
-    assert has_element?(view, "a[href*='/health/#{first.id}/full']")
-    refute has_element?(view, "a[href*='/health/#{second.id}/full']")
+    assert has_element?(view, "a[href*='incident=health%3A#{first.id}']")
+    refute has_element?(view, "a[href*='incident=health%3A#{second.id}']")
+
+    view |> element("a[href*='incident=health%3A#{first.id}']") |> render_click()
+    assert has_element?(view, "#incident-page h1")
+    assert has_element?(view, "#overview-panel h2")
+    view |> element("#overview-panel a", "View latest check result") |> render_click()
+    assert has_element?(view, "#overview-panel", "Check result")
+    assert has_element?(view, "[data-panel-back-path*='incident=health%3A#{first.id}']")
+    view |> element("[data-overview-close]") |> render_click()
+    assert has_element?(view, "#overview-panel h2")
+    view |> element("[data-overview-close]") |> render_click()
+    refute has_element?(view, "#overview-panel")
 
     view
     |> form("form:has(#preview-detail-notification_status)", notification_status: "exhausted")
@@ -622,6 +710,29 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
 
     view |> element("a", "Back to incidents") |> render_click()
     assert_patch(view, "/next/incidents?grouping=shared")
+  end
+
+  test "shared and standalone health incidents expose the same capabilities in both surfaces" do
+    [shared, standalone] = inventory(2)
+    sample(shared, "CRIT", 1, [@impact])
+    sample(standalone, "WARN", 1)
+    group = Repo.one!(ConditionIncident)
+    individual = Repo.get_by!(Incident, assignment_id: standalone.id)
+
+    for {id, evidence, link} <- [
+          {group.id, "Contributing results", "Latest check result"},
+          {individual.id, "Recorded failure", "View latest check result"}
+        ],
+        {suffix, root} <- [{"", "#overview-panel"}, {"/full", "#incident-page"}] do
+      {:ok, view, _} = live(build_conn(), "/next/incidents/health/#{id}" <> suffix)
+
+      assert has_element?(view, root <> " table[aria-label='#{evidence}']")
+      assert has_element?(view, root <> " a", link)
+      assert has_element?(view, root <> " #preview-incident-ack-form")
+      assert has_element?(view, root <> " a", "Schedule maintenance")
+      assert has_element?(view, root <> " #preview-history-heading", "Incident history")
+      assert has_element?(view, root <> " #preview-delivery-heading", "Notification delivery")
+    end
   end
 
   test "preview delivery markup excludes the destination and webhook delivery envelope" do

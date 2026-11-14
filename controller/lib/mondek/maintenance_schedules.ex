@@ -324,9 +324,16 @@ defmodule Mondek.MaintenanceSchedules do
       end
 
     union = union_all(ordinary, ^series)
-    total = Repo.aggregate(from(e in subquery(union)), :count)
-    page_number = page(params["page"])
-    entries = from e in subquery(union), limit: @limit, offset: ^((page_number - 1) * @limit)
+    matches = from(e in subquery(union))
+
+    matches =
+      if params["kind"] in ["window", "series"],
+        do: from(e in matches, where: e.kind == ^params["kind"]),
+        else: matches
+
+    total = Repo.aggregate(matches, :count)
+    page_number = min(page(params["page"]), max(1, ceil(total / @limit)))
+    entries = from e in matches, limit: @limit, offset: ^((page_number - 1) * @limit)
 
     entries =
       if history?,

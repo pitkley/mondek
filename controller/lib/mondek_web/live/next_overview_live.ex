@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.NextOverviewLive do
   use MondekWeb, :live_view
+  import MondekWeb.CheckDetails, only: [check_details: 1]
   import MondekWeb.EvidencePresentation, only: [age: 2, time: 1, badge_text: 1, target_label: 1]
-  alias Mondek.{Coverage, Inspection, Monitoring, OverviewFilters}
+  alias Mondek.{ChecksFilters, Coverage, CoverageFilters, Inspection, Monitoring, OverviewFilters}
+  alias MondekWeb.{NextIncidentsLive, PreviewCoverage, PreviewDetail}
 
   @impl true
   def mount(_, _, socket) do
@@ -20,14 +22,27 @@ defmodule MondekWeb.NextOverviewLive do
   end
 
   @impl true
-  def handle_params(params, _, socket) do
-    filters = OverviewFilters.params(params)
+  def handle_params(params, uri, socket) do
+    {list_action, filter_module} =
+      case socket.assigns.live_action do
+        action when action in [:checks, :checks_result, :checks_result_page] ->
+          {:checks, ChecksFilters}
+
+        action when action in [:coverage, :coverage_result, :coverage_diagnostic] ->
+          {:coverage, CoverageFilters}
+
+        _ ->
+          {:index, OverviewFilters}
+      end
+
+    filters = filter_module.params(params)
+    incident_return = NextIncidentsLive.return_path(params["incident_return"])
 
     chips =
-      for {field, name} <- OverviewFilters.fields(),
-          {key, _kind} = selection <- List.wrap(OverviewFilters.selected(filters, field)) do
+      for {field, name} <- filter_module.fields(),
+          {key, _kind} = selection <- List.wrap(filter_module.selected(filters, field)) do
         label =
-          case OverviewFilters.options(field, "", selection) do
+          case filter_module.options(field, "", selection) do
             [option] -> option.label
             [] -> key
           end
@@ -38,11 +53,28 @@ defmodule MondekWeb.NextOverviewLive do
     {:noreply,
      socket
      |> assign(
+       coverage_full:
+         socket.assigns.live_action in [:expected, :coverage_result, :coverage_diagnostic] &&
+           String.ends_with?(URI.parse(uri).path, "/full"),
        filters: filters,
+       filter_module: filter_module,
+       list_action: list_action,
        selected_id: params["id"],
-       incident_return: MondekWeb.NextIncidentsLive.return_path(params["incident_return"]),
+       runner_page: page_param(params["runner_page"]),
+       observer_result: uuid_param(params["observer_result"]),
+       incident_return: incident_return,
        filter_chips: chips,
        filter_picker: nil
+     )
+     |> NextIncidentsLive.setup_detail(
+       params,
+       if socket.assigns.live_action != :expected do
+         path(
+           Map.put(filters, "incident_return", incident_return),
+           socket.assigns.live_action,
+           params["id"]
+         )
+       end
      )
      |> refresh()}
   end
@@ -60,22 +92,26 @@ defmodule MondekWeb.NextOverviewLive do
     if search == (socket.assigns.filters["search"] || "") do
       {:noreply, socket}
     else
+      filter_module = socket.assigns.filter_module
+
       filters =
         socket.assigns.filters
-        |> OverviewFilters.reset_pages()
+        |> filter_module.reset_pages()
         |> Map.put("search", search)
-        |> OverviewFilters.params()
+        |> filter_module.params()
 
-      {:noreply, push_patch(socket, to: path(filters), replace: true)}
+      {:noreply, push_patch(socket, to: path(filters, socket.assigns.list_action), replace: true)}
     end
   end
 
   def handle_event("filter_open", params, socket) do
     field = params["field"]
 
-    if List.keymember?(OverviewFilters.fields(), field, 0) do
+    filter_module = socket.assigns.filter_module
+
+    if List.keymember?(filter_module.fields(), field, 0) do
       chip = Enum.find(socket.assigns.filter_chips, &(&1.field == field))
-      draft = %{picker(field, "") | value: if(chip, do: chip.label, else: "")}
+      draft = %{picker(filter_module, field, "") | value: if(chip, do: chip.label, else: "")}
       {:noreply, assign(socket, filter_picker: draft)}
     else
       {:noreply, socket}
@@ -85,12 +121,17 @@ defmodule MondekWeb.NextOverviewLive do
   def handle_event("filter_remove_edit", _, socket) do
     case socket.assigns.filter_picker do
       %{field: field} ->
+        filter_module = socket.assigns.filter_module
+
         filters =
           socket.assigns.filters
-          |> OverviewFilters.remove(field)
-          |> OverviewFilters.reset_pages()
+          |> filter_module.remove(field)
+          |> filter_module.reset_pages()
 
-        {:noreply, socket |> push_patch(to: path(filters)) |> show_filter_choices()}
+        {:noreply,
+         socket
+         |> push_patch(to: path(filters, socket.assigns.list_action))
+         |> show_filter_choices()}
 
       nil ->
         {:noreply, socket}
@@ -110,7 +151,12 @@ defmodule MondekWeb.NextOverviewLive do
         {:noreply, socket}
 
       %{field: field} ->
-        draft = picker(field, String.slice(String.replace(query, <<0>>, ""), 0, 200))
+        draft =
+          picker(
+            socket.assigns.filter_module,
+            field,
+            String.slice(String.replace(query, <<0>>, ""), 0, 200)
+          )
 
         case {event, draft.options} do
           {"filter_first", [option | _]} -> choose_filter(socket, field, option)
@@ -133,13 +179,24 @@ defmodule MondekWeb.NextOverviewLive do
       when event in ["filter_query", "filter_first", "filter_select"],
       do: {:noreply, socket}
 
+  def handle_event(event, params, socket)
+      when event in ~w(filter_incident_detail review_control toggle_acknowledgement_replacement
+                       edit_acknowledgement save_acknowledgement end_acknowledgement retry_delivery) do
+    if socket.assigns.incident_selection,
+      do: NextIncidentsLive.handle_event(event, params, socket),
+      else: {:noreply, socket}
+  end
+
   defp choose_filter(socket, field, option) do
+    filter_module = socket.assigns.filter_module
+
     filters =
       socket.assigns.filters
-      |> OverviewFilters.put(field, {option.key, option.kind})
-      |> OverviewFilters.reset_pages()
+      |> filter_module.put(field, {option.key, option.kind})
+      |> filter_module.reset_pages()
 
-    {:noreply, socket |> push_patch(to: path(filters)) |> show_filter_choices()}
+    {:noreply,
+     socket |> push_patch(to: path(filters, socket.assigns.list_action)) |> show_filter_choices()}
   end
 
   defp show_filter_choices(socket) do
@@ -148,13 +205,85 @@ defmodule MondekWeb.NextOverviewLive do
     |> push_event("preview-filter-ready", %{})
   end
 
-  defp picker(field, query) do
+  defp picker(filter_module, field, query) do
     %{
       field: field,
-      title: Map.new(OverviewFilters.fields())[field],
+      title: Map.new(filter_module.fields())[field],
       value: query,
-      options: OverviewFilters.options(field, query)
+      options: filter_module.options(field, query)
     }
+  end
+
+  defp refresh(%{assigns: %{live_action: action} = assigns} = socket)
+       when action in [:result_page, :checks_result_page] do
+    now = Monitoring.now()
+    panel = load_result_panel(assigns.selected_id, now) || %{kind: :not_found}
+    filters = Map.put(assigns.filters, "incident_return", assigns.incident_return)
+
+    socket
+    |> NextIncidentsLive.refresh_detail(now)
+    |> assign(
+      now: now,
+      panel: panel,
+      page_title:
+        if(panel.kind == :result, do: result_title(panel.selected), else: "Result unavailable"),
+      list_path: path(assigns.filters, assigns.list_action),
+      current_path: path(filters, action, assigns.selected_id)
+    )
+  end
+
+  defp refresh(%{assigns: %{list_action: :checks} = assigns} = socket) do
+    now = Monitoring.now()
+
+    panel =
+      if assigns.live_action == :checks_result,
+        do: load_result_panel(assigns.selected_id, now) || %{kind: :not_found}
+
+    socket
+    |> NextIncidentsLive.refresh_detail(now)
+    |> assign(
+      now: now,
+      panel: panel,
+      checks: Inspection.preview_checks(assigns.filters, now),
+      list_path: path(assigns.filters, :checks),
+      current_path:
+        path(
+          Map.put(assigns.filters, "incident_return", assigns.incident_return),
+          assigns.live_action,
+          assigns.selected_id
+        ),
+      page_title: "Checks"
+    )
+  end
+
+  defp refresh(%{assigns: %{list_action: :coverage} = assigns} = socket) do
+    now = Monitoring.now()
+    filters = assigns.filters
+
+    panel =
+      case assigns.live_action do
+        :coverage_diagnostic ->
+          case Coverage.diagnostic(assigns.selected_id, now) do
+            nil -> %{kind: :not_found}
+            item -> %{kind: :coverage_diagnostic, item: item}
+          end
+
+        :coverage_result ->
+          load_coverage_panel(assigns, now)
+
+        :coverage ->
+          nil
+      end
+
+    assign(socket,
+      now: now,
+      panel: panel,
+      coverage: Coverage.scopes(filters, now),
+      runner_diagnostics: Coverage.diagnostics(%{}, now),
+      list_path: path(filters, :coverage),
+      current_path: coverage_path(assigns),
+      page_title: "Coverage"
+    )
   end
 
   defp refresh(socket) do
@@ -177,21 +306,13 @@ defmodule MondekWeb.NextOverviewLive do
           load_result_panel(socket.assigns.selected_id, now) || %{kind: :not_found}
 
         :expected ->
-          case Coverage.scope(socket.assigns.selected_id, now) do
-            nil ->
-              %{kind: :not_found}
-
-            scope ->
-              %{
-                kind: :expected,
-                scope: scope,
-                observers: Coverage.observers(scope["id"], %{}, now)
-              }
-          end
+          load_coverage_panel(socket.assigns, now)
 
         _ ->
           nil
       end
+
+    socket = NextIncidentsLive.refresh_detail(socket, now)
 
     assign(socket,
       now: now,
@@ -199,30 +320,347 @@ defmodule MondekWeb.NextOverviewLive do
       missing: missing,
       declarations: declarations,
       snapshot: snapshot,
+      open_incidents: MondekWeb.NextIncidentsLive.open_summary(now),
       panel: panel,
       page_title: "Overview preview",
       list_path: path(filters),
       current_path:
-        path(
-          Map.put(filters, "incident_return", socket.assigns.incident_return),
-          socket.assigns.live_action,
-          socket.assigns.selected_id
+        if(socket.assigns.live_action == :expected,
+          do: coverage_path(socket.assigns),
+          else:
+            path(
+              Map.put(filters, "incident_return", socket.assigns.incident_return),
+              socket.assigns.live_action,
+              socket.assigns.selected_id
+            )
         )
     )
   end
 
-  def path(filters, action \\ :index, id \\ nil) do
+  defp load_coverage_panel(assigns, now) do
+    case Coverage.scope(assigns.selected_id, now) do
+      nil ->
+        %{kind: :not_found}
+
+      scope ->
+        observers = Coverage.observers(scope["id"], %{"page" => assigns.runner_page}, now)
+
+        result =
+          if Enum.any?(
+               observers["items"],
+               &(&1["stream_id"] && &1["stream_id"] == assigns.observer_result)
+             ),
+             do: load_result_panel(assigns.observer_result, now)
+
+        %{kind: :expected, scope: scope, observers: observers, result: result}
+    end
+  end
+
+  defp coverage_path(assigns, extra \\ %{}) do
+    assigns.filters
+    |> Map.put("incident_return", assigns.incident_return)
+    |> Map.put("runner_page", assigns.runner_page)
+    |> Map.merge(extra)
+    |> path(assigns.live_action, assigns.selected_id, assigns.coverage_full)
+  end
+
+  defp page_param(value) when is_binary(value) and byte_size(value) <= 7 do
+    case Integer.parse(value) do
+      {number, ""} when number > 1 -> Integer.to_string(number)
+      _ -> nil
+    end
+  end
+
+  defp page_param(_), do: nil
+
+  defp uuid_param(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, id} -> id
+      :error -> nil
+    end
+  end
+
+  def path(filters, action \\ :index, id \\ nil, full \\ false) do
     base =
       case action do
-        :result -> "/next/results/" <> URI.encode(id || "", &URI.char_unreserved?/1)
-        :expected -> "/next/expected/" <> URI.encode(id || "", &URI.char_unreserved?/1)
-        _ -> "/next"
+        :checks ->
+          "/next/checks"
+
+        :checks_result ->
+          "/next/checks/" <> URI.encode(id || "", &URI.char_unreserved?/1)
+
+        :checks_result_page ->
+          "/next/checks/" <> URI.encode(id || "", &URI.char_unreserved?/1) <> "/full"
+
+        :result ->
+          "/next/results/" <> URI.encode(id || "", &URI.char_unreserved?/1)
+
+        :result_page ->
+          "/next/results/" <> URI.encode(id || "", &URI.char_unreserved?/1) <> "/full"
+
+        :coverage ->
+          "/next/coverage"
+
+        :coverage_diagnostic ->
+          "/next/coverage/diagnostics/" <> URI.encode(id || "", &URI.char_unreserved?/1)
+
+        :coverage_result ->
+          "/next/coverage/" <> URI.encode(id || "", &URI.char_unreserved?/1)
+
+        :expected ->
+          "/next/expected/" <> URI.encode(id || "", &URI.char_unreserved?/1)
+
+        _ ->
+          "/next"
       end
 
     query =
       filters |> Enum.reject(fn {_, v} -> v in [nil, ""] end) |> Map.new() |> URI.encode_query()
 
+    base = if full, do: base <> "/full", else: base
     if query == "", do: base, else: base <> "?" <> query
+  end
+
+  @impl true
+  def render(%{live_action: action} = assigns)
+      when action in [:result_page, :checks_result_page] do
+    ~H"""
+    <div
+      id="result-page-preview"
+      class="preview-shell"
+      phx-hook="OverviewPanel"
+      data-selection={overlay_selection(assigns)}
+      data-panel-heading="full-result-heading"
+      data-panel-background="#preview-result-page"
+    >
+      <MondekWeb.PreviewLayouts.navigation
+        active={if @list_action == :checks, do: :checks, else: :overview}
+        overview_path={if @list_action == :checks, do: "/next", else: @list_path}
+      />
+      <main id="main-content" class="preview-main" tabindex="-1">
+        <article
+          id="preview-result-page"
+          class="preview-incident-panel preview-incident-page pf-v6-c-card"
+          inert={@incident_selection != nil}
+        >
+          <div class="pf-v6-c-card__body">
+            <div class="preview-panel-tools">
+              <.link navigate={@incident_return || @list_path} class="pf-v6-c-button pf-m-link">
+                ← Back to {return_label(@incident_return, @list_action)}
+              </.link>
+            </div>
+            <.result_panel
+              :if={@panel.kind == :result}
+              panel={@panel}
+              now={@now}
+              current_path={@current_path}
+              filters={@filters}
+              incident_return={@incident_return}
+              full_page={true}
+              heading_id="full-result-heading"
+              id_prefix="full-"
+              list_action={@list_action}
+            />
+            <h1 :if={@panel.kind == :not_found}>Result unavailable</h1>
+          </div>
+        </article>
+        <NextIncidentsLive.detail
+          :if={@incident_selection}
+          {assigns}
+          full_page={false}
+          id_prefix="overlay-"
+          host_target={%{identity: {:result, @selected_id}, path: @current_path}}
+        />
+      </main>
+    </div>
+    """
+  end
+
+  def render(%{coverage_full: true} = assigns) do
+    ~H"""
+    <div
+      id="coverage-detail-page"
+      class="preview-shell"
+      phx-hook="OverviewPanel"
+      data-panel-heading="coverage-page-heading"
+      data-panel-background="#coverage-page-body"
+      data-selection={overlay_selection(assigns)}
+    >
+      <MondekWeb.PreviewLayouts.navigation active={
+        if @list_action == :coverage, do: :coverage, else: :overview
+      } />
+      <main id="main-content" class="preview-main" tabindex="-1">
+        <article
+          id="coverage-page-body"
+          class="preview-incident-panel preview-incident-page pf-v6-c-card"
+          inert={@panel.kind == :expected && @panel.result != nil}
+        >
+          <div class="pf-v6-c-card__body">
+            <div class="preview-panel-tools">
+              <.link patch={@list_path} class="pf-v6-c-button pf-m-link">
+                ← Back to {if @list_action == :coverage, do: "coverage", else: "overview"}
+              </.link>
+              <.link
+                patch={coverage_path(assigns |> assign(:coverage_full, false))}
+                class="pf-v6-c-button pf-m-link"
+              >
+                Open fly-over
+              </.link>
+            </div>
+            <.coverage_detail_body {assigns} heading_id="coverage-page-heading" />
+          </div>
+        </article>
+        <.coverage_overlay {assigns} />
+      </main>
+    </div>
+    """
+  end
+
+  def render(%{list_action: :coverage} = assigns) do
+    summary = assigns.coverage["summary"]
+
+    assigns =
+      assign(assigns,
+        incomplete_catalogue:
+          summary["unsupported_publishers"] > 0 || summary["unconfirmed_publishers"] > 0,
+        attention: assigns.filters["status"] == "attention"
+      )
+
+    ~H"""
+    <div
+      id="coverage-preview"
+      class="preview-shell"
+      phx-hook="OverviewPanel"
+      data-panel-heading="coverage-heading"
+      data-selection={overlay_selection(assigns)}
+    >
+      <MondekWeb.PreviewLayouts.navigation active={:coverage} />
+      <main id="main-content" class="preview-main" tabindex="-1">
+        <section class="preview-list" aria-labelledby="coverage-heading">
+          <header class="preview-results-header">
+            <h1 id="coverage-heading" class="pf-v6-c-title pf-m-2xl" tabindex="-1">Coverage</h1>
+            <.result_filters {assigns} />
+          </header>
+          <p class="preview-coverage-intro">
+            See which results your monitoring projects declare and whether runners are sending current measurements.
+          </p>
+          <section class="preview-table-group" aria-labelledby="coverage-results-heading">
+            <div class="preview-section-heading preview-coverage-heading">
+              <h2 id="coverage-results-heading" class="pf-v6-c-title pf-m-md">Declared results</h2>
+              <span class="pf-v6-c-badge pf-m-read">{count_label(@coverage["total"], "result")}</span>
+            </div>
+            <PreviewCoverage.list
+              :if={@coverage["items"] != []}
+              items={@coverage["items"]}
+              selected_id={if @live_action == :coverage_result, do: @selected_id}
+              open={
+                fn id ->
+                  if id == @selected_id, do: @list_path, else: path(@filters, :coverage_result, id)
+                end
+              }
+            />
+            <p :if={@coverage["items"] == []} class="preview-empty">
+              {cond do
+                @filters["search"] || @filters["environment"] || @filters["target_key"] ->
+                  "No declared results match these filters."
+
+                @attention ->
+                  "No gaps found among declared results."
+
+                true ->
+                  "No results have been declared yet."
+              end}
+            </p>
+            <MondekWeb.PreviewPagination.pagination
+              page={@coverage["page"]}
+              size={@coverage["page_size"]}
+              total={@coverage["total"]}
+              label="Declared result pages"
+              url={fn page -> path(Map.put(@filters, "page", to_string(page)), :coverage) end}
+            />
+          </section>
+          <div :if={@incomplete_catalogue} class="preview-coverage-audit">
+            <p>
+              Some runners have not confirmed which checks they should run.
+            </p>
+            <a href="/coverage/publishers">Review runner declarations</a>
+          </div>
+          <PreviewCoverage.runner_diagnostics
+            listing={@runner_diagnostics}
+            selected_id={if @live_action == :coverage_diagnostic, do: @selected_id}
+            open={
+              fn id ->
+                if @live_action == :coverage_diagnostic && id == @selected_id,
+                  do: @list_path,
+                  else: path(@filters, :coverage_diagnostic, id)
+              end
+            }
+          />
+        </section>
+        <.coverage_overlay {assigns} />
+        <div class="preview-connection" role="status">Connection interrupted. Reconnecting…</div>
+      </main>
+    </div>
+    """
+  end
+
+  def render(%{list_action: :checks} = assigns) do
+    ~H"""
+    <div
+      id="checks-preview"
+      class="preview-shell"
+      phx-hook="OverviewPanel"
+      data-panel-heading="checks-heading"
+      data-selection={overlay_selection(assigns)}
+    >
+      <MondekWeb.PreviewLayouts.navigation active={:checks} />
+      <main id="main-content" class="preview-main" tabindex="-1">
+        <section class="preview-list" aria-labelledby="checks-heading">
+          <header class="preview-results-header">
+            <h1 id="checks-heading" class="pf-v6-c-title pf-m-2xl" tabindex="-1">Checks</h1>
+            <.result_filters {assigns} />
+          </header>
+          <section class="preview-table-group" aria-labelledby="checks-results-heading">
+            <div class="preview-section-heading">
+              <h2 id="checks-results-heading" class="pf-v6-c-title pf-m-md">Results</h2>
+              <span class="pf-v6-c-badge pf-m-read">{count_label(@checks.total, "result")}</span>
+            </div>
+            <.result_table
+              :if={@checks.items != []}
+              id="preview-check-results"
+              listing={@checks}
+              filters={@filters}
+              panel={@panel}
+              now={@now}
+              list_action={:checks}
+              label="Check results"
+            />
+            <p :if={@checks.items == []} class="preview-empty">
+              {if @filters == %{},
+                do: "No active check results yet.",
+                else: "No check results match these filters."}
+              <.link
+                :if={@filters != %{}}
+                patch={path(%{}, :checks)}
+              >Clear filters</.link>
+            </p>
+            <.pager
+              :if={@checks.total > @checks.page_size}
+              listing={@checks}
+              filters={@filters}
+              key="page"
+              label="Check results"
+              list_action={:checks}
+            />
+          </section>
+        </section>
+        <.evidence_overlay {assigns} />
+        <div class="preview-connection" role="status">
+          Connection interrupted. Displayed evidence may be out of date. Reconnecting…
+        </div>
+      </main>
+    </div>
+    """
   end
 
   @impl true
@@ -233,7 +671,8 @@ defmodule MondekWeb.NextOverviewLive do
       class="preview-shell"
       phx-hook="OverviewPanel"
       data-updated-at={Monitoring.iso(@now)}
-      data-selection={if @panel, do: path(%{}, @live_action, @selected_id), else: ""}
+      data-selection={overlay_selection(assigns)}
+      data-panel-background=".preview-overview-card, .preview-list"
     >
       <MondekWeb.PreviewLayouts.navigation active={:overview} overview_path={@list_path} />
       <main
@@ -277,35 +716,91 @@ defmodule MondekWeb.NextOverviewLive do
                     (@declarations["unconfirmed_publishers"] || 0) > 0 ||
                     (@declarations["unbound_declarations"] || 0) > 0
                 }
-                href="/coverage/publishers"
+                href="/next/coverage"
                 class="preview-caption"
               >Some declarations need review</a>
             </div>
           </section>
         </section>
+        <section
+          id="preview-open-incidents"
+          class="preview-overview-card"
+          aria-labelledby="overview-incidents-heading"
+        >
+          <div class="preview-heading preview-overview-incident-heading">
+            <h2
+              id="overview-incidents-heading"
+              class="pf-v6-c-title pf-m-xl preview-overview-incident-title"
+            >
+              Open incidents <span class="pf-v6-c-badge pf-m-read">{@open_incidents.total}</span>
+            </h2>
+            <.link navigate="/next/incidents">View all incidents</.link>
+          </div>
+          <p :if={@open_incidents.rows == []} class="preview-empty">No open incidents.</p>
+          <div :if={@open_incidents.rows != []} class="preview-table-group">
+            <table
+              class="pf-v6-c-table preview-table preview-overview-incidents-table"
+              aria-labelledby="overview-incidents-heading"
+            >
+              <thead class="pf-v6-c-table__thead">
+                <tr>
+                  <th scope="col" class="pf-v6-c-table__th">Severity</th>
+                  <th scope="col" class="pf-v6-c-table__th">Incident</th>
+                  <th scope="col" class="pf-v6-c-table__th">Scope</th>
+                  <th scope="col" class="pf-v6-c-table__th">Opened</th>
+                  <th scope="col" class="pf-v6-c-table__th">Acknowledgement</th>
+                </tr>
+              </thead>
+              <tbody class="pf-v6-c-table__tbody">
+                <tr
+                  :for={row <- @open_incidents.rows}
+                  class={[
+                    "pf-v6-c-table__tr",
+                    @incident_selection == {row.kind, row.id} && "preview-selected"
+                  ]}
+                  data-overview-row
+                >
+                  <td class="pf-v6-c-table__td">
+                    <.state :if={row.health} value={row.health} />
+                    <span :if={!row.health} class="preview-caption" title="Monitoring loss">Loss</span>
+                  </td>
+                  <td class="pf-v6-c-table__td">
+                    <.link
+                      id={"overview-incident-#{row.kind}-#{row.id}"}
+                      patch={
+                        if @incident_selection == {row.kind, row.id},
+                          do: @list_path,
+                          else: NextIncidentsLive.incident_layer_path(@list_path, row.kind, row.id)
+                      }
+                      data-overview-open
+                      class="preview-result-link"
+                    >{row.title}</.link>
+                    <span :if={row.contribution_count} class="preview-caption">
+                      · {count_label(row.contribution_count, "affected result")}
+                    </span>
+                  </td>
+                  <td class="pf-v6-c-table__td preview-caption">
+                    {if row.context == "", do: "—", else: row.context}
+                  </td>
+                  <td class="pf-v6-c-table__td">
+                    <time datetime={row.opened_at} title={time(row.opened_at)}>{age(
+                      row.opened_at,
+                      @now
+                    )}</time>
+                  </td>
+                  <td class="pf-v6-c-table__td">
+                    {if row.acknowledged, do: "Acknowledged", else: "Unacknowledged"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
         <div class="preview-workspace">
           <section class="preview-list" aria-labelledby="preview-results-heading">
             <header class="preview-results-header">
               <h2 id="preview-results-heading" class="pf-v6-c-title pf-m-2xl">Results</h2>
-              <MondekWeb.PreviewFilters.filter_picker
-                picker={@filter_picker}
-                chips={@filter_chips}
-                fields={
-                  Enum.map(OverviewFilters.fields(), fn {key, label} ->
-                    {key, label, if(key == "environment", do: "globe", else: "map-pin")}
-                  end)
-                }
-                search={@filters["search"]}
-                remove={
-                  fn field ->
-                    path(@filters |> OverviewFilters.remove(field) |> OverviewFilters.reset_pages())
-                  end
-                }
-                clear_search={path(@filters |> Map.delete("search") |> OverviewFilters.reset_pages())}
-                form_label="Filter all result lists"
-                label="Search results and targets"
-                placeholder="Search or filter results"
-              />
+              <.result_filters {assigns} />
             </header>
             <section class="preview-table-group" aria-labelledby="preview-attention-heading">
               <div class="preview-section-heading">
@@ -460,54 +955,7 @@ defmodule MondekWeb.NextOverviewLive do
               />
             </section>
           </section>
-          <div
-            :if={@panel}
-            id="overview-panel"
-            class="preview-panel pf-v6-c-card"
-            role="dialog"
-            aria-modal="false"
-            aria-labelledby="overview-panel-title"
-          >
-            <div class="pf-v6-c-card__body">
-              <div class="preview-panel-tools">
-                <a
-                  :if={@incident_return}
-                  href={@incident_return}
-                  class="pf-v6-c-button pf-m-link preview-panel-back"
-                >← Back to incident</a>
-                <.link
-                  patch={@list_path}
-                  data-overview-close
-                  class="pf-v6-c-button pf-m-link preview-panel-back"
-                >Close details ×</.link>
-                <div class="preview-connection" role="status">
-                  Connection interrupted. Displayed evidence may be out of date.
-                </div>
-              </div>
-              <div :if={@panel.kind == :not_found}>
-                <h2 id="overview-panel-title" tabindex="-1" class="pf-v6-c-title pf-m-xl">
-                  Result unavailable
-                </h2>
-                <p>
-                  The selected result or declaration no longer exists. Choose another result from the overview.
-                </p>
-              </div>
-              <.result_panel
-                :if={@panel.kind == :result}
-                panel={@panel}
-                now={@now}
-                current_path={@current_path}
-                filters={@filters}
-                incident_return={@incident_return}
-              />
-              <.expected_panel
-                :if={@panel.kind == :expected}
-                panel={@panel}
-                now={@now}
-                current_path={@current_path}
-              />
-            </div>
-          </div>
+          <.evidence_overlay {assigns} />
         </div>
         <div class="preview-connection" role="status">
           Connection interrupted. Displayed evidence may be out of date. Reconnecting…
@@ -517,16 +965,302 @@ defmodule MondekWeb.NextOverviewLive do
     """
   end
 
+  defp result_filters(assigns) do
+    ~H"""
+    <MondekWeb.PreviewFilters.filter_picker
+      picker={@filter_picker}
+      chips={@filter_chips}
+      fields={
+        Enum.map(@filter_module.fields(), fn {key, label} -> {key, label, filter_icon(key)} end)
+      }
+      search={@filters["search"]}
+      remove={
+        fn field ->
+          path(@filters |> @filter_module.remove(field) |> @filter_module.reset_pages(), @list_action)
+        end
+      }
+      clear_search={
+        path(@filters |> Map.delete("search") |> @filter_module.reset_pages(), @list_action)
+      }
+      form_label={if @list_action == :coverage, do: "Filter declared results", else: "Filter results"}
+      label="Search results and targets"
+      placeholder="Search or filter results"
+    />
+    """
+  end
+
+  defp filter_icon("environment"), do: "globe"
+  defp filter_icon("target"), do: "map-pin"
+  defp filter_icon("group"), do: "grid"
+  defp filter_icon("health"), do: "pulse"
+  defp filter_icon("freshness"), do: "clock"
+  defp filter_icon("status"), do: "server"
+
+  defp result_action(:checks, true), do: :checks_result_page
+  defp result_action(:checks, false), do: :checks_result
+  defp result_action(_, true), do: :result_page
+  defp result_action(_, false), do: :result
+
+  defp overlay_selection(%{incident_selection: {kind, id}, detail_filters: filters}),
+    do: "#{kind}-#{id}-#{filters["result"]}"
+
+  defp overlay_selection(%{panel: %{kind: :expected, result: %{selected: result}}}),
+    do: "coverage-result-#{result["id"]}"
+
+  defp overlay_selection(%{coverage_full: true}), do: nil
+
+  defp overlay_selection(%{live_action: action, selected_id: id, panel: panel})
+       when action in [:result, :checks_result, :expected, :coverage_result, :coverage_diagnostic],
+       do: if(panel, do: path(%{}, action, id))
+
+  defp overlay_selection(_), do: nil
+
+  defp evidence_overlay(assigns) do
+    ancestors =
+      if assigns.incident_selection && assigns.panel && assigns.panel.kind == :result do
+        [
+          %{
+            kind: "Check result",
+            identity: {:result, assigns.selected_id},
+            title: result_title(assigns.panel.selected),
+            path: assigns.current_path
+          }
+        ]
+      else
+        []
+      end
+
+    assigns = assign(assigns, :host_ancestors, ancestors)
+
+    ~H"""
+    <NextIncidentsLive.detail
+      :if={@incident_selection}
+      {assigns}
+      full_page={false}
+      host_ancestors={@host_ancestors}
+    >
+      <:host_fallback>
+        <.result_drawer_body {assigns} />
+      </:host_fallback>
+    </NextIncidentsLive.detail>
+    <.coverage_overlay :if={@panel && @panel.kind == :expected} {assigns} />
+    <.result_drawer :if={!@incident_selection && (!@panel || @panel.kind != :expected)} {assigns} />
+    """
+  end
+
+  defp coverage_overlay(assigns) do
+    result = if assigns.panel && assigns.panel.kind == :expected, do: assigns.panel.result
+
+    assigns =
+      assign(assigns,
+        coverage_result: result,
+        coverage_ancestors:
+          if(result,
+            do: [
+              %{
+                kind: "Declared result",
+                title: PreviewCoverage.title(assigns.panel.scope),
+                path: assigns.current_path
+              }
+            ],
+            else: []
+          )
+      )
+
+    ~H"""
+    <MondekWeb.PanelStack.rear_cards
+      entries={if @coverage_full, do: [], else: @coverage_ancestors}
+      card_class="preview-incident-panel pf-v6-c-card"
+    >
+      <:fallback>
+        <.result_drawer_body {assigns} />
+      </:fallback>
+    </MondekWeb.PanelStack.rear_cards>
+    <PreviewDetail.surface
+      :if={@coverage_result}
+      path={coverage_path(assigns, %{"observer_result" => @coverage_result.selected["id"]})}
+    >
+      <div class="preview-panel-tools">
+        <.link patch={@current_path} data-overview-close class="pf-v6-c-button pf-m-link">← Back one level</.link>
+        <.link
+          navigate={coverage_full_result_path(@coverage_result.selected["id"], @current_path)}
+          class="pf-v6-c-button pf-m-link"
+        >Open as page</.link>
+      </div>
+      <.result_panel
+        panel={@coverage_result}
+        now={@now}
+        current_path={coverage_path(assigns, %{"observer_result" => @coverage_result.selected["id"]})}
+        incident_path={
+          fn id ->
+            @coverage_result.selected["id"]
+            |> coverage_check_path(
+              coverage_path(assigns, %{"observer_result" => @coverage_result.selected["id"]})
+            )
+            |> NextIncidentsLive.incident_layer_path("health", id)
+          end
+        }
+        peer_path={
+          fn id ->
+            if Enum.any?(@panel.observers["items"], &(&1["stream_id"] == id)),
+              do: coverage_path(assigns, %{"observer_result" => id}),
+              else: coverage_check_path(id, @current_path)
+          end
+        }
+        full_result_path={coverage_full_result_path(@coverage_result.selected["id"], @current_path)}
+      />
+    </PreviewDetail.surface>
+    <.result_drawer :if={!@coverage_result && !@coverage_full} {assigns} />
+    """
+  end
+
+  defp coverage_check_path(id, back),
+    do: path(%{"incident_return" => back}, :checks_result, id)
+
+  defp return_label("/next/maintenance/" <> _, _), do: "maintenance"
+  defp return_label("/next/coverage/" <> _, _), do: "coverage"
+  defp return_label("/next/expected/" <> _, _), do: "coverage"
+  defp return_label(path, _) when is_binary(path), do: "incident"
+  defp return_label(nil, :checks), do: "checks"
+  defp return_label(nil, _), do: "overview"
+
+  defp coverage_full_result_path(id, back),
+    do: path(%{"incident_return" => back}, :checks_result_page, id)
+
+  defp result_drawer(assigns) do
+    ~H"""
+    <PreviewDetail.surface
+      :if={@panel}
+      tag="div"
+      wide={@panel.kind in [:result, :expected, :coverage_diagnostic]}
+      path={@current_path}
+    >
+      <.result_drawer_content {assigns} />
+    </PreviewDetail.surface>
+    """
+  end
+
+  defp result_drawer_body(assigns) do
+    ~H"""
+    <div class="pf-v6-c-card__body">
+      <.result_drawer_content {assigns} />
+    </div>
+    """
+  end
+
+  defp result_drawer_content(assigns) do
+    ~H"""
+    <div class="preview-panel-tools">
+      <.link
+        :if={@panel.kind == :result}
+        navigate={
+          path(
+            Map.put(@filters, "incident_return", @incident_return),
+            result_action(@list_action, true),
+            @selected_id
+          )
+        }
+        class="pf-v6-c-button pf-m-link"
+      >Open as page</.link>
+      <.link
+        :if={@live_action in [:expected, :coverage_result, :coverage_diagnostic]}
+        patch={coverage_path(assigns |> assign(:coverage_full, true))}
+        class="pf-v6-c-button pf-m-link"
+      >Open as page</.link>
+      <a
+        :if={@incident_return}
+        href={@incident_return}
+        class="pf-v6-c-button pf-m-link preview-panel-back"
+      >← Back to {return_label(@incident_return, @list_action)}</a>
+      <.link
+        patch={@list_path}
+        data-overview-close
+        class="pf-v6-c-button pf-m-link preview-panel-back"
+      >Close details ×</.link>
+      <div class="preview-connection" role="status">
+        Connection interrupted. Displayed evidence may be out of date.
+      </div>
+    </div>
+    <.result_panel
+      :if={@panel.kind == :result}
+      panel={@panel}
+      now={@now}
+      current_path={@current_path}
+      filters={@filters}
+      incident_return={@incident_return}
+      list_action={@list_action}
+    />
+    <.coverage_detail_body :if={@panel.kind != :result} {assigns} heading_id="overview-panel-title" />
+    """
+  end
+
+  defp coverage_detail_body(assigns) do
+    ~H"""
+    <div :if={@panel.kind == :not_found}>
+      <h2 id={@heading_id} tabindex="-1" class="pf-v6-c-title pf-m-xl">
+        {if @live_action == :coverage_diagnostic,
+          do: "Diagnostic unavailable",
+          else: "Result unavailable"}
+      </h2>
+      <p>
+        {cond do
+          @live_action == :coverage_diagnostic ->
+            "The runner may have updated or removed this declaration."
+
+          @list_action == :checks ->
+            "This result may have been removed by retention."
+
+          true ->
+            "The selected result or declaration is no longer available."
+        end}
+      </p>
+    </div>
+    <PreviewCoverage.diagnostic_detail
+      :if={@panel.kind == :coverage_diagnostic}
+      item={@panel.item}
+      heading_id={@heading_id}
+      full_page={@coverage_full}
+    />
+    <PreviewCoverage.detail
+      :if={@panel.kind == :expected}
+      scope={@panel.scope}
+      heading_id={@heading_id}
+      full_page={@coverage_full}
+      observers={@panel.observers}
+      result_path={fn id -> coverage_path(assigns, %{"observer_result" => id}) end}
+      page_path={
+        fn page -> coverage_path(assigns, %{"runner_page" => if(page > 1, do: to_string(page))}) end
+      }
+    />
+    <div :if={@panel.kind == :expected && @list_action == :index} class="preview-recorded-actions">
+      <.link navigate={
+        path(
+          CoverageFilters.params(Map.drop(@filters, ~w(page healthy_page expected_page))),
+          :coverage_result,
+          @panel.scope["id"]
+        )
+      }>
+        View in Coverage
+      </.link>
+    </div>
+    """
+  end
+
   defp result_table(assigns) do
+    assigns =
+      assigns
+      |> assign_new(:list_action, fn -> :index end)
+      |> assign_new(:label, fn ->
+        if assigns.id == "preview-attention",
+          do: "Results needing attention",
+          else: "Current healthy results"
+      end)
+
     ~H"""
     <table
       id={@id}
       class="pf-v6-c-table pf-m-compact preview-table"
-      aria-label={
-        if @id == "preview-attention",
-          do: "Results needing attention",
-          else: "Current healthy results"
-      }
+      aria-label={@label}
     >
       <thead class="pf-v6-c-table__thead">
         <tr class="pf-v6-c-table__tr">
@@ -552,8 +1286,8 @@ defmodule MondekWeb.NextOverviewLive do
                 id={"open-result-" <> row["id"]}
                 patch={
                   if @panel && @panel.kind == :result && @panel.selected["id"] == row["id"],
-                    do: path(@filters),
-                    else: path(@filters, :result, row["id"])
+                    do: path(@filters, @list_action),
+                    else: path(@filters, result_action(@list_action, false), row["id"])
                 }
                 data-overview-open
                 class="preview-result-link"
@@ -563,6 +1297,10 @@ defmodule MondekWeb.NextOverviewLive do
                 {row["environment_label"] || row["environment"] || "Unscoped"} · {row[
                   "runner_display"
                 ]}
+                <span :if={@list_action == :checks && get_in(row, ["check_group", "label"])}>
+                  · {row["check_group"]["label"]}
+                </span>
+                <span :if={@list_action == :checks && row["retired"]}> · Retired</span>
               </p>
             </div>
           </td>
@@ -591,162 +1329,224 @@ defmodule MondekWeb.NextOverviewLive do
     end
   end
 
+  defp measurement_rows(assigns) do
+    ~H"""
+    <PreviewDetail.facts label={@label} class="preview-result-history">
+      <tr :for={measurement <- @rows}>
+        <th scope="row"><time datetime={measurement.at}>{time(measurement.at)}</time></th>
+        <td><.state value={measurement.health} /> {measurement.summary}</td>
+      </tr>
+    </PreviewDetail.facts>
+    """
+  end
+
   def result_panel(assigns) do
+    history = result_history(assigns.panel)
+
     assigns =
       assigns
-      |> assign_new(:show_incident_links, fn -> true end)
-      |> assign_new(:peer_path, fn ->
-        &path(Map.put(assigns.filters, "incident_return", assigns.incident_return), :result, &1)
+      |> assign_new(:incident_path, fn current ->
+        &NextIncidentsLive.incident_layer_path(current.current_path, "health", &1)
+      end)
+      |> assign_new(:full_page, fn -> false end)
+      |> assign_new(:list_action, fn -> :index end)
+      |> assign_new(:heading_id, fn -> "overview-panel-title" end)
+      |> assign_new(:id_prefix, fn -> "" end)
+      |> assign(:result, assigns.panel.selected)
+      |> assign(:history, history)
+      |> assign_new(:full_result_path, fn current ->
+        unless current.full_page do
+          path(
+            Map.put(current.filters, "incident_return", current.incident_return),
+            result_action(current.list_action, true),
+            current.result["id"]
+          )
+        end
+      end)
+      |> assign(
+        :visible_history,
+        if(assigns[:full_page], do: history, else: Enum.take(history, 4))
+      )
+      |> assign_new(:peer_path, fn current ->
+        action = result_action(current.list_action, current.full_page)
+        &path(Map.put(current.filters, "incident_return", current.incident_return), action, &1)
       end)
 
     ~H"""
-    <h2 id="overview-panel-title" tabindex="-1" class="pf-v6-c-title pf-m-xl">
-      {target_label(@panel.selected["target"])}
-    </h2>
-    <p class="preview-panel-subtitle">
-      {result_title(@panel.selected)} · {@panel.selected["environment_label"] ||
-        @panel.selected["environment"] || "Unscoped"}
-    </p>
-    <p class="preview-caption" title={@panel.selected["source_key"]}>
-      Source: {@panel.selected["source_id"]}
-    </p>
-    <p :if={@panel.selected["retired"]} class="preview-empty">
-      This result is retired. Its last measurement is historical.
-    </p>
-    <section
-      :for={observer <- [@panel.selected]}
-      id={"observer-" <> observer["id"]}
-      class="preview-evidence"
+    <header class="preview-incident-intro">
+      <p class="preview-caption">Check result</p>
+      <PreviewDetail.heading level={if @full_page, do: 1, else: 2} id={@heading_id}>
+        {result_title(@result)}
+      </PreviewDetail.heading>
+      <p>
+        {target_label(@result["target"])} · {@result["environment_label"] || @result["environment"] ||
+          "Unscoped"}
+      </p>
+      <p :if={@result["retired"]} class="preview-caption">
+        This result is retired. Its last measurement is historical.
+      </p>
+    </header>
+    <PreviewDetail.card
+      id={@id_prefix <> "observer-" <> @result["id"]}
+      class="preview-result-measurement"
+      title="Latest measurement"
     >
-      <h3 class="pf-v6-c-title pf-m-md">{observer["runner_label"] || "Runner not recorded"}</h3>
-      <p class="preview-caption">Runner {observer["runner_id"]}</p>
-      <div class="preview-evidence-state">
-        <.state value={measured_health(observer)} /><.state value={
-          get_in(observer, ["current", "knowledge"])
-        } />
+      <PreviewDetail.facts label="Latest measurement">
+        <tr>
+          <th scope="row">Status</th>
+          <td>
+            <div class="preview-evidence-state">
+              <.state value={measured_health(@result)} />
+              <.state value={get_in(@result, ["current", "knowledge"])} />
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">Finding</th><td>{summary(@result)}</td>
+        </tr>
+        <tr :if={confirmed?(@result)}>
+          <th scope="row">Measured at</th>
+          <td>
+            <time datetime={@result["current"]["source_at"]}>{time(@result["current"]["source_at"])}</time>
+            · {age(@result["current"]["source_at"], @now)}
+          </td>
+        </tr>
+        <tr :if={get_in(@result, ["current", "knowledge"]) == "unavailable"}>
+          <th scope="row">Latest collection</th>
+          <td>
+            {MondekWeb.MonitoringUI.collection_diagnostic(@result["current"]) ||
+              "Collection failed. The last confirmed measurement is retained."}
+          </td>
+        </tr>
+        <tr :if={confirmed?(@result) && @result["current"]["details"] not in [nil, ""]}>
+          <th scope="row">Check details</th>
+          <td><.check_details text={@result["current"]["details"]} /></td>
+        </tr>
+      </PreviewDetail.facts>
+    </PreviewDetail.card>
+    <PreviewDetail.card
+      id={@id_prefix <> "preview-result-collection"}
+      class="preview-result-source"
+      title="Collection"
+    >
+      <PreviewDetail.facts label="Collection">
+        <tr>
+          <th scope="row">Runner</th><td>{@result["runner_label"] || "Runner not recorded"}</td>
+        </tr>
+        <tr>
+          <th scope="row">Source</th><td title={@result["source_key"]}>{@result["source_id"]}</td>
+        </tr>
+      </PreviewDetail.facts>
+      <div class="preview-recorded-actions">
+        <.link href={"/checks/" <> @result["id"] <> "?" <> URI.encode_query(%{"return_to" => @current_path})}>
+          View check configuration
+        </.link>
       </div>
-      <p>{summary(observer)}</p>
-      <p :if={confirmed?(observer)} class="preview-caption">
-        Measured
-        <time datetime={observer["current"]["source_at"]}>{age(observer["current"]["source_at"], @now)}</time>
-        · {time(observer["current"]["source_at"])}
-      </p>
-      <p
-        :if={get_in(observer, ["current", "knowledge"]) == "unavailable"}
-        class="preview-collection-error"
-      >
-        Latest collection: {MondekWeb.MonitoringUI.collection_diagnostic(observer["current"]) ||
-          "Collection failed. The last confirmed measurement is retained."}
-      </p>
-      <pre
-        :if={confirmed?(observer) && observer["current"]["details"] not in [nil, ""]}
-        class="preview-findings"
-      >{observer["current"]["details"]}</pre>
-      <a
-        class="pf-v6-c-button pf-m-link"
-        href={"/checks/" <> observer["id"] <> "?" <> URI.encode_query(%{"return_to" => @current_path})}
-      >Full result and configuration</a>
-    </section>
-    <section
-      :if={
-        @show_incident_links && Enum.any?(@panel.inspection["incidents"], &(&1["status"] == "open"))
-      }
-      class="preview-evidence"
+    </PreviewDetail.card>
+    <PreviewDetail.card
+      :if={@history != []}
+      id={@id_prefix <> "preview-result-history"}
+      title="Measurement history"
     >
-      <h3 class="pf-v6-c-title pf-m-md">Open health incidents for the selected observation</h3>
-      <p :for={incident <- Enum.filter(@panel.inspection["incidents"], &(&1["status"] == "open"))}>
-        <a href={
-          MondekWeb.NextIncidentsLive.path(
-            "health",
-            incident["condition_incident_id"] || incident["id"]
-          )
-        }>Open health incident</a>
-      </p>
-    </section>
-    <details :if={@panel.total > 1} id="preview-related-results" class="preview-evidence">
-      <summary>Related results for this scope ({@panel.total - 1})</summary>
-      <p class="preview-caption">
-        These declarations match the same scope. Code, settings and collection access can differ.
-      </p>
-      <p :for={peer <- Enum.reject(@panel.items, &(&1["id"] == @panel.selected["id"]))}>
-        <.link patch={@peer_path.(peer["id"])}>{peer["runner_label"] || "Runner"} · {String.slice(
-          peer["runner_id"] || "",
-          0,
-          8
-        )}</.link>
-        <.state value={measured_health(peer)} /><.state value={get_in(peer, ["current", "knowledge"])} />
-      </p>
-      <p :if={@panel.total > length(@panel.items)} class="preview-caption">
-        Showing {length(@panel.items) - 1} of {@panel.total - 1} other results. <a href="/checks">Browse all results</a>.
+      <.measurement_rows rows={@visible_history} label="Previous measurements" />
+      <details
+        :if={length(@visible_history) < length(@history)}
+        id={@id_prefix <> "preview-more-measurements-" <> @result["id"]}
+        class="preview-incident-history"
+        phx-mounted={Phoenix.LiveView.JS.ignore_attributes("open")}
+      >
+        <summary class="preview-section-heading">More measurements</summary>
+        <.measurement_rows
+          rows={Enum.drop(@history, length(@visible_history))}
+          label="Older measurements"
+        />
+        <div class="preview-recorded-actions">
+          <.link navigate={@full_result_path}>View more measurements</.link>
+        </div>
+      </details>
+    </PreviewDetail.card>
+    <PreviewDetail.card
+      :if={Enum.any?(@panel.inspection["incidents"], &(&1["status"] == "open"))}
+      id={@id_prefix <> "preview-result-incidents"}
+      title="Open incidents"
+    >
+      <PreviewDetail.facts label="Open incidents">
+        <tr :for={incident <- Enum.filter(@panel.inspection["incidents"], &(&1["status"] == "open"))}>
+          <th scope="row">{time(incident["opened_at"])}</th>
+          <td>
+            <.state value={incident["health"]} />
+            <.link patch={@incident_path.(incident["condition_incident_id"] || incident["id"])}>
+              {if incident["condition_incident_id"],
+                do: "View shared incident",
+                else: "View incident"}
+            </.link>
+          </td>
+        </tr>
+      </PreviewDetail.facts>
+    </PreviewDetail.card>
+    <details
+      :if={@panel.total > 1}
+      id={@id_prefix <> "preview-related-results"}
+      class="preview-table-group preview-incident-section preview-incident-history"
+      phx-mounted={Phoenix.LiveView.JS.ignore_attributes("open")}
+    >
+      <summary class="preview-section-heading">
+        Related results for this scope ({@panel.total - 1})
+      </summary>
+      <PreviewDetail.facts label="Related results">
+        <tr :for={peer <- Enum.reject(@panel.items, &(&1["id"] == @result["id"]))}>
+          <th scope="row">
+            <.link patch={@peer_path.(peer["id"])}>{peer["runner_label"] || "Runner"} · {String.slice(
+              peer["runner_id"] || "",
+              0,
+              8
+            )}</.link>
+          </th>
+          <td>
+            <.state value={measured_health(peer)} />
+            <.state value={get_in(peer, ["current", "knowledge"])} />
+          </td>
+        </tr>
+      </PreviewDetail.facts>
+      <p :if={@panel.total > length(@panel.items)} class="preview-recorded-actions preview-caption">
+        Showing {length(@panel.items) - 1} of {@panel.total - 1} other results. <a href="/next/checks">Browse all results</a>.
       </p>
     </details>
     """
   end
 
-  defp expected_panel(assigns) do
-    ~H"""
-    <h2 id="overview-panel-title" tabindex="-1" class="pf-v6-c-title pf-m-xl">
-      {target_label(@panel.scope["target"])}
-    </h2>
-    <p class="preview-panel-subtitle">
-      {scope_title(@panel.scope)} · {@panel.scope["environment_label"] || @panel.scope["environment"] ||
-        "Unscoped"}
-    </p>
-    <.state value={@panel.scope["status"]} />
-    <p class="preview-expected-description">
-      {if @panel.scope["counts"]["selected"] == 0,
-        do: "No runner is selected to measure this declared result.",
-        else: "Runner selection has changed. The observations below show its current state."}
-    </p>
-    <section :for={observer <- @panel.observers["items"]} class="preview-evidence">
-      <h3 class="pf-v6-c-title pf-m-md">{observer["runner_label"]}</h3>
-      <p class="preview-caption">Runner {observer["runner_id"]}</p>
-      <p>
-        {observer["exclusion_reason"] || observer["scope_reason"] || observer["measurement_state"]}
-      </p>
-      <p :if={observer["stream_id"] && confirmed?(observer)}>
-        {summary(observer)} · {age(observer["current"]["source_at"], @now)}
-      </p>
-      <a
-        :if={observer["stream_id"]}
-        href={"/checks/" <> observer["stream_id"] <> "?" <> URI.encode_query(%{"return_to" => @current_path})}
-        class="pf-v6-c-button pf-m-link"
-      >Inspect result</a>
-    </section>
-    <p :if={@panel.observers["total"] > length(@panel.observers["items"])} class="preview-caption">
-      Showing {length(@panel.observers["items"])} of {@panel.observers["total"]} declarations.
-    </p>
-    <p class="preview-expected-description">
-      Check the monitoring project's placement rules and the runner's deployment settings.
-    </p>
-    <a
-      href={"/coverage/" <> @panel.scope["id"] <> "?" <> URI.encode_query(%{"return_to" => @current_path})}
-      class="pf-v6-c-button pf-m-link"
-    >Full declaration and placement details</a>
-    """
+  defp result_history(panel) do
+    current = get_in(panel.selected, ["current", "confirmed_observation_id"])
+
+    for observation <- panel.inspection["evidence"] || [],
+        observation["id"] != current,
+        result <- get_in(observation, ["payload", "results"]) || [],
+        result["key"] == panel.selected["result_key"] do
+      %{
+        at: result["source_at"] || observation["evaluated_at"],
+        health: result["health"],
+        summary: result["summary"]
+      }
+    end
   end
 
   defp pager(assigns) do
+    assigns = assign_new(assigns, :list_action, fn -> :index end)
+
     assigns =
       assign(assigns, pages: max(1, ceil(assigns.listing.total / assigns.listing.page_size)))
 
     ~H"""
-    <nav class="preview-pager" aria-label={@label}>
-      <span>{count_label(
-        @listing.total,
-        if(@label == "Unobserved declarations", do: "monitoring gap", else: "result")
-      )} · page {@listing.page} of {@pages}</span>
-      <.link
-        :if={@listing.page > 1}
-        patch={path(Map.put(@filters, @key, to_string(@listing.page - 1)))}
-        class="pf-v6-c-button pf-m-secondary"
-      >Previous</.link>
-      <.link
-        :if={@listing.page < @pages}
-        patch={path(Map.put(@filters, @key, to_string(@listing.page + 1)))}
-        class="pf-v6-c-button pf-m-secondary"
-      >Next</.link>
-    </nav>
+    <MondekWeb.PreviewPagination.pagination
+      page={@listing.page}
+      size={@listing.page_size}
+      total={@listing.total}
+      label={@label}
+      url={fn page -> path(Map.put(@filters, @key, to_string(page)), @list_action) end}
+    />
+    <div :if={@pages == 1} class="preview-pager">
+      {count_label(@listing.total, "monitoring gap")} · page {@listing.page} of {@pages}
+    </div>
     """
   end
 

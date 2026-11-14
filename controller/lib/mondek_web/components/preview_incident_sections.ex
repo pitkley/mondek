@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.PreviewIncidentSections do
   use MondekWeb, :html
+  import MondekWeb.CheckDetails, only: [check_details: 1]
   import MondekWeb.EvidencePresentation, only: [time: 1, badge_text: 1]
   alias Mondek.Monitoring
-  alias MondekWeb.{MonitoringUI, NextOverviewLive, NotificationComponents}
+  alias MondekWeb.{NextOverviewLive, NotificationComponents, PreviewDetail}
   alias Phoenix.LiveView.JS
 
   def sections(assigns) do
@@ -15,6 +16,7 @@ defmodule MondekWeb.PreviewIncidentSections do
       assigns
       |> assign_new(:delivery_filter, fn -> [] end)
       |> assign_new(:current, fn -> nil end)
+      |> assign_new(:id_prefix, fn -> "" end)
       |> assign(
         acknowledged: Monitoring.acknowledgement_active?(assigns.incident, assigns.now),
         measurements: measurements,
@@ -25,10 +27,10 @@ defmodule MondekWeb.PreviewIncidentSections do
     ~H"""
     <section
       class="preview-table-group preview-incident-section"
-      aria-labelledby="preview-ack-heading"
+      aria-labelledby={@id_prefix <> "preview-ack-heading"}
     >
       <header class="preview-section-heading preview-ack-heading">
-        <h3 id="preview-ack-heading">Acknowledgement</h3>
+        <h3 id={@id_prefix <> "preview-ack-heading"}>Acknowledgement</h3>
         <span
           :if={@feedback && elem(@feedback, 0) == :ok}
           class="pf-v6-c-label pf-m-green"
@@ -47,33 +49,28 @@ defmodule MondekWeb.PreviewIncidentSections do
         </span>
       </header>
       <div :if={@acknowledged}>
-        <table
-          class="preview-incident-fact-table"
-          aria-label="Active acknowledgement"
-        >
-          <tbody>
-            <tr>
-              <th scope="row">Active until</th>
-              <td>
-                {if @incident["acknowledged_until"],
-                  do: time(@incident["acknowledged_until"]),
-                  else: "Incident ends"}
-              </td>
-            </tr>
-            <tr>
-              <th scope="row">Note</th>
-              <td>
-                <span
-                  :if={@incident["acknowledgement_note"] in [nil, "", "No note provided."]}
-                  class="preview-caption"
-                >No note provided</span>
-                <span :if={@incident["acknowledgement_note"] not in [nil, "", "No note provided."]}>{@incident[
-                  "acknowledgement_note"
-                ]}</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <PreviewDetail.facts label="Active acknowledgement">
+          <tr>
+            <th scope="row">Active until</th>
+            <td>
+              {if @incident["acknowledged_until"],
+                do: time(@incident["acknowledged_until"]),
+                else: "Incident ends"}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Note</th>
+            <td>
+              <span
+                :if={@incident["acknowledgement_note"] in [nil, "", "No note provided."]}
+                class="preview-caption"
+              >No note provided</span>
+              <span :if={@incident["acknowledgement_note"] not in [nil, "", "No note provided."]}>{@incident[
+                "acknowledgement_note"
+              ]}</span>
+            </td>
+          </tr>
+        </PreviewDetail.facts>
         <div class="preview-ack-active-actions">
           <button
             type="button"
@@ -96,18 +93,18 @@ defmodule MondekWeb.PreviewIncidentSections do
         <p :if={@incident["status"] == "closed"}>This incident has ended.</p>
         <form
           :if={@incident["status"] == "open" && @review && (!@acknowledged || @replacing)}
-          id="preview-incident-ack-form"
+          id={@id_prefix <> "preview-incident-ack-form"}
           class="preview-incident-form preview-ack-form"
           phx-change="edit_acknowledgement"
           phx-submit="save_acknowledgement"
           phx-auto-recover="ignore"
         >
           <% mode = @draft["mode"] || "until_incident_ends" %>
-          <fieldset class="preview-ack-timing" aria-describedby="preview-ack-effect">
+          <fieldset class="preview-ack-timing" aria-describedby={@id_prefix <> "preview-ack-effect"}>
             <legend>
               {if @acknowledged, do: "Replace acknowledgement", else: "Pause failure notifications"}
             </legend>
-            <p id="preview-ack-effect" class="preview-caption preview-ack-effect">
+            <p id={@id_prefix <> "preview-ack-effect"} class="preview-caption preview-ack-effect">
               Pauses failure notifications for {acknowledgement_scope(@kind, @detail)}. Checks continue.
             </p>
             <div class="preview-ack-options">
@@ -120,7 +117,7 @@ defmodule MondekWeb.PreviewIncidentSections do
                       {"until", "Until date and time"}
                     ]
                 }
-                id={"preview-ack-option-" <> value}
+                id={@id_prefix <> "preview-ack-option-" <> value}
                 class="preview-ack-option"
               >
                 <label class="preview-ack-choice">
@@ -199,63 +196,58 @@ defmodule MondekWeb.PreviewIncidentSections do
     <section
       :if={@incident["status"] == "open"}
       class="preview-table-group preview-incident-section"
-      aria-labelledby="preview-maintenance-heading"
+      aria-labelledby={@id_prefix <> "preview-maintenance-heading"}
     >
-      <h3 id="preview-maintenance-heading" class="preview-section-heading">Maintenance</h3>
-      <table class="preview-incident-fact-table" aria-labelledby="preview-maintenance-heading">
-        <tbody>
-          <tr :for={window <- @maintenance_windows}>
-            <th scope="row">Active window</th>
-            <td>
-              <.link href={"/maintenance/" <> window["id"]}>
-                {window["name"] || window["reason"] || "View maintenance window"}
-              </.link>
-              <span class="preview-caption"> · Ends {time(window["ends_at"])}</span>
-            </td>
-          </tr>
-          <tr :if={@kind == "loss"}>
-            <th scope="row">Monitoring loss notifications</th>
-            <td>
-              Maintenance pauses a monitoring loss notification only if the window covers every result in that notification’s scope.
-            </td>
-          </tr>
-          <tr :if={@detail["contributions"]}>
-            <th scope="row">Active coverage</th>
-            <td>
-              {@detail["counts"]["maintained"]} of {@detail["counts"]["open"]} failing results in maintenance
-            </td>
-          </tr>
-          <tr :if={@kind == "health" && !@detail["contributions"] && @maintenance_windows == []}>
-            <th scope="row">Active windows</th>
-            <td>No active maintenance for this result.</td>
-          </tr>
-        </tbody>
-      </table>
+      <h3 id={@id_prefix <> "preview-maintenance-heading"} class="preview-section-heading">
+        Maintenance
+      </h3>
+      <PreviewDetail.facts labelledby={@id_prefix <> "preview-maintenance-heading"}>
+        <tr :for={window <- @maintenance_windows}>
+          <th scope="row">Active window</th>
+          <td>
+            <.link href={with_incident_return("/next/maintenance/" <> window["id"], @current)}>
+              {window["name"] || window["reason"] || "View maintenance window"}
+            </.link>
+            <span class="preview-caption"> · Ends {time(window["ends_at"])}</span>
+          </td>
+        </tr>
+        <tr :if={@kind == "loss"}>
+          <th scope="row">Monitoring loss notifications</th>
+          <td>
+            Maintenance pauses a monitoring loss notification only if the window covers every result in that notification’s scope.
+          </td>
+        </tr>
+        <tr :if={@detail["contributions"]}>
+          <th scope="row">Active coverage</th>
+          <td>
+            {@detail["counts"]["maintained"]} of {@detail["counts"]["open"]} failing results in maintenance
+          </td>
+        </tr>
+        <tr :if={@kind == "health" && !@detail["contributions"] && @maintenance_windows == []}>
+          <th scope="row">Active windows</th>
+          <td>No active maintenance for this result.</td>
+        </tr>
+      </PreviewDetail.facts>
       <div class="preview-recorded-actions">
-        <.link href={maintenance_href(@kind, @incident)}>Review maintenance</.link>
+        <.link href={with_incident_return(maintenance_href(@kind, @incident, true), @current)}>Schedule maintenance</.link>
+        <.link href={maintenance_href(@kind, @incident, false)}>Review maintenance</.link>
       </div>
     </section>
 
-    <section
-      class="preview-table-group preview-incident-section"
-      aria-labelledby="preview-history-heading"
-    >
-      <h3 id="preview-history-heading" class="preview-section-heading">Incident history</h3>
-      <table class="preview-incident-fact-table" aria-label="Incident history">
-        <tbody>
-          <tr>
-            <th scope="row">Opened</th><td>{time(@incident["opened_at"])}</td>
-          </tr>
-          <tr :if={@incident["closed_at"]}>
-            <th scope="row">Ended</th><td>{time(@incident["closed_at"])}</td>
-          </tr>
-          <tr :if={@incident["closure_reason"]}>
-            <th scope="row">Closure reason</th><td>{badge_text(@incident["closure_reason"])}</td>
-          </tr>
-        </tbody>
-      </table>
+    <PreviewDetail.card id={@id_prefix <> "preview-history"} title="Incident history">
+      <PreviewDetail.facts label="Incident history">
+        <tr>
+          <th scope="row">Opened</th><td>{time(@incident["opened_at"])}</td>
+        </tr>
+        <tr :if={@incident["closed_at"]}>
+          <th scope="row">Ended</th><td>{time(@incident["closed_at"])}</td>
+        </tr>
+        <tr :if={@incident["closure_reason"]}>
+          <th scope="row">Closure reason</th><td>{badge_text(@incident["closure_reason"])}</td>
+        </tr>
+      </PreviewDetail.facts>
       <details
-        id={"preview-measurements-" <> @incident["id"]}
+        id={@id_prefix <> "preview-measurements-" <> @incident["id"]}
         class="preview-incident-history"
         phx-mounted={JS.ignore_attributes("open")}
       >
@@ -282,27 +274,25 @@ defmodule MondekWeb.PreviewIncidentSections do
             class="preview-incident-evidence"
           >
             <strong>{evidence["label"] || "Restored measurement"}</strong>
-            <table class="preview-incident-fact-table" aria-label="Restoration measurement">
-              <tbody>
-                <tr>
-                  <th scope="row">Result</th>
-                  <td>
-                    {if evidence["health"],
-                      do: badge_text(evidence["health"]),
-                      else: "Coverage observed"}
-                  </td>
-                </tr>
-                <tr>
-                  <th scope="row">Measured at</th><td>{time(evidence["source_at"])}</td>
-                </tr>
-                <tr :if={evidence["generation"]}>
-                  <th scope="row">Configuration version</th><td>{evidence["generation"]}</td>
-                </tr>
-                <tr :if={evidence["observation_id"]}>
-                  <th scope="row">Observation</th><td><code>{evidence["observation_id"]}</code></td>
-                </tr>
-              </tbody>
-            </table>
+            <PreviewDetail.facts label="Restoration measurement">
+              <tr>
+                <th scope="row">Result</th>
+                <td>
+                  {if evidence["health"],
+                    do: badge_text(evidence["health"]),
+                    else: "Coverage observed"}
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Measured at</th><td>{time(evidence["source_at"])}</td>
+              </tr>
+              <tr :if={evidence["generation"]}>
+                <th scope="row">Configuration version</th><td>{evidence["generation"]}</td>
+              </tr>
+              <tr :if={evidence["observation_id"]}>
+                <th scope="row">Observation</th><td><code>{evidence["observation_id"]}</code></td>
+              </tr>
+            </PreviewDetail.facts>
             <.link
               :if={evidence["stream_id"]}
               href={
@@ -332,7 +322,7 @@ defmodule MondekWeb.PreviewIncidentSections do
       </details>
       <details
         :if={@recent_executions != []}
-        id={"preview-recent-executions-" <> @incident["id"]}
+        id={@id_prefix <> "preview-recent-executions-" <> @incident["id"]}
         class="preview-incident-history"
         phx-mounted={JS.ignore_attributes("open")}
       >
@@ -345,7 +335,7 @@ defmodule MondekWeb.PreviewIncidentSections do
         </div>
       </details>
       <details
-        id={"preview-operator-history-" <> @incident["id"]}
+        id={@id_prefix <> "preview-operator-history-" <> @incident["id"]}
         class="preview-incident-history"
         phx-mounted={JS.ignore_attributes("open")}
       >
@@ -362,13 +352,15 @@ defmodule MondekWeb.PreviewIncidentSections do
         </div>
         <.history_limit limit={get_in(@detail, ["limits", "controls"])} label="operator controls" />
       </details>
-    </section>
+    </PreviewDetail.card>
 
     <section
       class="preview-table-group preview-incident-section"
-      aria-labelledby="preview-delivery-heading"
+      aria-labelledby={@id_prefix <> "preview-delivery-heading"}
     >
-      <h3 id="preview-delivery-heading" class="preview-section-heading">Notification delivery</h3>
+      <h3 id={@id_prefix <> "preview-delivery-heading"} class="preview-section-heading">
+        Notification delivery
+      </h3>
       {render_slot(@delivery_filter)}
       <p
         :if={@delivery_feedback}
@@ -385,7 +377,7 @@ defmodule MondekWeb.PreviewIncidentSections do
       <table
         :if={(@detail["occurrences"] || []) != []}
         class="preview-incident-fact-table"
-        aria-labelledby="preview-delivery-heading"
+        aria-labelledby={@id_prefix <> "preview-delivery-heading"}
       >
         <tbody>
           <tr :for={notice <- @detail["occurrences"]}>
@@ -427,7 +419,9 @@ defmodule MondekWeb.PreviewIncidentSections do
                     <th scope="row">Maintenance</th>
                     <td>
                       <div :for={window <- notice["maintenance_windows"]}>
-                        <.link href={"/maintenance/" <> window["id"]}>{window["name"] ||
+                        <.link href={
+                          with_incident_return("/next/maintenance/" <> window["id"], @current)
+                        }>{window["name"] ||
                           window["reason"] || "View window"}</.link>
                       </div>
                     </td>
@@ -447,7 +441,7 @@ defmodule MondekWeb.PreviewIncidentSections do
                     <th scope="row">Attempt history</th>
                     <td>
                       <details
-                        id={"preview-attempts-" <> notice["id"]}
+                        id={@id_prefix <> "preview-attempts-" <> notice["id"]}
                         phx-mounted={JS.ignore_attributes("open")}
                       >
                         <summary>Earlier attempts ({length(earlier)})</summary>
@@ -466,7 +460,7 @@ defmodule MondekWeb.PreviewIncidentSections do
                     <th scope="row">Original delivery</th>
                     <td>
                       <details
-                        id={"preview-payload-" <> notice["id"]}
+                        id={@id_prefix <> "preview-payload-" <> notice["id"]}
                         phx-mounted={JS.ignore_attributes("open")}
                       >
                         <summary>Original notification payload</summary>
@@ -478,7 +472,7 @@ defmodule MondekWeb.PreviewIncidentSections do
                     <th scope="row">Retry</th>
                     <td>
                       <form
-                        id={"preview-retry-" <> notice["id"]}
+                        id={@id_prefix <> "preview-retry-" <> notice["id"]}
                         class="preview-incident-form"
                         phx-submit="retry_delivery"
                         phx-auto-recover="ignore"
@@ -531,10 +525,29 @@ defmodule MondekWeb.PreviewIncidentSections do
     """
   end
 
-  defp maintenance_href("health", %{"assignment_id" => id} = incident) when is_binary(id),
-    do: MonitoringUI.maintenance_path(id, incident["stream_id"], false)
+  defp maintenance_href("health", %{"assignment_id" => id} = incident, schedule?)
+       when is_binary(id) do
+    params = %{if(schedule?, do: "check_id", else: "assignment_id") => id}
 
-  defp maintenance_href(_, _), do: "/maintenance"
+    params =
+      if incident["stream_id"],
+        do: Map.put(params, "stream_id", incident["stream_id"]),
+        else: params
+
+    if(schedule?, do: "/next/maintenance/new?", else: "/next/maintenance?") <>
+      URI.encode_query(params)
+  end
+
+  defp maintenance_href(_, _, true), do: "/next/maintenance/new"
+  defp maintenance_href(_, _, false), do: "/next/maintenance"
+
+  defp with_incident_return(path, nil), do: path
+
+  defp with_incident_return(path, current) do
+    uri = URI.parse(path)
+    params = URI.decode_query(uri.query || "") |> Map.put("return_to", current)
+    uri.path <> "?" <> URI.encode_query(params)
+  end
 
   defp delivery_status_color("delivered"), do: "pf-m-green"
   defp delivery_status_color("exhausted"), do: "pf-m-red"
@@ -557,7 +570,7 @@ defmodule MondekWeb.PreviewIncidentSections do
     <div :for={measurement <- @measurements} class="preview-incident-evidence">
       <p><strong>{measurement.summary}</strong></p>
       <p class="preview-caption">{measurement.state} · {time(measurement.at)}</p>
-      <pre :if={measurement.details not in [nil, ""]} class="preview-findings">{measurement.details}</pre>
+      <.check_details text={measurement.details} />
     </div>
     """
   end

@@ -28,6 +28,8 @@ Multiple runners can publish results into the same source/environment group. Eac
 
 ## Browsing and live updates
 
+In the Checks preview at `/next/checks`, use the **Group** filter to find results in a source-defined group. Ungrouped results can be found by their target. Group choices include their environment and source to distinguish groups with the same label. The list opens a result over the current search and filters.
+
 Checks offers List and By group. Both use the same groups and keep precise target links on result rows. The group column searches the complete matching index independently of the global result filters: hiding the selected group with this search does not replace its results. Entries are ordered alphabetically, so a health change does not reshuffle navigation. Results within a group remain ordered by urgency.
 
 The column initially loads 100 entries. Scrolling or the keyboard-accessible Load more button extends the cumulative listing by 100, up to 1,000; refine the local search beyond that bound. Loaded limits, selection and search are represented in the URL, and the browser retains column scroll across live updates and reconnects. Changes to membership or names can change the alphabetical prefix; this is a live index, not a frozen inventory snapshot. Group totals reflect global result filters.
