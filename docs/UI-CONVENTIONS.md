@@ -82,3 +82,24 @@ OverviewLive, ChecksLive, ResultLive, IncidentsLive, IncidentLive, Configuration
 Use the same entity detail body in the fly-over and full page. Shells own headings, layout, focus and navigation. The entity body owns facts, relationships, errors and actions. Entity state and permissions determine which actions are available. A compact fly-over may start with fewer history rows if the rest are reachable in place. Preserve the owning LiveView’s draft and validated return context when switching presentation. Keep only the active body interactive.
 
 Every new or changed preview detail pair must include a LiveView parity test against the same persisted entity in both routes. Scope assertions to the active detail body and assert the expected sections, evidence, relationship links and eligible actions in each. Include a representative actionable state when the entity supports actions. Assert intentional differences separately, including how to reach any rows collapsed initially. Compare capabilities rather than whole HTML, route strings that legitimately differ, or volatile timestamps. When adding a capability to a shared body, extend the corresponding parity test.
+
+## Preview component review
+
+| Candidate | Where it repeats | Extraction boundary |
+| --- | --- | --- |
+| Detail heading | Result, incident and both Coverage bodies each switch between nearly identical h1 and h2 markup. Maintenance also styles its entity heading locally. | Use `PreviewDetail.heading` for the focusable entity heading. Keep captions, badges and surrounding evidence with the entity. |
+| Detail shell | Overview result, Coverage observer, incident and Maintenance drawers repeat the active panel ID, dialog attributes, card classes and body wrapper. | Use `PreviewDetail.surface` for the dialog and card body. Keep routes, toolbar actions, focus and stack logic in their existing owners. |
+| Bordered sections and fact tables | Result and incident evidence, runner decisions and notification details still hand-write markup close to PreviewDetail.card and PreviewDetail.facts. | Use `PreviewDetail.card` and `PreviewDetail.facts` for simple sections and row-header tables. Keep column widths, disclosure controls and specialized tables with the entity. |
+| Status labels | Check health, incident severity and state, Coverage state, and delivery state each render colored labels. | Share visual tone and label markup once a new consumer needs it. Keep the mapping from domain state to operator wording and tone explicit in each domain. |
+| Result detail body | Overview, Checks, Incidents and Coverage render PreviewResultDetail. | Supply bounded evidence from PreviewResult and explicit configuration, incident and peer destinations. |
+
+Reuse PreviewFilters, PreviewPagination, PreviewDetail and PanelStack as the starting primitives. Keep incident acknowledgement, maintenance review and notification delivery workflows entity-specific.
+
+
+## Preview component ownership
+
+PreviewResultDetail and PreviewIncidentDetail render the canonical entity bodies. Their owners prepare navigation callbacks and destinations so related links keep the appropriate investigation stack. PreviewNavigation builds shared list and result URLs. PreviewResult loads bounded result evidence. PreviewIncidentControls performs named acknowledgement and notification retry operations, returning assign changes and a refresh decision. The owning LiveView dispatches events, applies those changes and refreshes its evidence.
+
+MaintenanceLive composes PreviewMaintenanceChooser, PreviewMaintenanceEditor and PreviewMaintenanceDetails. It owns the proposal, captured revisions, review tokens, selection recovery and all mutations. MaintenancePresentation contains read-only formatting and local-link helpers shared by those templates. Chooser filter fields and chips come from the owner so the displayed defaults follow the same definitions as the accepted options.
+
+Keep picker application local to each owner. Overview options have key-and-kind identity and database suggestions; incident and Maintenance options have their own matching, clearing defaults and draft-versus-URL application. The existing shared filter component and keyboard hook define the interaction contract. A further generic event helper is deferred until it removes substantial duplication without hiding these differences.
