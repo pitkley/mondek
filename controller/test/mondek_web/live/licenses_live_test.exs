@@ -10,6 +10,10 @@ defmodule MondekWeb.LicensesLiveTest do
   test "credits render embedded runtime notices and preserve additional attribution" do
     {:ok, view, html} = live(build_conn(), "/licenses")
     assert has_element?(view, "h1", "Licenses and credits")
+    assert has_element?(view, "#application-license h2", "Application license")
+    assert has_element?(view, "#third-party-credits h2", "Third-party components")
+    assert has_element?(view, "#application-license table th[scope='row']", "License")
+    assert has_element?(view, "#credit-telemetry summary", "telemetry")
     assert has_element?(view, "#credit-telemetry h3", "NOTICE")
     assert has_element?(view, "#credit-phoenix")
     refute has_element?(view, "#credit-lazy_html")

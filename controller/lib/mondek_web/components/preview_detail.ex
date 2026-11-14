@@ -51,6 +51,7 @@ defmodule MondekWeb.PreviewDetail do
 
   attr :id, :string, required: true
   attr :title, :string, required: true
+  attr :level, :integer, values: [2, 3], default: 3
   attr :class, :string, default: nil
   slot :inner_block, required: true
 
@@ -61,7 +62,9 @@ defmodule MondekWeb.PreviewDetail do
       class={["preview-table-group preview-incident-section preview-detail-card", @class]}
       aria-labelledby={@id <> "-heading"}
     >
-      <h3 id={@id <> "-heading"} class="preview-section-heading">{@title}</h3>
+      <.dynamic_tag tag_name={"h#{@level}"} id={@id <> "-heading"} class="preview-section-heading">
+        {@title}
+      </.dynamic_tag>
       {render_slot(@inner_block)}
     </section>
     """

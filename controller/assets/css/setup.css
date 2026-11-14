@@ -1,0 +1,19 @@
+/*! Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com> */
+/*! SPDX-License-Identifier: Apache-2.0 */
+.setup-intro,.credits-intro { padding: 10px var(--preview-content-inset); color: var(--preview-subtle); }
+.setup-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; padding: 0 12px 12px; }
+.setup-grid > .preview-detail-card { margin: 0; }
+.setup-wide { grid-column: 1 / -1; }
+.setup-card-body { display: grid; gap: 8px; padding: 10px var(--preview-content-inset); }
+.setup-page :is(pre,summary),.credits-page :is(pre,summary) { font-size: 13px; }
+.setup-page pre,.credits-page pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px; border: 1px solid var(--preview-line); background: var(--preview-hover); border-radius: 4px; font-family: ui-monospace,monospace; }
+.setup-page summary,.credits-page summary { cursor: pointer; padding: 8px var(--preview-content-inset); }
+.setup-card-body summary { padding-inline: 0; }
+.setup-disclosure > p,.credits-disclosure > pre,.credit-notice { padding: 10px var(--preview-content-inset); border-top: 1px solid var(--preview-line); }
+.credits-disclosure > pre { margin: 8px var(--preview-content-inset); }
+.credits-components > details { border-top: 1px solid var(--preview-line); }
+.credits-components summary > span { color: var(--preview-subtle); font-size: 12px; margin-inline-start: 6px; }
+.credit-notice h3 { font-size: 13px; margin-bottom: 8px; overflow-wrap: anywhere; }
+.setup-agent-help { margin-top: 12px; }
+@media(max-width:1100px) { .setup-grid { grid-template-columns: 1fr; } }
+@media(max-width:700px) { .setup-grid { padding: 0 8px 8px; gap: 8px; } .setup-page .preview-incident-fact-table th { white-space: normal; } .credits-components summary > span { display: block; margin-inline-start: 0; } }

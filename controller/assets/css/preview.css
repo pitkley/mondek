@@ -14,6 +14,8 @@
 @import "@patternfly/patternfly/components/FormControl/form-control.css";
 @import "@patternfly/patternfly/components/Card/card.css";
 @import "./panel_stack.css";
+@import "./setup.css";
+@import "./agent_prompts.css";
 
 :root {
   color-scheme: light;
