@@ -712,6 +712,91 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
     assert_patch(view, "/next/incidents?grouping=shared")
   end
 
+  test "preview acknowledgement drafts survive refresh and stale saves on either host" do
+    [check] = inventory(1)
+    sample(check, "CRIT", 1)
+    group = Repo.one!(ConditionIncident)
+    child = Repo.get_by!(Incident, assignment_id: check.id)
+
+    for {path, next_path} <- [
+          {"/next/incidents/health/#{group.id}", "/next/incidents/health/#{group.id}/full"},
+          {"/next/checks/#{child.stream_id}?incident=health:#{group.id}",
+           "/next/checks/#{child.stream_id}?incident=health:#{group.id}&notification_status=all"}
+        ] do
+      {:ok, view, _} = live(build_conn(), path)
+
+      draft = %{
+        "mode" => "duration",
+        "amount" => "3",
+        "unit" => "hours",
+        "note" => "Still investigating"
+      }
+
+      if has_element?(view, "table[aria-label='Active acknowledgement']") do
+        render_hook(view, "toggle_acknowledgement_replacement", %{})
+      end
+
+      render_hook(view, "edit_acknowledgement", draft)
+      send(view.pid, :tick)
+      assert has_element?(view, "textarea[name=note]", "Still investigating")
+      render_patch(view, next_path)
+      assert has_element?(view, "textarea[name=note]", "Still investigating")
+
+      current = Monitoring.incident_detail(group.id, Monitoring.now())["incident"]
+      review = MondekWeb.PreviewIncidentControls.revision(current)
+
+      assert {:ok, _} =
+               Monitoring.acknowledge(
+                 group.id,
+                 Map.put(review, "mode", "until_incident_ends"),
+                 "Other operator"
+               )
+
+      render_hook(view, "save_acknowledgement", draft)
+      assert has_element?(view, "[role=alert]", "The incident changed")
+      # Another operator's active acknowledgement can hide the replacement form.
+      # The owning LiveView must retain the submitted draft and captured revision.
+      state = :sys.get_state(view.pid).socket.assigns
+      assert state.control_draft == draft
+      assert state.control_review == review
+      assert state.control_review != MondekWeb.PreviewIncidentControls.revision(state.incident)
+      assert Repo.get!(ConditionIncident, group.id).acknowledgement_note == "Other operator"
+
+      render_hook(view, "review_control", %{})
+      render_hook(view, "save_acknowledgement", draft)
+
+      assert has_element?(
+               view,
+               "table[aria-label='Active acknowledgement']",
+               "Still investigating"
+             )
+
+      render_hook(view, "retry_delivery", %{"_id" => Ecto.UUID.generate(), "reason" => "Retry"})
+      assert has_element?(view, "[role=alert]", "no longer eligible")
+
+      other_entity =
+        if String.starts_with?(path, "/next/checks/"),
+          do: "/next/checks/#{child.stream_id}?incident=health:#{child.id}",
+          else: "/next/incidents/health/#{child.id}"
+
+      render_patch(view, other_entity)
+      state = :sys.get_state(view.pid).socket.assigns
+      assert state.id == child.id
+      assert state.control_draft == %{}
+      assert state.delivery_feedback == nil
+    end
+
+    {:ok, list, _} = live(build_conn(), "/next/checks")
+    count = Repo.aggregate(Control, :count)
+
+    render_hook(list, "save_acknowledgement", %{
+      "mode" => "until_incident_ends",
+      "note" => "No selected incident"
+    })
+
+    assert Repo.aggregate(Control, :count) == count
+  end
+
   test "shared and standalone health incidents expose the same capabilities in both surfaces" do
     [shared, standalone] = inventory(2)
     sample(shared, "CRIT", 1, [@impact])

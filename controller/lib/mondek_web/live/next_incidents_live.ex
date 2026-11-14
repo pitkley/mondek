@@ -2,16 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.NextIncidentsLive do
   use MondekWeb, :live_view
-  import MondekWeb.CheckDetails, only: [check_details: 1]
-  import MondekWeb.EvidencePresentation, only: [age: 2, time: 1, badge_text: 1, target_label: 1]
+
+  import MondekWeb.PreviewIncidentDetail,
+    only: [severity: 1, incident_state: 1, shared_incident_badge: 1]
+
+  import MondekWeb.EvidencePresentation, only: [age: 2, time: 1, target_label: 1]
   alias Mondek.{Maintenance, Monitoring, MonitoringLoss}
 
   alias MondekWeb.{
-    NextOverviewLive,
-    NotificationRetry,
+    PreviewNavigation,
+    PreviewIncidentControls,
     PanelStack,
     PreviewDetail,
-    PreviewIncidentSections
+    PreviewIncidentDetail
   }
 
   @types [{"all", "All types"}, {"health", "Health failure"}, {"loss", "Monitoring loss"}]
@@ -147,12 +150,7 @@ defmodule MondekWeb.NextIncidentsLive do
         %{"notification_status" => value},
         %{assigns: %{incident: %{}}} = socket
       ) do
-    query = %{
-      "notification_status" => choice(value, @delivery_statuses),
-      "notification_page" => "1"
-    }
-
-    {:noreply, push_patch(socket, to: detail_path(current_detail_path(socket.assigns), query))}
+    {:noreply, push_patch(socket, to: delivery_filter_path(socket.assigns, value))}
   end
 
   def handle_event("search", %{"search" => search}, socket) do
@@ -210,192 +208,61 @@ defmodule MondekWeb.NextIncidentsLive do
         "review_control",
         _,
         %{assigns: %{incident: %{"status" => "open"} = incident}} = socket
-      ) do
-    {:noreply,
-     assign(socket, control_review: acknowledgement_revision(incident), control_feedback: nil)}
-  end
+      ),
+      do:
+        {:noreply,
+         assign(socket,
+           control_review: PreviewIncidentControls.revision(incident),
+           control_feedback: nil
+         )}
 
   def handle_event(
         "toggle_acknowledgement_replacement",
         _,
         %{assigns: %{incident: %{} = incident, control_replacing: replacing}} = socket
       ) do
-    if Monitoring.acknowledgement_active?(incident) do
-      {:noreply,
-       assign(socket, control_replacing: !replacing, control_draft: %{}, control_feedback: nil)}
-    else
-      {:noreply, socket}
-    end
+    if Monitoring.acknowledgement_active?(incident),
+      do:
+        {:noreply,
+         assign(socket, control_replacing: !replacing, control_draft: %{}, control_feedback: nil)},
+      else: {:noreply, socket}
   end
 
-  def handle_event(
-        "edit_acknowledgement",
-        params,
-        %{assigns: %{control_review: %{}}} = socket
-      ) do
-    {:noreply, assign(socket, control_draft: acknowledgement_draft(params))}
-  end
+  def handle_event("edit_acknowledgement", params, %{assigns: %{control_review: %{}}} = socket),
+    do: {:noreply, assign(socket, control_draft: PreviewIncidentControls.draft(params))}
 
   def handle_event(
         "save_acknowledgement",
         params,
-        %{assigns: %{control_review: %{} = review, id: id, kind: kind}} =
-          socket
-      ) do
-    draft = acknowledgement_draft(params)
-    socket = assign(socket, control_draft: draft)
-    note = Map.get(params, "note", "")
-
-    note =
-      if is_binary(note) && String.valid?(note) && String.trim(note) == "",
-        do: "No note provided.",
-        else: note
-
-    result =
-      with {:ok, options} <- acknowledgement_options(review, draft) do
-        apply_acknowledgement(kind, id, options, note)
-      end
-
-    acknowledgement_result(socket, result, "Acknowledgement saved.")
-  end
+        %{assigns: %{control_review: %{} = review, id: id, kind: kind}} = socket
+      ),
+      do: apply_control_result(socket, PreviewIncidentControls.save(kind, id, review, params))
 
   def handle_event(
         "end_acknowledgement",
         _,
-        %{
-          assigns: %{
-            control_review: %{} = review,
-            id: id,
-            kind: kind,
-            incident: %{} = incident
-          }
-        } = socket
-      ) do
-    if Monitoring.acknowledgement_active?(incident) do
-      result =
-        apply_acknowledgement(kind, id, Map.put(review, "mode", "end"), "Ended by operator.")
-
-      acknowledgement_result(socket, result, "Acknowledgement ended.")
-    else
-      {:noreply, socket}
-    end
-  end
+        %{assigns: %{control_review: %{} = review, id: id, kind: kind, incident: %{} = incident}} =
+          socket
+      ),
+      do: apply_control_result(socket, PreviewIncidentControls.finish(kind, id, review, incident))
 
   def handle_event(
         "retry_delivery",
         %{"_id" => id, "reason" => reason},
         %{assigns: %{detail: %{} = detail}} = socket
-      ) do
-    occurrences = detail["occurrences"] || []
-    drafts = NotificationRetry.keep_draft(socket.assigns.retry_drafts, occurrences, id, reason)
-
-    if Enum.any?(occurrences, &(&1["id"] == id && &1["can_retry"])) do
-      case Monitoring.retry_notification(id, reason) do
-        {:ok, _} ->
-          {:noreply,
-           socket
-           |> assign(
-             retry_drafts: Map.delete(drafts, id),
-             delivery_feedback: {:ok, NotificationRetry.success_message()}
-           )
-           |> refresh_detail(Monitoring.now())}
-
-        {:error, error} ->
-          {:noreply,
-           socket
-           |> assign(
-             retry_drafts: drafts,
-             delivery_feedback: {:error, NotificationRetry.error_message(error)}
-           )
-           |> refresh_detail(Monitoring.now())}
-      end
-    else
-      {:noreply,
-       assign(socket,
-         delivery_feedback: {:error, "This notification is no longer eligible for a retry."}
-       )}
-    end
-  end
+      ),
+      do:
+        apply_control_result(
+          socket,
+          PreviewIncidentControls.retry(detail, socket.assigns.retry_drafts, id, reason)
+        )
 
   def handle_event(_, _, socket), do: {:noreply, socket}
 
-  defp apply_acknowledgement("health", id, options, note),
-    do: Monitoring.acknowledge(id, options, note)
-
-  defp apply_acknowledgement("loss", id, options, note),
-    do: MonitoringLoss.acknowledge(id, options, note)
-
-  defp acknowledgement_result(socket, result, message) do
-    case result do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> assign(
-           control_review: nil,
-           control_draft: %{},
-           control_replacing: false,
-           control_feedback: {:ok, message}
-         )
-         |> refresh_detail(Monitoring.now())}
-
-      {:error, :stale} ->
-        {:noreply,
-         socket
-         |> assign(
-           control_feedback: {:error, "The incident changed. Review it again before saving."}
-         )
-         |> refresh_detail(Monitoring.now())}
-
-      {:error, reason} ->
-        {:noreply,
-         assign(socket, control_feedback: {:error, NotificationRetry.error_message(reason)})}
-    end
+  defp apply_control_result(socket, {changes, refresh?}) do
+    socket = assign(socket, changes)
+    {:noreply, if(refresh?, do: refresh_detail(socket, Monitoring.now()), else: socket)}
   end
-
-  defp acknowledgement_revision(incident) do
-    %{
-      "revision" => incident["acknowledgement_revision"],
-      "attention_revision" => incident["attention_revision"]
-    }
-  end
-
-  defp acknowledgement_draft(params) do
-    params
-    |> Map.take(~w(mode amount unit expires_at note))
-    |> Map.filter(fn {_, value} ->
-      is_binary(value) and byte_size(value) <= 2_000 and String.valid?(value)
-    end)
-  end
-
-  defp acknowledgement_options(review, %{"mode" => mode})
-       when mode == "until_incident_ends",
-       do: {:ok, Map.put(review, "mode", mode)}
-
-  defp acknowledgement_options(review, %{"mode" => "duration"} = draft) do
-    units = %{"minutes" => 60, "hours" => 3600, "days" => 86_400}
-
-    with {amount, ""} when amount > 0 <- Integer.parse(draft["amount"] || ""),
-         seconds_per_unit when is_integer(seconds_per_unit) <- units[draft["unit"]] do
-      {:ok, Map.merge(review, %{"mode" => "duration", "seconds" => amount * seconds_per_unit})}
-    else
-      _ -> {:error, {:invalid, "Enter a positive whole number and choose a unit."}}
-    end
-  end
-
-  defp acknowledgement_options(review, %{"mode" => "until"} = draft) do
-    value = draft["expires_at"] || ""
-    value = if byte_size(value) == 16, do: value <> ":00", else: value
-
-    with {:ok, naive} <- NaiveDateTime.from_iso8601(value),
-         {:ok, utc} <- DateTime.from_naive(naive, "Etc/UTC") do
-      {:ok, Map.merge(review, %{"mode" => "until", "expires_at" => DateTime.to_iso8601(utc)})}
-    else
-      _ -> {:error, {:invalid, "Enter a future date and time in UTC."}}
-    end
-  end
-
-  defp acknowledgement_options(_, _),
-    do: {:error, {:invalid, "Choose when the acknowledgement should end."}}
 
   defp patch_filters(socket, changes) do
     next = socket.assigns.filters |> Map.merge(changes) |> Map.delete("page") |> filters()
@@ -650,7 +517,8 @@ defmodule MondekWeb.NextIncidentsLive do
 
     review =
       socket.assigns.control_review ||
-        if incident && incident["status"] == "open", do: acknowledgement_revision(incident)
+        if incident && incident["status"] == "open",
+          do: PreviewIncidentControls.revision(incident)
 
     assign(socket,
       now: now,
@@ -660,7 +528,7 @@ defmodule MondekWeb.NextIncidentsLive do
       maintenance_windows: active_maintenance(kind, incident, now),
       result_panel:
         if(filters["result"],
-          do: NextOverviewLive.load_result_panel(filters["result"], now)
+          do: MondekWeb.PreviewResult.load(filters["result"], now)
         ),
       control_review: review
     )
@@ -923,6 +791,13 @@ defmodule MondekWeb.NextIncidentsLive do
     """
   end
 
+  def delivery_filter_path(assigns, value) do
+    detail_path(current_detail_path(assigns), %{
+      "notification_status" => choice(value, @delivery_statuses),
+      "notification_page" => "1"
+    })
+  end
+
   defp current_detail_path(%{incident_host: host} = assigns) when is_binary(host) do
     selection = assigns.incident_selection
 
@@ -1005,11 +880,11 @@ defmodule MondekWeb.NextIncidentsLive do
     >
       <.incident_panel_tools {assigns} />
       <%= if @detail_filters["result"] && !@full_page do %>
-        <NextOverviewLive.result_panel
+        <MondekWeb.PreviewResultDetail.detail
           :if={@result_panel}
           panel={@result_panel}
           now={@now}
-          current_path={@current}
+          configuration_path={"/checks/" <> @result_panel.selected["id"] <> "?" <> URI.encode_query(%{"return_to" => @current})}
           incident_path={fn id -> incident_destination(@current, @earlier_targets, id, false) end}
           full_result_path={full_result_path(@current, @detail_filters["result"])}
           peer_path={fn id -> result_layer_path(@current, @earlier_targets, id) end}
@@ -1023,7 +898,7 @@ defmodule MondekWeb.NextIncidentsLive do
   end
 
   defp full_result_path(current, id) do
-    NextOverviewLive.path(
+    PreviewNavigation.path(
       %{"incident_return" => detail_path(current, %{"result" => nil})},
       :result_page,
       id
@@ -1071,96 +946,33 @@ defmodule MondekWeb.NextIncidentsLive do
 
   defp incident_panel_body(assigns) do
     ~H"""
-    <header class="preview-incident-intro">
-      <p :if={@incident && !@detail["contributions"]} class="preview-caption">
-        {type_label(@kind)}<span :if={@incident["scope_kind"] == "coverage"}> · {@incident[
-          "source_id"
-        ]}</span>
-      </p>
-      <PreviewDetail.heading
-        level={if @full_page, do: 1, else: 2}
-        id={@id_prefix <> "incident-heading"}
-      >
-        {@title}
-      </PreviewDetail.heading>
-      <div :if={@incident} class="preview-incident-meta">
-        <.shared_incident_badge
-          :if={@detail["contributions"]}
-          count={@detail["counts"]["total"]}
-        />
-        <.severity :if={@incident["health"]} health={@incident["health"]} />
-        <.incident_state
-          status={@incident["status"]}
-          acknowledged={Monitoring.acknowledgement_active?(@incident, @now)}
-        />
-      </div>
-      <dl :if={@incident} class="preview-incident-facts">
-        <div>
-          <dt>Opened</dt>
-          <dd><time datetime={@incident["opened_at"]}>{time(@incident["opened_at"])}</time></dd>
-        </div>
-        <div :if={@incident["closed_at"]}>
-          <dt>Ended</dt>
-          <dd><time datetime={@incident["closed_at"]}>{time(@incident["closed_at"])}</time></dd>
-        </div>
-        <div :if={@incident["member_count"]}>
-          <dt>Affected results</dt><dd>{@incident["member_count"]}</dd>
-        </div>
-      </dl>
-    </header>
-    <p :if={!@incident} class="preview-empty">
-      This incident may have been removed by retention.
-    </p>
-    <.health_evidence
-      :if={@incident && @kind == "health"}
-      detail={@detail}
-      current={@current}
-      id_prefix={@id_prefix}
-      earlier_targets={@earlier_targets}
-    />
-    <.loss_evidence
-      :if={@incident && @kind == "loss"}
-      id_prefix={@id_prefix}
-      detail={@detail}
-      current={@current}
-      earlier_targets={@earlier_targets}
-    />
-    <PreviewIncidentSections.sections
-      :if={@incident}
+    <PreviewIncidentDetail.body
       incident={@incident}
       detail={@detail}
       kind={@kind}
+      title={@title}
+      type_label={type_label(@kind)}
       now={@now}
-      review={@control_review}
-      draft={@control_draft}
-      replacing={@control_replacing}
-      feedback={@control_feedback}
+      current={@current}
+      id_prefix={@id_prefix}
+      full_page={@full_page}
+      control_review={@control_review}
+      control_draft={@control_draft}
+      control_replacing={@control_replacing}
+      control_feedback={@control_feedback}
       delivery_feedback={@delivery_feedback}
       retry_drafts={@retry_drafts}
       maintenance_windows={@maintenance_windows}
-      current={@current}
-      id_prefix={@id_prefix}
-    >
-      <:delivery_filter>
-        <.detail_filter
-          :if={@detail["notification_page"]}
-          id_prefix={@id_prefix}
-          field="notification_status"
-          label="Delivery status"
-          choices={@delivery_statuses}
-          value={@detail_filters["notification_status"]}
-        />
-      </:delivery_filter>
-      <:delivery_pagination>
-        <.detail_pages
-          :if={@detail["notification_page"]}
-          listing={@detail["notification_page"]}
-          current={@current}
-          param="notification_page"
-          label="Notification pages"
-        />
-      </:delivery_pagination>
-    </PreviewIncidentSections.sections>
+      detail_filters={@detail_filters}
+      delivery_statuses={@delivery_statuses}
+      result_path={fn id -> result_layer_path(@current, @earlier_targets, id) end}
+      incident_path={
+        fn id, shared? -> incident_destination(@current, @earlier_targets, id, shared?) end
+      }
+      expected_path={fn id -> evidence_path(:expected, id, @current) end}
+      filter_path={fn changes -> detail_path(@current, changes) end}
+      page_path={fn param, page -> detail_path(@current, %{param => to_string(page)}) end}
+    />
     """
   end
 
@@ -1176,7 +988,9 @@ defmodule MondekWeb.NextIncidentsLive do
       ancestors: ancestors,
       earlier_targets: ancestors,
       control_review:
-        if(incident && incident["status"] == "open", do: acknowledgement_revision(incident)),
+        if(incident && incident["status"] == "open",
+          do: PreviewIncidentControls.revision(incident)
+        ),
       control_draft: %{},
       control_replacing: false,
       control_feedback: nil,
@@ -1256,323 +1070,6 @@ defmodule MondekWeb.NextIncidentsLive do
       incident["label"] || get_in(detail, ["assignment", "label"]) ||
         get_in(detail, ["stream", "label"]) || "Health incident"
 
-  defp health_evidence(assigns) do
-    detail = assigns.detail
-    incident = detail["incident"]
-
-    firing = Enum.find(detail["occurrences"] || [], &(&1["kind"] == "firing"))
-    evidence_by_id = Map.new(detail["evidence"] || [], &{&1["id"], &1})
-
-    evidence =
-      Enum.find_value(
-        [
-          incident["latest_observation_id"],
-          incident["opening_observation_id"],
-          get_in(firing, ["payload", "observation_id"])
-        ],
-        &Map.get(evidence_by_id, &1)
-      )
-
-    measured =
-      Enum.find(
-        get_in(evidence || %{}, ["payload", "results"]) || [],
-        &(&1["key"] == incident["result_key"])
-      )
-
-    assign(assigns,
-      incident: incident,
-      measured: measured,
-      measured_at: (measured && measured["source_at"]) || (evidence && evidence["evaluated_at"])
-    )
-    |> render_health_evidence()
-  end
-
-  defp render_health_evidence(assigns) do
-    ~H"""
-    <PreviewDetail.card
-      id={@id_prefix <> "preview-health-evidence"}
-      title={if @detail["contributions"], do: "Contributing results", else: "Recorded failure"}
-    >
-      <PreviewDetail.facts
-        :if={!@detail["contributions"]}
-        label="Recorded failure"
-      >
-        <tr>
-          <th scope="row">Finding</th>
-          <td class="preview-incident-finding">
-            <.severity :if={@measured && @measured["health"]} health={@measured["health"]} />
-            {if @measured,
-              do: @measured["summary"],
-              else: "The recorded measurement is unavailable."}
-          </td>
-        </tr>
-        <tr :if={@detail["stream"]}>
-          <th scope="row">Target</th><td>{target_label(@detail["stream"]["target"])}</td>
-        </tr>
-        <tr :if={@detail["stream"]}>
-          <th scope="row">Environment</th>
-          <td>
-            {@detail["stream"]["environment_label"] || @detail["stream"]["environment"] ||
-              "Unscoped"}
-          </td>
-        </tr>
-        <tr :if={@measured && @measured_at}>
-          <th scope="row">Measured</th>
-          <td><time datetime={@measured_at}>{time(@measured_at)}</time></td>
-        </tr>
-        <tr :if={@measured && @measured["details"] not in [nil, ""]}>
-          <th scope="row">Check details</th><td>
-            <.check_details text={@measured["details"]} />
-          </td>
-        </tr>
-      </PreviewDetail.facts>
-      <div :if={!@detail["contributions"] && @incident["stream_id"]} class="preview-recorded-actions">
-        <.check_result_link
-          earlier_targets={@earlier_targets}
-          current={@current}
-          id={@incident["stream_id"]}
-        >View latest check result →</.check_result_link>
-      </div>
-      <div :if={@incident["condition_incident_id"]} class="preview-recorded-actions">
-        <.link patch={
-          incident_destination(@current, @earlier_targets, @incident["condition_incident_id"], false)
-        }>
-          Open shared incident and its notifications
-        </.link>
-      </div>
-      <PreviewDetail.facts
-        :if={
-          @detail["contributions"] &&
-            (@incident["status"] == "open" || (@incident["impacts"] || []) != [])
-        }
-        label="Shared incident summary"
-      >
-        <tr :if={(@incident["impacts"] || []) != []}>
-          <th scope="row">Impacts</th>
-          <td>{Enum.map_join(@incident["impacts"], ", ", &(&1["label"] || &1["key"]))}</td>
-        </tr>
-        <tr :if={@incident["status"] == "open"}>
-          <th scope="row">Failure notifications</th>
-          <td>
-            <p>
-              Unpaused for {@detail["counts"]["uncovered"]} of {@detail["counts"]["open"]} failing results
-            </p>
-            <.link
-              :if={
-                @detail["contribution_page"]["state"] != "uncovered" &&
-                  @detail["counts"]["uncovered"] > 0
-              }
-              patch={detail_path(@current, %{"contributors" => "uncovered", "member_page" => "1"})}
-            >Show results with unpaused notifications</.link>
-          </td>
-        </tr>
-      </PreviewDetail.facts>
-      <div
-        :if={
-          @detail["contributions"] && @incident["status"] == "open" &&
-            (@detail["contribution_page"]["state"] != "open" ||
-               @detail["counts"]["recovered"] + @detail["counts"]["withdrawn"] > 0)
-        }
-        class="preview-recorded-actions"
-      >
-        <.link
-          :if={@detail["contribution_page"]["state"] != "open"}
-          patch={detail_path(@current, %{"contributors" => "default", "member_page" => "1"})}
-        >Show active contributors</.link>
-        <.link
-          :if={@detail["contribution_page"]["state"] == "open"}
-          patch={detail_path(@current, %{"contributors" => "history", "member_page" => "1"})}
-        >Show historical contributors</.link>
-      </div>
-      <p :if={@detail["contributions"] == []} class="preview-recorded-actions">
-        No contributing results match this view.
-      </p>
-      <table
-        :if={@detail["contributions"] not in [nil, []]}
-        class="preview-incident-fact-table preview-contributor-table"
-        aria-label="Contributing results"
-      >
-        <thead>
-          <tr>
-            <th scope="col">Result</th><th scope="col">Incident details</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={contribution <- @detail["contributions"]}>
-            <th scope="row">
-              <.link patch={
-                incident_destination(@current, @earlier_targets, contribution["incident"]["id"], true)
-              }>
-                {get_in(contribution, ["stream", "label"]) ||
-                  get_in(contribution, ["assignment", "label"])}
-              </.link>
-              <div :if={contribution["incident"]["stream_id"]} class="preview-caption">
-                <.check_result_link
-                  earlier_targets={@earlier_targets}
-                  current={@current}
-                  id={contribution["incident"]["stream_id"]}
-                >
-                  Latest check result
-                </.check_result_link>
-              </div>
-            </th>
-            <td class="preview-incident-nested-facts">
-              <table aria-label="Contributor details">
-                <tbody>
-                  <tr>
-                    <th scope="row">Last failure</th>
-                    <td>
-                      <.severity health={contribution["last_failure_health"]} />
-                      <p :if={contribution["measured_result"]}>
-                        {contribution["measured_result"]["summary"]}
-                      </p>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th scope="row">State</th>
-                    <td>
-                      <span class={[
-                        "pf-v6-c-label",
-                        contribution_state_color(contribution["contribution_state"])
-                      ]}>
-                        <span class="pf-v6-c-label__content">{badge_text(
-                          contribution["contribution_state"]
-                        )}</span>
-                      </span>
-                    </td>
-                  </tr>
-                  <tr :if={
-                    contribution["incident"]["status"] == "open" &&
-                      (contribution["coverage"]["uncovered"] ||
-                         contribution["coverage"]["shared_acknowledgement"] ||
-                         contribution["coverage"]["individual_acknowledgement"] ||
-                         contribution["coverage"]["maintenance_windows"] not in [nil, []])
-                  }>
-                    <th scope="row">Notifications</th>
-                    <td>
-                      <p :if={contribution["coverage"]["uncovered"]}>Not paused</p>
-                      <p :if={contribution["coverage"]["shared_acknowledgement"]}>
-                        Paused by shared acknowledgement
-                      </p>
-                      <p :if={contribution["coverage"]["individual_acknowledgement"]}>
-                        Paused by individual acknowledgement
-                      </p>
-                      <p :for={window <- contribution["coverage"]["maintenance_windows"] || []}>
-                        Paused for maintenance:
-                        <.link href={"/next/maintenance/" <> window["id"]}>{window["name"] ||
-                          window["reason"] || "View maintenance"}</.link>
-                        <span class="preview-caption"> · Ends {time(window["ends_at"])}</span>
-                      </p>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <.detail_pages
-        :if={@detail["contribution_page"]}
-        listing={@detail["contribution_page"]}
-        current={@current}
-        param="member_page"
-        label="Contributing result pages"
-      />
-      <details
-        :if={(get_in(@detail, ["contradiction_page", "total"]) || 0) > 0}
-        id={@id_prefix <> "preview-confirmed-healthy-" <> @incident["id"]}
-        class="preview-incident-history"
-        phx-mounted={Phoenix.LiveView.JS.ignore_attributes("open")}
-      >
-        <summary>Last confirmed healthy results ({@detail["contradiction_page"]["total"]})</summary>
-        <div class="preview-incident-history-content">
-          <p class="preview-incident-evidence">
-            These results share the same condition. Their last confirmed measurements were healthy, but collection may now be stale or unavailable.
-          </p>
-          <PreviewDetail.facts label="Last confirmed healthy results">
-            <tr :for={stream <- @detail["contradictions"]}>
-              <th scope="row">
-                <.check_result_link
-                  earlier_targets={@earlier_targets}
-                  current={@current}
-                  id={stream["id"]}
-                >{stream["label"]}</.check_result_link>
-              </th>
-              <td>{get_in(stream, ["current", "summary"])}</td>
-            </tr>
-          </PreviewDetail.facts>
-          <.detail_pages
-            listing={@detail["contradiction_page"]}
-            current={@current}
-            param="healthy_page"
-            label="Last confirmed healthy result pages"
-          />
-        </div>
-      </details>
-    </PreviewDetail.card>
-    """
-  end
-
-  defp loss_evidence(assigns) do
-    ~H"""
-    <PreviewDetail.card
-      id={@id_prefix <> "preview-loss-evidence"}
-      title={if @detail["status"] == "open", do: "Affected results", else: "Last affected results"}
-    >
-      <p :if={@detail["status"] == "open"} class="preview-incident-evidence">
-        {if @detail["scope_kind"] == "coverage",
-          do:
-            "The monitoring project expects these results. Review how runners are selected for them.",
-          else:
-            "Mondek is missing current measurements for these results. Check the collection or runner evidence below."}
-      </p>
-      <p :if={@detail["status"] == "closed"} class="preview-incident-evidence">
-        {if @detail["closure_reason"] == "monitoring_restored",
-          do: "Monitoring was restored.",
-          else: "This monitoring loss incident ended."}
-      </p>
-      <p :if={@detail["members"]["items"] == []} class="preview-incident-evidence">
-        No affected result details are available.
-      </p>
-      <div :for={member <- @detail["members"]["items"]} class="preview-incident-evidence">
-        <h4>{member["label"] || target_label(member["target"])}</h4>
-        <p>
-          {loss_reason(member["knowledge"])}
-          <span :if={member["since_at"]}>· Since {time(member["since_at"])}</span>
-        </p>
-        <p class="preview-caption">
-          {target_label(member["target"])} · {member["environment"] || "Unscoped"}
-        </p>
-        <.check_result_link
-          :if={member["stream_id"]}
-          earlier_targets={@earlier_targets}
-          current={@current}
-          id={member["stream_id"]}
-        >View latest check result</.check_result_link>
-        <a
-          :if={!member["stream_id"] && member["coverage_id"]}
-          href={evidence_path(:expected, member["coverage_id"], @current)}
-        >Review expected monitoring</a>
-      </div>
-      <p :if={@detail["members"]["truncated"]} class="preview-incident-evidence">
-        {length(@detail["members"]["items"])} of {@detail["member_count"]} affected results retained here.
-      </p>
-      <.detail_pages
-        listing={@detail["members"]}
-        current={@current}
-        param="member_page"
-        label="Affected result pages"
-      />
-    </PreviewDetail.card>
-    """
-  end
-
-  defp check_result_link(assigns) do
-    ~H"""
-    <.link patch={result_layer_path(@current, @earlier_targets, @id)}>{render_slot(@inner_block)}</.link>
-    """
-  end
-
   defp result_layer_path(current, earlier, id),
     do: PanelStack.destination(earlier, {:result, id}, detail_path(current, %{"result" => id}))
 
@@ -1617,98 +1114,6 @@ defmodule MondekWeb.NextIncidentsLive do
     with_query(uri.path, Map.merge(URI.decode_query(uri.query || ""), changes))
   end
 
-  defp detail_filter(assigns) do
-    ~H"""
-    <form
-      id={@id_prefix <> "preview-filter-detail-" <> @field}
-      phx-change="filter_incident_detail"
-      phx-auto-recover="ignore"
-      class="preview-recorded-actions preview-detail-filter"
-    >
-      <label for={@id_prefix <> "preview-detail-" <> @field}>{@label}</label>
-      <select id={@id_prefix <> "preview-detail-" <> @field} name={@field}>
-        <option :for={{value, label} <- @choices} value={value} selected={@value == value}>
-          {label}
-        </option>
-      </select>
-    </form>
-    """
-  end
-
-  defp detail_pages(assigns) do
-    ~H"""
-    <nav
-      :if={@listing["total"] > @listing["page_size"]}
-      class="preview-pager"
-      aria-label={@label}
-    >
-      <.page_links
-        page={@listing["page"]}
-        size={@listing["page_size"]}
-        total={@listing["total"]}
-        url={
-          fn p ->
-            detail_path(@current, %{@param => to_string(p)})
-          end
-        }
-      />
-    </nav>
-    """
-  end
-
-  defp page_links(assigns) do
-    assigns = assign(assigns, :pages, max(1, ceil(assigns.total / assigns.size)))
-
-    ~H"""
-    <span>Page {@page} of {@pages} · {@total} total</span>
-    <.link :if={@page > 1} patch={@url.(@page - 1)}>Previous</.link>
-    <.link :if={@page < @pages} patch={@url.(@page + 1)}>Next</.link>
-    """
-  end
-
-  defp shared_incident_badge(assigns) do
-    ~H"""
-    <span class="pf-v6-c-label pf-m-blue">
-      <span class="pf-v6-c-label__content">
-        Shared incident · {count(@count, "member")}
-      </span>
-    </span>
-    """
-  end
-
-  defp contribution_state_color("open"), do: "pf-m-blue"
-  defp contribution_state_color("recovered"), do: "pf-m-green"
-  defp contribution_state_color(_), do: nil
-
-  defp severity(assigns) do
-    ~H"""
-    <span
-      :if={@health}
-      class={["pf-v6-c-label", @health == "CRIT" && "pf-m-red", @health == "WARN" && "pf-m-orange"]}
-    >
-      <span class="pf-v6-c-label__content">{badge_text(@health)}</span>
-    </span>
-    <span :if={!@health} class="preview-caption" title="No measured severity">—</span>
-    """
-  end
-
-  defp incident_state(assigns) do
-    ~H"""
-    <span class="preview-incident-state">
-      <span>{if @status == "open", do: "Open", else: "Closed"}</span>
-      <span :if={@acknowledged} class="preview-caption">Acknowledged</span>
-    </span>
-    """
-  end
-
-  defp loss_reason("unavailable"), do: "Collection unavailable"
-  defp loss_reason("stale"), do: "Measurement overdue"
-  defp loss_reason("control_contact_overdue"), do: "Runner contact overdue"
-  defp loss_reason("no_selected_runner"), do: "No selected runner"
-  defp loss_reason("awaiting_new_measurement"), do: "Awaiting a new measurement"
-  defp loss_reason("awaiting_coverage_measurement"), do: "Awaiting a coverage measurement"
-  defp loss_reason(_), do: "Measurement unavailable"
-
   defp evidence_path(kind, id, current),
-    do: MondekWeb.NextOverviewLive.path(%{"incident_return" => current}, kind, id)
+    do: MondekWeb.PreviewNavigation.path(%{"incident_return" => current}, kind, id)
 end

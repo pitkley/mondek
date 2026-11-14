@@ -5,7 +5,7 @@ defmodule MondekWeb.PreviewIncidentSections do
   import MondekWeb.CheckDetails, only: [check_details: 1]
   import MondekWeb.EvidencePresentation, only: [time: 1, badge_text: 1]
   alias Mondek.Monitoring
-  alias MondekWeb.{NextOverviewLive, NotificationComponents, PreviewDetail}
+  alias MondekWeb.{PreviewNavigation, NotificationComponents, PreviewDetail}
   alias Phoenix.LiveView.JS
 
   def sections(assigns) do
@@ -296,7 +296,7 @@ defmodule MondekWeb.PreviewIncidentSections do
             <.link
               :if={evidence["stream_id"]}
               href={
-                NextOverviewLive.path(
+                PreviewNavigation.path(
                   %{"incident_return" => @current},
                   :result,
                   evidence["stream_id"]
@@ -308,7 +308,7 @@ defmodule MondekWeb.PreviewIncidentSections do
             <.link
               :if={evidence["coverage_id"]}
               href={
-                NextOverviewLive.path(
+                PreviewNavigation.path(
                   %{"incident_return" => @current},
                   :expected,
                   evidence["coverage_id"]
