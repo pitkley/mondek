@@ -3,7 +3,7 @@
 defmodule Mondek.ChecksFilters do
   @moduledoc false
 
-  alias Mondek.{Inspection, OverviewFilters}
+  alias Mondek.{Inspection, ObserverFilters, OverviewFilters}
 
   @choices %{
     "health" => [
@@ -24,6 +24,7 @@ defmodule Mondek.ChecksFilters do
 
   def fields do
     OverviewFilters.fields() ++
+      ObserverFilters.fields() ++
       [
         {"group", "Group"},
         {"health", "Health"},
@@ -34,10 +35,14 @@ defmodule Mondek.ChecksFilters do
 
   def params(values) do
     params =
-      Enum.reduce(@choices, OverviewFilters.params(values), fn {field, choices}, params ->
-        value = values[field]
-        if List.keymember?(choices, value, 0), do: Map.put(params, field, value), else: params
-      end)
+      Enum.reduce(
+        @choices,
+        Map.merge(OverviewFilters.params(values), ObserverFilters.params(values)),
+        fn {field, choices}, params ->
+          value = values[field]
+          if List.keymember?(choices, value, 0), do: Map.put(params, field, value), else: params
+        end
+      )
 
     case values["group"] do
       value when is_binary(value) and byte_size(value) in [70, 71] ->
@@ -71,6 +76,9 @@ defmodule Mondek.ChecksFilters do
 
   def options(field, search, selected) when field in ["environment", "target"],
     do: OverviewFilters.options(field, search, selected, :checks)
+
+  def options(field, search, selected) when field in ~w(runner_id source_id),
+    do: ObserverFilters.options(field, search, selected)
 
   def options("group", search, selected) do
     search

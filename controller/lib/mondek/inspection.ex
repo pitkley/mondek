@@ -1193,6 +1193,11 @@ defmodule Mondek.Inspection do
         query
       end
 
+    query =
+      if present?(f["source_id"]),
+        do: from([s, a, r] in query, where: a.source_id == ^f["source_id"]),
+        else: query
+
     if present?(f["environment"]),
       do: from([s, a, r] in query, where: s.environment == ^f["environment"]),
       else: query
@@ -1601,6 +1606,28 @@ defmodule Mondek.Inspection do
     |> Enum.map(fn {s, a, r, k} -> hd(public_streams([{s, a, r, k}])) end)
   end
 
+  def execution_detail(id, at) do
+    if inspection = Monitoring.assignment_inspection(id, at) do
+      generation = get_in(inspection, ["assignment", "current", "confirmed_generation"])
+
+      Map.put(
+        inspection,
+        "confirmed_configuration",
+        confirmed_configuration(id, generation)
+      )
+    end
+  end
+
+  @doc "The retained configuration belonging to an exact confirmed evidence version."
+  def confirmed_configuration(assignment_id, generation) when is_integer(generation) do
+    case Repo.get_by(Mondek.Configuration, assignment_id: assignment_id, generation: generation) do
+      nil -> nil
+      configuration -> Monitoring.public(configuration)
+    end
+  end
+
+  def confirmed_configuration(_, _), do: nil
+
   def stream_inspection(id, at) do
     with stream when not is_nil(stream) <- stream_detail(id, at) do
       assignment_id = stream["assignment_id"]
@@ -1691,7 +1718,7 @@ defmodule Mondek.Inspection do
   end
 
   def delivery_inspection(filters, at) do
-    filters = normalize(filters)
+    filters = Mondek.NotificationFilters.params(normalize(filters))
     status = filters["notification_status"] || "unresolved"
 
     {status, query} =
@@ -1706,6 +1733,8 @@ defmodule Mondek.Inspection do
           {"unresolved",
            from(o in Occurrence, where: o.status not in ["delivered", "superseded"])}
       end
+
+    query = notification_filters(query, filters)
 
     # Count occurrences before reading their attempts. Multiple attempts must not
     # duplicate a notification or change which page an operator is reviewing.
@@ -1757,6 +1786,56 @@ defmodule Mondek.Inspection do
       "jobs" => Enum.map(jobs, &Monitoring.public/1),
       "notification_backlog" => backlog()
     }
+  end
+
+  defp notification_filters(query, filters) do
+    query =
+      case filters["notification_event"] do
+        nil -> query
+        event -> from o in query, where: o.kind == ^event
+      end
+
+    query =
+      case filters["notification_type"] do
+        "health" -> from o in query, where: is_nil(o.monitoring_incident_id)
+        "loss" -> from o in query, where: not is_nil(o.monitoring_incident_id)
+        _ -> query
+      end
+
+    query =
+      case filters["notification_channel"] do
+        "email" -> from o in query, where: like(o.destination, "mailto:%")
+        "webhook" -> from o in query, where: not like(o.destination, "mailto:%")
+        _ -> query
+      end
+
+    case filters["search"] do
+      value when is_binary(value) and value != "" ->
+        from o in query,
+          left_join: i in Incident,
+          on: i.id == o.incident_id,
+          left_join: a in Assignment,
+          on: a.id == i.assignment_id,
+          left_join: c in Mondek.ConditionIncident,
+          on: c.id == o.condition_incident_id,
+          left_join: m in Mondek.MonitoringIncident,
+          on: m.id == o.monitoring_incident_id,
+          where:
+            fragment(
+              "strpos(lower(concat_ws(' ', ?::text, ?, ?, ?, ?->>'environment', ?->'target'->>'label', ?->'email'->>'label')), lower(?)) > 0",
+              o.id,
+              a.label,
+              c.label,
+              m.label,
+              o.payload,
+              o.payload,
+              o.payload,
+              ^value
+            )
+
+      _ ->
+        query
+    end
   end
 
   @doc "Inspect an exact retained notification independently of list filters and page boundaries."

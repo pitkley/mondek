@@ -420,9 +420,16 @@ defmodule Mondek.Coverage do
     filters = filters(filters)
 
     suffix =
-      " FROM classified WHERE NOT scope_resolved AND (NOT ($1::jsonb ? 'source_id') OR source_id=$1::jsonb->>'source_id') AND (NOT ($1::jsonb ? 'runner_id') OR runner_id::text=$1::jsonb->>'runner_id') AND (NOT ($1::jsonb ? 'environment') OR environment=$1::jsonb->>'environment') AND (NOT ($1::jsonb ? 'search') OR position(lower($1::jsonb->>'search') in lower(concat_ws(' ',source_id,source_key,check_label,scope_reason,exclusion_reason)))>0)"
+      " FROM classified WHERE NOT scope_resolved AND (NOT ($1::jsonb ? 'source_id') OR source_id=$1::jsonb->>'source_id') AND (NOT ($1::jsonb ? 'runner_id') OR runner_id::text=$1::jsonb->>'runner_id') AND (NOT ($1::jsonb ? 'environment') OR environment=$1::jsonb->>'environment') AND (NOT ($1::jsonb ? 'target_kind') OR target_kind=$1::jsonb->>'target_kind') AND (NOT ($1::jsonb ? 'target_key') OR target_key=$1::jsonb->>'target_key') AND (NOT ($1::jsonb ? 'search') OR position(lower($1::jsonb->>'search') in lower(concat_ws(' ',source_id,source_key,check_label,result_label,runner_label,environment_label,target_label,scope_reason,exclusion_reason)))>0)"
 
-    [count] = query(@declarations <> "SELECT count(*)::integer AS total" <> suffix, [filters, at])
+    [count] =
+      query(
+        @declarations <>
+          "SELECT count(*)::integer AS total,(SELECT count(*)::integer FROM classified WHERE NOT scope_resolved) AS unfiltered_total" <>
+          suffix,
+        [filters, at]
+      )
+
     page = page_number(filters, count["total"])
 
     rows =
@@ -437,7 +444,8 @@ defmodule Mondek.Coverage do
       "items" => Enum.map(rows, &observer_public/1),
       "page" => page,
       "page_size" => @page_size,
-      "total" => count["total"]
+      "total" => count["total"],
+      "unfiltered_total" => count["unfiltered_total"]
     }
   end
 
