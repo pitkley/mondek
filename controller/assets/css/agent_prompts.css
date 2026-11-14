@@ -1,0 +1,18 @@
+/*! Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com> */
+/*! SPDX-License-Identifier: Apache-2.0 */
+
+.agent-prompts { border: 1px solid var(--preview-line); border-radius: 6px; background: var(--preview-surface); overflow: hidden; }
+.agent-prompts > .panel-heading { padding: 9px var(--preview-content-inset); background: var(--preview-hover); border-bottom: 1px solid var(--preview-line); }
+.agent-prompts > .panel-heading h2 { font-size: 15px; font-weight: 600; }
+.agent-prompts > .panel-body > p { padding: 10px var(--preview-content-inset); font-size: 13px; color: var(--preview-subtle); }
+.agent-prompt { border-top: 1px solid var(--preview-line); }
+.agent-prompt > :not(summary) { margin: 0 var(--preview-content-inset) 8px; }
+.agent-prompt label { display: block; font-size: 12px; font-weight: 600; }
+.agent-prompt textarea { display: block; width: calc(100% - 2 * var(--preview-content-inset)); padding: 8px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-hover); color: var(--preview-ink); font: 12px/1.5 ui-monospace,monospace; resize: vertical; }
+.agent-prompt .footnote { color: var(--preview-subtle); font-size: 12px; }
+.agent-prompt .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.agent-prompt .button { padding: 4px 10px; border: 1px solid var(--preview-line); border-radius: 4px; color: var(--preview-accent); background: var(--preview-surface); font: inherit; cursor: pointer; }
+
+.agent-prompt > summary { cursor: pointer; padding: 8px var(--preview-content-inset); font-size: 13px; }
+section.agent-prompt { border: 1px solid var(--preview-line); border-radius: 6px; padding-top: 8px; background: var(--preview-surface); }
+section.agent-prompt > h3 { font-size: 15px; }

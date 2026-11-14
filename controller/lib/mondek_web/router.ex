@@ -51,37 +51,44 @@ defmodule MondekWeb.Router do
        MondekWeb.ConfigurationGitController,
        :receive_pack
 
-  scope "/next", MondekWeb do
-    pipe_through [:browser, :preview]
-    live "/", NextOverviewLive, :index
-    live "/results/:id", NextOverviewLive, :result
-    live "/results/:id/full", NextOverviewLive, :result_page
-    live "/expected/:id", NextOverviewLive, :expected
-    live "/expected/:id/full", NextOverviewLive, :expected
-    live "/checks", NextOverviewLive, :checks
-    live "/checks/:id", NextOverviewLive, :checks_result
-    live "/checks/:id/full", NextOverviewLive, :checks_result_page
-    live "/coverage", NextOverviewLive, :coverage
-    live "/coverage/diagnostics/:id", NextOverviewLive, :coverage_diagnostic
-    live "/coverage/diagnostics/:id/full", NextOverviewLive, :coverage_diagnostic
-    live "/coverage/:id", NextOverviewLive, :coverage_result
-    live "/coverage/:id/full", NextOverviewLive, :coverage_result
-    live "/maintenance", MaintenanceLive, :index
-    live "/maintenance/new", MaintenanceLive, :new
-    live "/maintenance/series/:id/full", MaintenanceLive, :series
-    live "/maintenance/series/:id", MaintenanceLive, :series
-    live "/maintenance/:id/full", MaintenanceLive, :edit
-    live "/maintenance/:id", MaintenanceLive, :edit
-    live "/incidents", NextIncidentsLive, :index
-    live "/incidents/health/:id", NextIncidentsLive, :health
-    live "/incidents/loss/:id", NextIncidentsLive, :loss
-    live "/incidents/health/:id/full", NextIncidentsLive, :health
-    live "/incidents/loss/:id/full", NextIncidentsLive, :loss
+  live_session :operator_ui do
+    scope "/next", MondekWeb do
+      pipe_through [:browser, :preview]
+      live "/", NextOverviewLive, :index
+      live "/results/:id", NextOverviewLive, :result
+      live "/results/:id/full", NextOverviewLive, :result_page
+      live "/expected/:id", NextOverviewLive, :expected
+      live "/expected/:id/full", NextOverviewLive, :expected
+      live "/checks", NextOverviewLive, :checks
+      live "/checks/:id", NextOverviewLive, :checks_result
+      live "/checks/:id/full", NextOverviewLive, :checks_result_page
+      live "/coverage", NextOverviewLive, :coverage
+      live "/coverage/diagnostics/:id", NextOverviewLive, :coverage_diagnostic
+      live "/coverage/diagnostics/:id/full", NextOverviewLive, :coverage_diagnostic
+      live "/coverage/:id", NextOverviewLive, :coverage_result
+      live "/coverage/:id/full", NextOverviewLive, :coverage_result
+      live "/maintenance", MaintenanceLive, :index
+      live "/maintenance/new", MaintenanceLive, :new
+      live "/maintenance/series/:id/full", MaintenanceLive, :series
+      live "/maintenance/series/:id", MaintenanceLive, :series
+      live "/maintenance/:id/full", MaintenanceLive, :edit
+      live "/maintenance/:id", MaintenanceLive, :edit
+      live "/incidents", NextIncidentsLive, :index
+      live "/incidents/health/:id", NextIncidentsLive, :health
+      live "/incidents/loss/:id", NextIncidentsLive, :loss
+      live "/incidents/health/:id/full", NextIncidentsLive, :health
+      live "/incidents/loss/:id/full", NextIncidentsLive, :loss
+    end
+
+    scope "/", MondekWeb do
+      pipe_through [:browser, :preview]
+      live "/guide", GuideLive, :guide
+      live "/licenses", LicensesLive, :index
+    end
   end
 
   scope "/", MondekWeb do
     pipe_through :browser
-    live "/licenses", LicensesLive, :index
     get "/licenses/notices", LicenseController, :notices
     live "/", OverviewLive, :overview
     live "/checks", ChecksLive, :checks
@@ -116,7 +123,6 @@ defmodule MondekWeb.Router do
     live "/runners/:id", RunnersLive, :show
     live "/notifications", NotificationsLive, :notifications
     live "/notifications/:id", NotificationsLive, :notification
-    live "/guide", GuideLive, :guide
   end
 
   scope "/api/v1", MondekWeb do
