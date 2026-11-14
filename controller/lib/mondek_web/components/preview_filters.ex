@@ -1,22 +1,36 @@
 # Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.PreviewFilters do
+  @moduledoc """
+  A keyboard-operated search and filter picker for LiveView.
+
+  The caller owns the applied filters and URL patches. It supplies the available
+  fields, the applied chips, and the current picker draft with its allowed values.
+  Handle `search`, `filter_open`, `filter_query`, `filter_first`, `filter_select`,
+  `filter_remove_edit`, and `filter_close` in the owning LiveView.
+
+  Send `preview-filter-ready` after committing or cancelling a draft to return
+  focus to the picker. Include `%{id: id}` when using an explicit component ID.
+  """
   use MondekWeb, :html
 
+  attr :id, :string, default: nil
   attr :picker, :map, required: true
   attr :chips, :list, required: true
   attr :fields, :list, required: true
   attr :search, :string, required: true
-  attr :remove, :any, required: true
-  attr :clear_search, :string, required: true
+  attr :remove, :any, default: nil
+  attr :clear_search, :string, default: nil
   attr :form_label, :string, required: true
   attr :label, :string, required: true
   attr :placeholder, :string, required: true
 
   def filter_picker(assigns) do
+    assigns = assign(assigns, :ids, ids(assigns.id))
+
     ~H"""
     <form
-      id="overview-search"
+      id={@ids.form}
       class="preview-toolbar"
       phx-hook="PreviewFilterPicker"
       phx-submit={if @picker, do: "filter_first", else: "search"}
@@ -32,13 +46,14 @@ defmodule MondekWeb.PreviewFilters do
         <%= for chip <- @chips do %>
           <.editor
             :if={@picker && @picker.field == chip.field}
+            ids={@ids}
             picker={@picker}
             label={@label}
             placeholder={@placeholder}
           />
           <span
             :if={!@picker || @picker.field != chip.field}
-            id={"preview-chip-" <> chip.field}
+            id={@ids.chip <> chip.field}
             class="preview-filter-chip"
           >
             <button
@@ -51,28 +66,45 @@ defmodule MondekWeb.PreviewFilters do
               <strong>{chip.name}:</strong> {chip.label}
             </button>
             <.link
+              :if={@remove}
               patch={@remove.(chip.field)}
               aria-label={"Remove #{chip.name} filter"}
             >×</.link>
+            <button
+              :if={!@remove && Map.get(chip, :removable, true)}
+              type="button"
+              phx-click="filter_remove"
+              phx-value-field={chip.field}
+              aria-label={"Remove #{chip.name} filter"}
+            >×</button>
           </span>
         <% end %>
         <span :if={@search} class="preview-filter-chip">
           <span class="preview-search-token" title={@search}>{@search}</span>
           <.link
+            :if={@clear_search}
             patch={@clear_search}
             aria-label="Clear search text"
           >×</.link>
+          <button
+            :if={!@clear_search}
+            type="button"
+            phx-click="filter_remove"
+            phx-value-field="search"
+            aria-label="Clear search text"
+          >×</button>
         </span>
         <.editor
           :if={!@picker || !Enum.any?(@chips, &(&1.field == @picker.field))}
+          ids={@ids}
           picker={@picker}
           label={@label}
           placeholder={@placeholder}
         />
       </div>
-      <div id="overview-filter-popup" class="preview-filter-popup">
+      <div id={@ids.popup} class="preview-filter-popup" data-filter-popup>
         <div
-          id="overview-filter-options"
+          id={@ids.options}
           role="listbox"
           aria-label={if @picker, do: @picker.title, else: "Search and filters"}
         >
@@ -80,7 +112,7 @@ defmodule MondekWeb.PreviewFilters do
             :if={!@picker}
             type="submit"
             role="option"
-            id="overview-search-text"
+            id={@ids.text}
             tabindex="-1"
             aria-selected="false"
             data-search-text
@@ -94,7 +126,7 @@ defmodule MondekWeb.PreviewFilters do
             <button
               :for={{field, label, icon} <- @fields}
               :if={!Enum.any?(@chips, &(&1.field == field))}
-              id={"overview-filter-#{field}"}
+              id={@ids.field <> field}
               type="button"
               role="option"
               tabindex="-1"
@@ -115,7 +147,7 @@ defmodule MondekWeb.PreviewFilters do
           </div>
           <button
             :for={{option, index} <- Enum.with_index(if @picker, do: @picker.options, else: [])}
-            id={"overview-filter-option-#{index}"}
+            id={@ids.option <> Integer.to_string(index)}
             type="button"
             role="option"
             tabindex="-1"
@@ -126,7 +158,8 @@ defmodule MondekWeb.PreviewFilters do
           >
             <span>{option.label}</span>
             <small :if={
-              option.kind != "" || String.downcase(option.key) != String.downcase(option.label)
+              Map.get(option, :show_key, true) &&
+                (option.kind != "" || String.downcase(option.key) != String.downcase(option.label))
             }>
               {if option.kind != "", do: option.kind <> " · "}{option.key}
             </small>
@@ -138,15 +171,45 @@ defmodule MondekWeb.PreviewFilters do
     """
   end
 
+  # Keep the original identifiers for existing callers. Other instances can
+  # supply an ID and scope the label, listbox and option relationships to it.
+  defp ids(nil) do
+    %{
+      form: "overview-search",
+      editor: "overview-search-editor",
+      input: "preview-search",
+      chip: "preview-chip-",
+      popup: "overview-filter-popup",
+      options: "overview-filter-options",
+      text: "overview-search-text",
+      field: "overview-filter-",
+      option: "overview-filter-option-"
+    }
+  end
+
+  defp ids(id) do
+    %{
+      form: id,
+      editor: id <> "-editor",
+      input: id <> "-input",
+      chip: id <> "-chip-",
+      popup: id <> "-popup",
+      options: id <> "-options",
+      text: id <> "-search-text",
+      field: id <> "-field-",
+      option: id <> "-option-"
+    }
+  end
+
   defp editor(assigns) do
     ~H"""
     <div
-      id="overview-search-editor"
+      id={@ids.editor}
       class={["preview-search-editor", @picker && "preview-filter-chip"]}
     >
       <span :if={@picker} class="preview-filter-draft">{@picker.title}:</span>
       <input
-        id="preview-search"
+        id={@ids.input}
         name="search"
         value={if @picker, do: @picker.value, else: ""}
         aria-label={if @picker, do: @picker.title, else: @label}
@@ -157,7 +220,7 @@ defmodule MondekWeb.PreviewFilters do
         role="combobox"
         aria-expanded="false"
         aria-autocomplete="list"
-        aria-controls="overview-filter-options"
+        aria-controls={@ids.options}
       />
     </div>
     """
