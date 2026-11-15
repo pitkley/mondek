@@ -1,21 +1,17 @@
-# Mondek 0.0.2
+# Mondek 0.0.3
 
-This release unifies the controller HTTP APIs and adds a documented API for read-only integrations, including incident investigation. The SDK and controller versions are both `0.0.2`; the intended Git tag is `v0.0.2` and controller image tag is `0.0.2`. Mondek remains experimental.
+This release makes incident reads self-contained for lightweight clients. Controller and SDK versions are both `0.0.3`; the intended Git tag is `v0.0.3` and controller image tag is `0.0.3`. Mondek remains experimental.
 
-## Breaking HTTP and runner changes
+## Incident investigation
 
-Upgrade the controller and SDK/runners together. Version 0.0.1 runners cannot communicate with the 0.0.2 controller, and 0.0.2 runners cannot communicate with the 0.0.1 controller. Runner exchanges move from `/api/v1/{control,inventory,observations}` to `/api/v1/runner/{control,inventory,observations}` with no compatibility aliases.
+Incident lists and details include a canonical `display_title` shared with the web UI, nullable check/result/environment/runner labels and an authoritative `acknowledgement_active` boolean evaluated at the response time. Shared incidents retain their own identity instead of inventing a single contributing check or runner. Incident reads need no result-endpoint lookup to identify or explain the incident.
 
-Resource reads use `{data,meta}` envelopes and structured errors include a request ID. Result inspection uses `/api/v1/results`; assignment inspection uses `/api/v1/assignments`, with editable settings under `/api/v1/assignments/:id/configuration`. Health and monitoring-loss incidents use separate collections. Update integrations and any gateway path policies using the [route disposition table](API-ROUTES.md).
+Individual health details and each shared contribution expose `recorded_measurement`: selected historical WARN/CRIT evidence, Markdown details, original source/evaluation/receipt times, observation provenance and explicit fallback/unavailable reasons. Current results and recovery evidence stay separate. Shared contributions replace the ambiguous `measured_result` response field; update clients from the generated [OpenAPI contract](../contracts/http/v1/openapi.json). Monitoring-loss incidents do not imply measured target failure.
 
-## API contracts and integrations
-
-The unified `/api/v1` surface covers results, incidents, observations, runners, coverage, maintenance, configuration and existing runner exchanges. Read-only integrations can inspect monitoring state and evidence without using the operator UI. OpenAPI is generated from the Phoenix operation and schema definitions, checked into `contracts/http/v1/openapi.json`, served at `/api/v1/openapi.json` and browsable at `/api/docs`. Contract checks reject stale generated output and duplicate operation IDs.
-
-MCP remains a separate transport and shares investigation projections with the HTTP API. HTTP version 1, runner report format version 1 and MCP schema version 1 are unchanged; these identify formats rather than release numbers. Built-in authentication and permission management remain out of scope; retain the existing [external access boundary](CONTROLLER-AUTH.md).
+A dedicated latest-failure observation reference advances on every admitted failure, including unchanged severity, and survives recovery and ordinary receipt retention. Previously recorded opening/notification evidence can be an explicitly labelled fallback; historical latest evidence is never invented from current state or notification text.
 
 ## Upgrading
 
-Back up PostgreSQL and each runner's complete durable state, then stop the old runners, upgrade the controller against the existing database and start the matching 0.0.2 SDK/runners. Retain installation identities, journals, buffered reports and configuration history. SDK updates require normal discovery/preparation for the new runtime identity. Verify fresh adopted measurements, retained incidents and pending notifications after the update. See the [coordinated upgrade guide](UPGRADING.md#002-unified-http-api-cutover).
+Back up PostgreSQL and complete runner state, then use matching controller/SDK releases. Packaged startup applies an additive database migration for the nullable failure reference; existing baseline history is unchanged. Existing incident/report identities, buffered reports, runner transport format and configuration history are preserved. No journal or database reset is needed. Existing incidents without a provable latest failure remain explicit fallback/unavailable until new evidence establishes it. See [upgrading](UPGRADING.md#003-historical-incident-findings).
 
-This release adds no database migration or stored report/configuration format change. Packaged startup continues to apply pending migrations automatically. Controller configuration repository identity is initialized before HTTP starts; reading its revision no longer creates durable state. Buffered reports retain their original identities, ages and replay dispositions.
+Authentication and authorization remain the deployment's responsibility. An incident-read policy exposes that incident's selected evidence and details without granting unrelated result access; see the [access boundary](CONTROLLER-AUTH.md).
