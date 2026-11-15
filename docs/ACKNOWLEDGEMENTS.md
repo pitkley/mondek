@@ -4,6 +4,8 @@ An acknowledgement holds failure notifications for one incident while investigat
 
 An individual acknowledgement covers one result's incident. Checks declaring the same condition can also form a [shared incident](GROUPED-INCIDENTS.md), whose acknowledgement covers qualifying contributors, including equivalent late arrivals within its reviewed severity and impact limits. Individual and shared controls remain separately inspectable; names or nearby failure times never create a relationship implicitly.
 
+The Overview’s **Incidents** card shows separate, always-visible **Unacknowledged** and **Acknowledged** sections, each with its own count, using the same section style as Results. Each group shows up to four incidents; the Incidents page provides the full listing. The Incidents page also separates unacknowledged, acknowledged and closed incidents into named tables. Counts above those tables describe rows shown on the current page; the shared pagination and filters still apply to the whole listing. Acknowledged rows retain their measured severity and explicit acknowledgement label. Incident pages and fly-overs show the acknowledgement lifetime and note near the heading. Expiry or invalidation returns an open incident to the unacknowledged group on refresh.
+
 ## Choose its lifetime
 
 - **This incident ends**

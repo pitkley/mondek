@@ -208,7 +208,7 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
     assert listing
            |> render()
            |> LazyHTML.from_document()
-           |> LazyHTML.query("table[aria-label=Incidents] > tbody > tr")
+           |> LazyHTML.query("#incidents-unacknowledged table > tbody > tr")
            |> Enum.count() == 1
 
     {:ok, view, _} = live(build_conn(), "/incidents/health/#{group.id}/full")

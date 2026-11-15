@@ -658,74 +658,21 @@ defmodule MondekWeb.NextOverviewLive do
           class="preview-overview-card"
           aria-labelledby="overview-incidents-heading"
         >
-          <div class="preview-heading preview-overview-incident-heading">
-            <h2
-              id="overview-incidents-heading"
-              class="pf-v6-c-title pf-m-xl preview-overview-incident-title"
-            >
-              Open incidents <span class="pf-v6-c-badge pf-m-read">{@open_incidents.total}</span>
-            </h2>
+          <header class="preview-results-header">
+            <h2 id="overview-incidents-heading" class="pf-v6-c-title pf-m-2xl">Incidents</h2>
             <.link navigate="/incidents">View all incidents</.link>
-          </div>
-          <p :if={@open_incidents.rows == []} class="preview-empty">No open incidents.</p>
-          <div :if={@open_incidents.rows != []} class="preview-table-group">
-            <table
-              class="pf-v6-c-table preview-table preview-overview-incidents-table"
-              aria-labelledby="overview-incidents-heading"
-            >
-              <thead class="pf-v6-c-table__thead">
-                <tr>
-                  <th scope="col" class="pf-v6-c-table__th">Severity</th>
-                  <th scope="col" class="pf-v6-c-table__th">Incident</th>
-                  <th scope="col" class="pf-v6-c-table__th">Scope</th>
-                  <th scope="col" class="pf-v6-c-table__th">Opened</th>
-                  <th scope="col" class="pf-v6-c-table__th">Acknowledgement</th>
-                </tr>
-              </thead>
-              <tbody class="pf-v6-c-table__tbody">
-                <tr
-                  :for={row <- @open_incidents.rows}
-                  class={[
-                    "pf-v6-c-table__tr",
-                    @incident_selection == {row.kind, row.id} && "preview-selected"
-                  ]}
-                  data-overview-row
-                >
-                  <td class="pf-v6-c-table__td">
-                    <.state :if={row.health} value={row.health} />
-                    <span :if={!row.health} class="preview-caption" title="Monitoring loss">Loss</span>
-                  </td>
-                  <td class="pf-v6-c-table__td">
-                    <.link
-                      id={"overview-incident-#{row.kind}-#{row.id}"}
-                      patch={
-                        if @incident_selection == {row.kind, row.id},
-                          do: @list_path,
-                          else: NextIncidentsLive.incident_layer_path(@list_path, row.kind, row.id)
-                      }
-                      data-overview-open
-                      class="preview-result-link"
-                    >{row.title}</.link>
-                    <span :if={row.contribution_count} class="preview-caption">
-                      · {count_label(row.contribution_count, "affected result")}
-                    </span>
-                  </td>
-                  <td class="pf-v6-c-table__td preview-caption">
-                    {if row.context == "", do: "—", else: row.context}
-                  </td>
-                  <td class="pf-v6-c-table__td">
-                    <time datetime={row.opened_at} title={time(row.opened_at)}>{age(
-                      row.opened_at,
-                      @now
-                    )}</time>
-                  </td>
-                  <td class="pf-v6-c-table__td">
-                    {if row.acknowledged, do: "Acknowledged", else: "Unacknowledged"}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          </header>
+          <.dashboard_incidents
+            :for={
+              {key, label} <- [{"unacknowledged", "Unacknowledged"}, {"acknowledged", "Acknowledged"}]
+            }
+            id={"overview-" <> key <> "-incidents"}
+            summary={@open_incidents[key]}
+            label={label}
+            incident_selection={@incident_selection}
+            list_path={@list_path}
+            now={@now}
+          />
         </section>
         <div class="preview-workspace">
           <section
@@ -1122,4 +1069,75 @@ defmodule MondekWeb.NextOverviewLive do
   defp state_tone(value) when value in ["WARN", "stale", "missing", "awaiting"], do: "pf-m-orange"
   defp state_tone("OK"), do: "pf-m-green"
   defp state_tone(_), do: ""
+
+  defp dashboard_incidents(assigns) do
+    ~H"""
+    <section id={@id} class="preview-table-group" aria-labelledby={@id <> "-heading"}>
+      <div class="preview-section-heading">
+        <h3 id={@id <> "-heading"} class="pf-v6-c-title pf-m-md">{@label}</h3>
+        <span class="pf-v6-c-badge pf-m-read">{count_label(@summary.total, "incident")}</span>
+      </div>
+      <p :if={@summary.rows == []} class="preview-empty">No {String.downcase(@label)} incidents.</p>
+      <table
+        :if={@summary.rows != []}
+        class="pf-v6-c-table preview-table preview-overview-incidents-table"
+        aria-label={@label <> " incidents"}
+      >
+        <thead class="pf-v6-c-table__thead">
+          <tr>
+            <th scope="col" class="pf-v6-c-table__th">Severity</th>
+            <th scope="col" class="pf-v6-c-table__th">Incident</th>
+            <th scope="col" class="pf-v6-c-table__th">Scope</th>
+            <th scope="col" class="pf-v6-c-table__th">Opened</th>
+            <th scope="col" class="pf-v6-c-table__th">Acknowledgement</th>
+          </tr>
+        </thead>
+        <tbody class="pf-v6-c-table__tbody">
+          <tr
+            :for={row <- @summary.rows}
+            class={[
+              "pf-v6-c-table__tr",
+              @incident_selection == {row.kind, row.id} && "preview-selected"
+            ]}
+            data-overview-row
+          >
+            <td class="pf-v6-c-table__td" data-label="Severity">
+              <.state :if={row.health} value={row.health} />
+              <span :if={!row.health} class="preview-caption" title="Monitoring loss">Loss</span>
+            </td>
+            <td class="pf-v6-c-table__td" data-label="Incident">
+              <.link
+                id={"overview-incident-#{row.kind}-#{row.id}"}
+                patch={
+                  if @incident_selection == {row.kind, row.id},
+                    do: @list_path,
+                    else: NextIncidentsLive.incident_layer_path(@list_path, row.kind, row.id)
+                }
+                data-overview-open
+                class="preview-result-link"
+              >{row.title}</.link>
+              <span :if={row.contribution_count} class="preview-caption">
+                · {count_label(row.contribution_count, "affected result")}
+              </span>
+            </td>
+            <td class="pf-v6-c-table__td preview-caption" data-label="Scope">
+              {if row.context == "", do: "—", else: row.context}
+            </td>
+            <td class="pf-v6-c-table__td" data-label="Opened">
+              <time datetime={row.opened_at} title={time(row.opened_at)}>{age(
+                row.opened_at,
+                @now
+              )}</time>
+            </td>
+            <td class="pf-v6-c-table__td" data-label="Acknowledgement">
+              <span title={if row.acknowledged, do: row.acknowledgement_label}>
+                {if row.acknowledged, do: "Acknowledged", else: "Unacknowledged"}
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+    """
+  end
 end

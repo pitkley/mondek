@@ -9,6 +9,82 @@ defmodule MondekWeb.NextOverviewLiveTest do
   @endpoint MondekWeb.Endpoint
   @moduletag :empty_source_fixture
 
+  test "dashboard separates acknowledged incidents and restores attention at expiry" do
+    now = Monitoring.now()
+
+    for n <- 1..6 do
+      check = CoverageFixtures.check("Failure #{n}", "production", "Service #{n}")
+      publication = CoverageFixtures.publication([CoverageFixtures.candidate(check)])
+      assert {:ok, _} = Monitoring.inventory(publication, now)
+      assert {:ok, _} = CoverageFixtures.activate(publication, now)
+      assert disposition(CoverageFixtures.sample(publication, "CRIT", 1, now)) == "current"
+    end
+
+    incidents = Monitoring.list_incidents(%{}, now).items
+
+    for incident <- Enum.take(incidents, 5) do
+      assert {:ok, _} =
+               reviewed_acknowledgement_fixture(incident["id"], 3600, "Investigating", now)
+    end
+
+    summary = MondekWeb.NextIncidentsLive.open_summary(now)
+    assert summary["unacknowledged"].total == 1
+    assert length(summary["unacknowledged"].rows) == 1
+    assert summary["acknowledged"].total == 5
+    assert length(summary["acknowledged"].rows) == 4
+    expired = MondekWeb.NextIncidentsLive.open_summary(DateTime.add(now, 3600, :second))
+    assert expired["unacknowledged"].total == 6
+    assert expired["acknowledged"].total == 0
+    {:ok, view, _} = live(build_conn(), "/")
+
+    assert has_element?(
+             view,
+             "table[aria-label='Unacknowledged incidents'] tbody tr",
+             "Unacknowledged"
+           )
+
+    assert has_element?(
+             view,
+             "section#overview-acknowledged-incidents",
+             "5 incidents"
+           )
+
+    assert has_element?(view, "#overview-incidents-heading", "Incidents")
+    assert has_element?(view, "#overview-unacknowledged-incidents h3", "Unacknowledged")
+    assert has_element?(view, "#overview-acknowledged-incidents h3", "Acknowledged")
+    refute has_element?(view, "#preview-open-incidents details")
+    {:ok, listing, _} = live(build_conn(), "/incidents")
+    assert has_element?(listing, "#incidents-unacknowledged h2", "Unacknowledged")
+    assert has_element?(listing, "#incidents-acknowledged h2", "Acknowledged")
+
+    for incident <- Enum.take(incidents, 5) do
+      selector = "#preview-incident-health-" <> incident["id"]
+      assert has_element?(listing, "#incidents-acknowledged " <> selector)
+      refute has_element?(listing, "#incidents-unacknowledged " <> selector)
+    end
+
+    remaining = List.last(incidents)
+
+    assert has_element?(
+             listing,
+             "#incidents-unacknowledged #preview-incident-health-" <> remaining["id"]
+           )
+
+    id = hd(incidents)["id"]
+
+    for {suffix, root} <- [{"", "#overview-panel"}, {"/full", "#incident-page"}] do
+      {:ok, detail, _} = live(build_conn(), "/incidents/health/#{id}" <> suffix)
+
+      assert has_element?(
+               detail,
+               root <> " aside[aria-label='Incident acknowledgement']",
+               "Investigating"
+             )
+
+      assert has_element?(detail, root <> " button", "End acknowledgement")
+    end
+  end
+
   test "checks filters results and keeps its filters when opening and closing evidence" do
     now = Monitoring.now()
     check = CoverageFixtures.check("Queue depth", "production", "Parcel queue")

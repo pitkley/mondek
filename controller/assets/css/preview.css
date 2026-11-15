@@ -713,3 +713,35 @@ button,input { font: inherit; }
 .ui-feedback button { border: 0; background: transparent; color: inherit; cursor: pointer; }
 
 .preview-page-controls > button { font: inherit; color: var(--preview-accent); background: transparent; cursor: pointer; }
+
+/* Acknowledgement is an operator control, independent of measured severity. */
+.preview-acknowledged-section {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--pf-t--global--border--color--default, #d2d2d2);
+  background: var(--pf-t--global--background--color--secondary--default, #f5f5f5);
+}
+.preview-acknowledgement-label {
+  display: inline-block;
+  padding: .2rem .5rem;
+  border: 1px solid var(--pf-t--global--border--color--default, #aaa);
+  border-radius: .25rem;
+  font-weight: 600;
+}
+
+@media (max-width: 1000px) {
+  :is(.preview-overview-incidents-table, .preview-incident-table),
+  :is(.preview-overview-incidents-table, .preview-incident-table) tbody { display: block; }
+  :is(.preview-overview-incidents-table, .preview-incident-table) thead { display: none; }
+  :is(.preview-overview-incidents-table, .preview-incident-table) tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--preview-line);
+  }
+  :is(.preview-overview-incidents-table, .preview-incident-table) .pf-v6-c-table__td { min-width: 0; }
+  :is(.preview-overview-incidents-table, .preview-incident-table) td:nth-child(2) { grid-column: 1 / -1; grid-row: 1; }
+  :is(.preview-overview-incidents-table, .preview-incident-table) td:nth-child(3),
+  :is(.preview-overview-incidents-table, .preview-incident-table) td:nth-child(5) { grid-column: 1 / -1; }
+  :is(.preview-overview-incidents-table, .preview-incident-table) td[data-label="Opened"]::before { content: "Opened "; color: var(--preview-muted-ink); }
+}
