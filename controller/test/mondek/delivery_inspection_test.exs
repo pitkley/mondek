@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Mondek.DeliveryInspectionTest do
   use Mondek.DataCase, async: false
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [json_response: 2]
+  import Mondek.APIResponse
   import Phoenix.LiveViewTest
 
   @endpoint MondekWeb.Endpoint
@@ -137,7 +138,7 @@ defmodule Mondek.DeliveryInspectionTest do
     assert Mondek.Inspection.notification_detail(Ecto.UUID.generate(), at()) == nil
     api_detail = get(build_conn(), "/api/v1/notifications/#{retry.id}") |> json_response(200)
     assert api_detail["occurrence"]["id"] == retry.id
-    assert get(build_conn(), "/api/v1/notifications/invalid") |> json_response(404)
+    assert get(build_conn(), "/api/v1/notifications/invalid") |> json_response(422)
 
     api_page =
       get(build_conn(), "/api/v1/notifications", %{notification_status: "delivered"})

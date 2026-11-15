@@ -35,7 +35,7 @@ defmodule Mondek.ResultDetailsTest do
     pid = start_supervised!({Bandit, plug: MondekWeb.Endpoint, port: 0, ip: {127, 0, 0, 1}})
     {:ok, {_, port}} = ThousandIsland.listener_info(pid)
     url = "http://127.0.0.1:#{port}"
-    assert {200, _} = post(url, "/api/v1/control", control())
+    assert {200, _} = post(url, "/api/v1/runner/control", control())
     time = DateTime.to_iso8601(Monitoring.now())
 
     sample =
@@ -44,15 +44,15 @@ defmodule Mondek.ResultDetailsTest do
       |> with_details("Backup completed with errors.\nElapsed: 3 seconds\n<untrusted> & text")
 
     assert {200, %{"dispositions" => [%{"disposition" => "current"}]}} =
-             post(url, "/api/v1/observations", envelope([sample]))
+             post(url, "/api/v1/runner/observations", envelope([sample]))
 
     assert {200, %{"dispositions" => [%{"disposition" => "duplicate"}]}} =
-             post(url, "/api/v1/observations", envelope([sample]))
+             post(url, "/api/v1/runner/observations", envelope([sample]))
 
     assert {200, %{"dispositions" => [%{"disposition" => "conflict"}]}} =
              post(
                url,
-               "/api/v1/observations",
+               "/api/v1/runner/observations",
                envelope([with_details(sample, "Changed details")])
              )
 
@@ -64,7 +64,7 @@ defmodule Mondek.ResultDetailsTest do
     large_report = with_details(sample, String.duplicate("x", 16_384))
 
     assert {413, _} =
-             post(url, "/api/v1/observations", envelope(List.duplicate(large_report, 17)))
+             post(url, "/api/v1/runner/observations", envelope(List.duplicate(large_report, 17)))
   end
 
   test "retained details keep confirmed provenance through changed configuration, failure and stale collection" do

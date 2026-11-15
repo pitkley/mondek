@@ -24,6 +24,7 @@ defmodule Mondek.MixProject do
   defp deps,
     do: [
       {:phoenix, "~> 1.8.0"},
+      {:open_api_spex, "~> 3.22"},
       {:phoenix_live_view, "~> 1.1"},
       {:phoenix_html, "~> 4.4"},
       {:earmark_parser, "~> 1.4.46"},

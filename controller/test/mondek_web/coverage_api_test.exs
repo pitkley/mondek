@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.CoverageAPITest do
   use Mondek.DataCase, async: false
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [json_response: 2]
+  import Mondek.APIResponse
   alias Mondek.CoverageFixtures, as: F
   @endpoint MondekWeb.Endpoint
 
@@ -47,7 +48,7 @@ defmodule MondekWeb.CoverageAPITest do
     conn =
       build_conn()
       |> Plug.Conn.put_req_header("content-type", "application/json")
-      |> post("/api/v1/inventory", malformed)
+      |> post("/api/v1/runner/inventory", malformed)
 
     assert conn.status == 422
     assert json_response(conn, 422)["error"]
@@ -72,7 +73,7 @@ defmodule MondekWeb.CoverageAPITest do
       response =
         build_conn()
         |> Plug.Conn.put_req_header("content-type", "application/json")
-        |> post("/api/v1/inventory", p)
+        |> post("/api/v1/runner/inventory", p)
         |> json_response(200)
 
       assert response["accepted_checks"] == 1

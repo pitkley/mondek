@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -11,9 +12,9 @@ test('durable rules are reviewable, retain drafts across reconnect and expose in
   const stream = (await streams(request)).items[0];
   const assignmentID = stream.assignment_id;
   async function assignment() {
-    const response = await request.get(`/api/v1/assignments/${assignmentID}`);
+    const response = await request.get(`/api/v1/assignments/${assignmentID}/configuration`);
     expect(response.ok(), await response.text()).toBeTruthy();
-    return response.json();
+    return response.json().then(unpackAPI);
   }
   await page.goto('/configuration');
   await connected(page);
@@ -96,7 +97,7 @@ test('durable rules are reviewable, retain drafts across reconnect and expose in
 
   // A concurrent instance edit invalidates the review without discarding our draft.
   const before = await assignment();
-  const concurrent = await request.put(`/api/v1/assignments/${assignmentID}`, {
+  const concurrent = await request.put(`/api/v1/assignments/${assignmentID}/configuration`, {
     data: { revision: before.revision, params: { warning_items: 60, critical_items: 120 } },
   });
   expect(concurrent.ok(), await concurrent.text()).toBeTruthy();

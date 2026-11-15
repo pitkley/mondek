@@ -90,6 +90,16 @@ defmodule Mondek.ConfigurationRepository do
 
   def lock!, do: Repo.query!("SELECT pg_advisory_xact_lock($1)", [@lock])
 
+  @doc "Read the already initialized repository identity without changing durable state."
+  def read_state do
+    case Repo.query!(
+           "SELECT installation_id::text, head FROM configuration_repository WHERE id=1"
+         ).rows do
+      [[id, head]] -> {:ok, %{installation_id: id, head: head}}
+      [] -> {:error, :unavailable}
+    end
+  end
+
   def state do
     Repo.transaction(fn ->
       lock!()

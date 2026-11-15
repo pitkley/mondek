@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import {test, expect} from '@playwright/test';
@@ -148,7 +149,7 @@ test('runner monitoring supports reviewed configuration, live draft recovery and
   expect(retried.payload).toEqual(occurrence.payload);
   expect(retried.destination).toEqual(occurrence.destination);
   expect(retried.attempt_count).toBe(4);
-  const receipts = await (await request.get(`${fixtureURL}/records`)).json();
+  const receipts = await (await request.get(`${fixtureURL}/records`)).json().then(unpackAPI);
   expect(receipts.records.some(receipt => receipt.payload.occurrence_id === occurrence.id)).toBe(true);
   await mode(request, {ready: true});
   await measured(request, httpId);

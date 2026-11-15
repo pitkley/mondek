@@ -31,14 +31,19 @@ defmodule MondekWeb.Router do
     else
       conn
       |> put_resp_content_type("application/json")
-      |> send_resp(415, ~s({"error":"API writes require application/json."}))
+      |> MondekWeb.API.Response.error(
+        415,
+        "unsupported_media_type",
+        "API writes require application/json."
+      )
       |> halt()
     end
   end
 
   defp require_json_write(conn, _), do: conn
 
-  get "/health", MondekWeb.APIController, :health
+  get "/api/docs", MondekWeb.API.SpecController, :docs
+  get "/health", MondekWeb.API.V1.SystemController, :health
 
   get "/configuration.git/info/refs", MondekWeb.ConfigurationGitController, :info
   post "/configuration.git/git-upload-pack", MondekWeb.ConfigurationGitController, :upload
@@ -100,74 +105,81 @@ defmodule MondekWeb.Router do
 
   scope "/api/v1", MondekWeb do
     pipe_through :api
-    get "/snapshot", APIController, :snapshot
-    get "/overview", APIController, :overview
-    get "/coverage", APIController, :coverage
-    get "/coverage/publishers", APIController, :coverage_publishers
-    get "/publishers/:id", APIController, :publisher
-    get "/publishers/:id/successors", APIController, :publisher_successors
-    get "/publishers/:id/events/:event_id", APIController, :publisher_event
+    get "/openapi.json", API.SpecController, :show
+    get "/snapshot", API.V1.SystemController, :snapshot
+    get "/overview", API.V1.SystemController, :overview
+    get "/coverage", API.V1.CoverageController, :coverage
+    get "/coverage/publishers", API.V1.CoverageController, :coverage_publishers
+    get "/publishers/:id", API.V1.PublishersController, :publisher
+    get "/publishers/:id/successors", API.V1.PublishersController, :publisher_successors
+    get "/publishers/:id/events/:event_id", API.V1.PublishersController, :publisher_event
 
     get "/publishers/:id/events/:event_id/evidence/:observation_id",
-        APIController,
+        API.V1.PublishersController,
         :publisher_evidence
 
-    post "/publishers/preview", APIController, :publisher_preview
-    post "/publishers/apply", APIController, :publisher_apply
-    get "/coverage/diagnostics", APIController, :coverage_diagnostics
-    get "/coverage/:id/observers", APIController, :coverage_observers
-    get "/coverage/:id", APIController, :coverage_scope
-    get "/checks", APIController, :checks
-    get "/checks/:id", APIController, :check
-    get "/configuration", APIController, :configuration
-    get "/configuration/revision", APIController, :configuration_revision
-    post "/configuration/policy/plan", APIController, :policy_plan
-    post "/configuration/policy/apply", APIController, :policy_apply
-    get "/configuration/policy/export", APIController, :policy_export
-    get "/configuration/policy/values", APIController, :policy_values
-    get "/maintenance", APIController, :maintenance_windows
-    get "/maintenance/seed/:assignment_id", APIController, :maintenance_seed
-    post "/maintenance/preview", APIController, :maintenance_preview
-    post "/maintenance/apply", APIController, :maintenance_apply
-    get "/maintenance/:id", APIController, :maintenance_window
-    post "/maintenance/:id/cancel", APIController, :maintenance_cancel
-    post "/maintenance-series/preview", APIController, :maintenance_series_preview
-    post "/maintenance-series/apply", APIController, :maintenance_series_apply
-    get "/maintenance-series/:id", APIController, :maintenance_series
+    post "/publishers/preview", API.V1.PublishersController, :publisher_preview
+    post "/publishers/apply", API.V1.PublishersController, :publisher_apply
+    get "/coverage/diagnostics", API.V1.CoverageController, :coverage_diagnostics
+    get "/coverage/:id/observers", API.V1.CoverageController, :coverage_observers
+    get "/coverage/:id", API.V1.CoverageController, :coverage_scope
+    get "/results", API.V1.ResultsController, :checks
+    get "/results/:id/inspection", API.V1.ResultsController, :result_inspection
+    get "/results/:id/evidence/:observation_id", API.V1.ResultsController, :observation
+    get "/results/:id/evidence", API.V1.ResultsController, :evidence
+    get "/results/:id", API.V1.ResultsController, :check
+    get "/assignments", API.V1.AssignmentsController, :configuration
+    get "/configuration/assignments", API.V1.AssignmentsController, :assignment_configurations
+    get "/configuration/revision", API.V1.ConfigurationController, :configuration_revision
+    post "/configuration/policy/plan", API.V1.ConfigurationController, :policy_plan
+    post "/configuration/policy/apply", API.V1.ConfigurationController, :policy_apply
+    get "/configuration/policy/export", API.V1.ConfigurationController, :policy_export
+    get "/configuration/policy/values", API.V1.ConfigurationController, :policy_values
+    get "/maintenance", API.V1.MaintenanceController, :maintenance_windows
+    get "/maintenance/seed/:assignment_id", API.V1.MaintenanceController, :maintenance_seed
+    post "/maintenance/preview", API.V1.MaintenanceController, :maintenance_preview
+    post "/maintenance/apply", API.V1.MaintenanceController, :maintenance_apply
+    get "/maintenance/:id", API.V1.MaintenanceController, :maintenance_window
+    post "/maintenance/:id/cancel", API.V1.MaintenanceController, :maintenance_cancel
+    post "/maintenance-series/preview", API.V1.MaintenanceController, :maintenance_series_preview
+    post "/maintenance-series/apply", API.V1.MaintenanceController, :maintenance_series_apply
+    get "/maintenance-series/:id", API.V1.MaintenanceController, :maintenance_series
 
     post "/maintenance-series/:id/cancel-preview",
-         APIController,
+         API.V1.MaintenanceController,
          :maintenance_series_cancel_preview
 
-    post "/maintenance-series/:id/cancel", APIController, :maintenance_series_cancel
-    get "/configuration/rules", APIController, :rules
-    get "/configuration/rules/seed/:assignment_id", APIController, :rule_seed
-    post "/configuration/rules/preview", APIController, :rule_preview
-    post "/configuration/rules/apply", APIController, :rule_apply
-    get "/configuration/rules/:id", APIController, :rule
-    post "/configuration/exception/reset", APIController, :exception_reset
-    post "/configuration/bulk/select", APIController, :bulk_select
-    post "/configuration/bulk/prepare", APIController, :bulk_prepare
-    post "/configuration/bulk/preview", APIController, :bulk_preview
-    post "/configuration/bulk/apply", APIController, :bulk_apply
-    post "/configuration/bulk/status", APIController, :bulk_status
-    get "/runners", APIController, :runners
-    get "/runners/:id", APIController, :runner
-    get "/notifications", APIController, :notifications
-    get "/notifications/:id", APIController, :notification
-    get "/assignments/:id", APIController, :assignment
-    get "/assignments/:id/inspection", APIController, :assignment_inspection
-    post "/assignments/:id/exception/preview", APIController, :exception_preview
-    get "/incidents", APIController, :incidents
-    get "/monitoring-incidents", APIController, :monitoring_incidents
-    get "/monitoring-incidents/:id", APIController, :monitoring_incident
-    get "/incidents/:id", APIController, :incident
-    get "/health", APIController, :health
-    post "/control", APIController, :control
-    post "/inventory", APIController, :inventory
-    post "/observations", APIController, :observations
-    put "/assignments/:id", APIController, :save
-    post "/notifications/:id/retry", APIController, :retry_notification
-    post "/incidents/:id/acknowledge", APIController, :acknowledge
+    post "/maintenance-series/:id/cancel",
+         API.V1.MaintenanceController,
+         :maintenance_series_cancel
+
+    get "/configuration/rules", API.V1.ConfigurationController, :rules
+    get "/configuration/rules/seed/:assignment_id", API.V1.ConfigurationController, :rule_seed
+    post "/configuration/rules/preview", API.V1.ConfigurationController, :rule_preview
+    post "/configuration/rules/apply", API.V1.ConfigurationController, :rule_apply
+    get "/configuration/rules/:id", API.V1.ConfigurationController, :rule
+    post "/configuration/exception/reset", API.V1.ConfigurationController, :exception_reset
+    post "/configuration/bulk/select", API.V1.ConfigurationController, :bulk_select
+    post "/configuration/bulk/prepare", API.V1.ConfigurationController, :bulk_prepare
+    post "/configuration/bulk/preview", API.V1.ConfigurationController, :bulk_preview
+    post "/configuration/bulk/apply", API.V1.ConfigurationController, :bulk_apply
+    post "/configuration/bulk/status", API.V1.ConfigurationController, :bulk_status
+    get "/runners", API.V1.RunnersController, :runners
+    get "/runners/:id", API.V1.RunnersController, :runner
+    get "/notifications", API.V1.NotificationsController, :notifications
+    get "/notifications/:id", API.V1.NotificationsController, :notification
+    get "/assignments/:id", API.V1.AssignmentsController, :assignment
+    get "/assignments/:id/configuration", API.V1.AssignmentsController, :assignment_inspection
+    post "/assignments/:id/exception/preview", API.V1.ConfigurationController, :exception_preview
+    get "/incidents/health", API.V1.IncidentsController, :incidents
+    get "/incidents/monitoring-loss", API.V1.IncidentsController, :monitoring_incidents
+    get "/incidents/monitoring-loss/:id", API.V1.IncidentsController, :monitoring_incident
+    get "/incidents/health/:id", API.V1.IncidentsController, :incident
+    post "/runner/control", API.V1.RunnerController, :control
+    post "/runner/inventory", API.V1.RunnerController, :inventory
+    post "/runner/observations", API.V1.RunnerController, :observations
+    put "/assignments/:id/configuration", API.V1.AssignmentsController, :save
+    post "/notifications/:id/retry", API.V1.NotificationsController, :retry_notification
+    post "/incidents/health/:id/acknowledge", API.V1.IncidentsController, :acknowledge
   end
 end

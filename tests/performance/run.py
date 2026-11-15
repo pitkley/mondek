@@ -27,7 +27,11 @@ def now() -> str:
 
 def fetch(base: str, path: str) -> dict:
     with urlopen(base + path, timeout=10) as response:
-        return json.load(response)
+        value = json.load(response)
+        if "data" in value and "meta" in value:
+            data = value["data"]
+            return {"items": data, **value["meta"]} if isinstance(data, list) else data
+        return value
 
 
 def run_case(mode: str, count: int, seconds: int, output: Path) -> dict:
@@ -146,7 +150,7 @@ def run_case(mode: str, count: int, seconds: int, output: Path) -> dict:
             deadline = time.monotonic() + 120
             while True:
                 snapshot = fetch(base, "/api/v1/snapshot")
-                checks = fetch(base, "/api/v1/checks?page_size=100")
+                checks = fetch(base, "/api/v1/results?page_size=100")
                 expected = count if mode == "active" else 0
                 if (
                     len(snapshot["runners"]) == count
@@ -276,9 +280,9 @@ def run_case(mode: str, count: int, seconds: int, output: Path) -> dict:
                         re.findall(r"POST " + re.escape(path) + r"(?:\s|$)", logs)
                     )
                     for path in (
-                        "/api/v1/control",
-                        "/api/v1/observations",
-                        "/api/v1/inventory",
+                        "/api/v1/runner/control",
+                        "/api/v1/runner/observations",
+                        "/api/v1/runner/inventory",
                     )
                 },
                 database_delta={
@@ -286,7 +290,7 @@ def run_case(mode: str, count: int, seconds: int, output: Path) -> dict:
                     for key, value in before["database"].items()
                 },
                 snapshot=fetch(base, "/api/v1/snapshot"),
-                checks=fetch(base, "/api/v1/checks?page_size=100"),
+                checks=fetch(base, "/api/v1/results?page_size=100"),
             )
             initial_journals = {
                 row["installation_id"]: row

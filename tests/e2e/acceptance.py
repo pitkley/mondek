@@ -175,7 +175,18 @@ class Acceptance(TextProtocolMixin):
         )
         if code == 413:
             return {"status": status, "body": payload.decode(errors="replace")}
-        return json.loads(payload)
+        value = json.loads(payload)
+        if isinstance(value, dict) and "data" in value and "meta" in value:
+            data = value["data"]
+            return {"items": data, **value["meta"]} if isinstance(data, list) else data
+        if isinstance(value, dict) and isinstance(value.get("error"), dict):
+            return {
+                **value,
+                **value["error"].get("details", {}),
+                "code": value["error"]["code"],
+                "error": value["error"]["message"],
+            }
+        return value
 
     def reviewed_maintenance(self, assignment: str, seconds: int, reason: str) -> dict:
         windows = getattr(self, "_reviewed_windows", {})
@@ -227,7 +238,9 @@ class Acceptance(TextProtocolMixin):
         }
         if seconds:
             options["seconds"] = seconds
-        return self.request(f"/api/v1/incidents/{incident_id}/acknowledge", options)
+        return self.request(
+            f"/api/v1/incidents/health/{incident_id}/acknowledge", options
+        )
 
     def snapshot(self) -> dict[str, Any]:
         return self.request("/api/v1/snapshot")
@@ -325,7 +338,7 @@ db.close()
     def send_report(self, report: dict, code: int = 200) -> dict:
         runner = self.snapshot()["runners"][0]
         return self.request(
-            "/api/v1/observations",
+            "/api/v1/runner/observations",
             {
                 "version": 1,
                 "installation_id": runner["id"],
@@ -511,7 +524,7 @@ db.close()
         initial = self.assignment("filesystem")
         healthy = initial["params"] | {"warn_percent": 99, "crit_percent": 100}
         self.request(
-            f"/api/v1/assignments/{self.assignment('filesystem')['id']}",
+            f"/api/v1/assignments/{self.assignment('filesystem')['id']}/configuration",
             {"revision": initial["revision"], "params": healthy},
             method="PUT",
         )
@@ -527,7 +540,7 @@ db.close()
         original = self.assignment("filesystem")
         invalid = original["params"] | {"warn_percent": 95, "crit_percent": 80}
         self.request(
-            f"/api/v1/assignments/{self.assignment('filesystem')['id']}",
+            f"/api/v1/assignments/{self.assignment('filesystem')['id']}/configuration",
             {"revision": original["revision"], "params": invalid},
             method="PUT",
             code=422,
@@ -540,12 +553,12 @@ db.close()
         self.compose("stop", "runner")
         low = original["params"] | {"warn_percent": 0, "crit_percent": 0.01}
         self.request(
-            f"/api/v1/assignments/{self.assignment('filesystem')['id']}",
+            f"/api/v1/assignments/{self.assignment('filesystem')['id']}/configuration",
             {"revision": original["revision"], "params": low},
             method="PUT",
         )
         self.request(
-            f"/api/v1/assignments/{self.assignment('filesystem')['id']}",
+            f"/api/v1/assignments/{self.assignment('filesystem')['id']}/configuration",
             {"revision": original["revision"], "params": original["params"]},
             method="PUT",
             code=409,
@@ -577,7 +590,7 @@ db.close()
         assert self.assignment("filesystem")["current"]["health"] == "CRIT"
         latest = self.assignment("filesystem")
         self.request(
-            f"/api/v1/assignments/{self.assignment('filesystem')['id']}",
+            f"/api/v1/assignments/{self.assignment('filesystem')['id']}/configuration",
             {"revision": latest["revision"], "params": original["params"]},
             method="PUT",
         )
@@ -1134,7 +1147,7 @@ db.close()
         assert consumer["current"]["knowledge"] == "unavailable"
         assert consumer["current"]["complete"] is False
         assert self.assignment("http")["current"]["knowledge"] == "fresh"
-        self.request("/api/v1/observations", {"padding": "x" * 270000}, code=413)
+        self.request("/api/v1/runner/observations", {"padding": "x" * 270000}, code=413)
         self.mode(data_mode="ok")
         self.eventually("coverage recovers after output limit", self.coverage)
         return {

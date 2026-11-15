@@ -22,6 +22,8 @@ config :mondek, Oban,
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(2)}
   ]
 
+# Protocol numbers have at most 4096 digits, plus an optional minus sign.
+config :jason, decoding_integer_digit_limit: 4097
 config :phoenix, :json_library, Jason
 config :logger, :console, format: "$time $metadata[$level] $message\n"
 import_config "#{config_env()}.exs"

@@ -1213,6 +1213,11 @@ defmodule Mondek.Inspection do
         on: r.id == a.runner_id
 
     query =
+      if present?(f["source_id"]),
+        do: from([a, r] in query, where: a.source_id == ^f["source_id"]),
+        else: query
+
+    query =
       case f["status"] do
         "all" -> query
         "retired" -> from([a, r] in query, where: not is_nil(a.retired_at))
@@ -1961,7 +1966,12 @@ defmodule Mondek.Inspection do
   defp page(query, f) do
     total = Repo.aggregate(query, :count)
     size = number(f["page_size"], 50, 100)
-    page = min(number(f["page"], 1, 1_000_000), max(1, ceil(total / size)))
+
+    page =
+      if f["unclamped"],
+        do: number(f["page"], 1, 1_000_000),
+        else: min(number(f["page"], 1, 1_000_000), max(1, ceil(total / size)))
+
     {page, size, total}
   end
 

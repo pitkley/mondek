@@ -161,7 +161,7 @@ class PolicyAcceptance(DurableRulesAcceptance):
     def set_exception(self, params: dict[str, int]) -> None:
         row = self.assignment_state()
         self.request(
-            "/api/v1/assignments/" + row["id"],
+            "/api/v1/assignments/" + row["id"] + "/configuration",
             {"revision": row["revision"], "params": params},
             method="PUT",
         )
@@ -370,7 +370,9 @@ class PolicyAcceptance(DurableRulesAcceptance):
         assert self.history(before["assignment_id"])[0 : len(history)] == history
         ended = next(
             row
-            for row in self.request("/api/v1/checks/" + before["id"])["incidents"]
+            for row in self.request("/api/v1/results/" + before["id"] + "/inspection")[
+                "incidents"
+            ]
             if row["id"] == incident["id"]
         )
         assert ended["closure_reason"] == "source_removed"

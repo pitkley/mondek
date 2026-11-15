@@ -28,7 +28,7 @@ class Soak(ParityAcceptance):
         consumer = self.assignment(consumer_id)
         next_warning = 5 if consumer["params"]["warn_count"] == 4 else 4
         changed = self.request(
-            "/api/v1/assignments/" + consumer_id,
+            "/api/v1/assignments/" + consumer_id + "/configuration",
             {
                 "revision": consumer["revision"],
                 "params": consumer["params"] | {"warn_count": next_warning},

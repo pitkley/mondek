@@ -4,7 +4,7 @@ defmodule MondekWeb.BodyReader do
   def read_body(conn, options) do
     limit =
       case conn.request_path do
-        "/api/v1/inventory" ->
+        "/api/v1/runner/inventory" ->
           4_194_304
 
         path

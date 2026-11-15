@@ -37,7 +37,7 @@ MAX_BODY = 262144
 def body_limit(url: str) -> int:
     return (
         4 * 1024 * 1024
-        if urlparse(url).path in ("/api/v1/inventory", "/api/v1/control")
+        if urlparse(url).path in ("/api/v1/runner/inventory", "/api/v1/runner/control")
         else MAX_BODY
     )
 

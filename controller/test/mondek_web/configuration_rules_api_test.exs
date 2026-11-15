@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.ConfigurationRulesAPITest do
   use Mondek.DataCase, async: false
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [json_response: 2]
+  import Mondek.APIResponse
   import Plug.Conn
   @endpoint MondekWeb.Endpoint
 
@@ -43,7 +44,7 @@ defmodule MondekWeb.ConfigurationRulesAPITest do
 
     rule_id = saved["rule"]["id"]
     assert is_binary(rule_id)
-    detail = request(:get, "/assignments/#{assignment.id}", nil, 200)
+    detail = request(:get, "/assignments/#{assignment.id}/configuration", nil, 200)
     assert detail["params"] == %{"limit" => 40}
     assert detail["configuration_origin"]["rule_id"] == rule_id
     assert request(:get, "/configuration/rules", nil, 200)["total"] == 1
@@ -52,7 +53,7 @@ defmodule MondekWeb.ConfigurationRulesAPITest do
     exception =
       request(
         :put,
-        "/assignments/#{assignment.id}",
+        "/assignments/#{assignment.id}/configuration",
         %{
           "revision" => detail["revision"],
           "params" => %{"limit" => 70}
@@ -77,7 +78,7 @@ defmodule MondekWeb.ConfigurationRulesAPITest do
       200
     )
 
-    restored = request(:get, "/assignments/#{assignment.id}", nil, 200)
+    restored = request(:get, "/assignments/#{assignment.id}/configuration", nil, 200)
     assert restored["params"] == %{"limit" => 40}
     assert restored["instance_exception"] == nil
   end

@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -20,15 +21,15 @@ async function measured(request, source, health, knowledge = 'fresh') {
 }
 
 async function incidents(request, filters = {}) {
-  const response = await request.get(`/api/v1/incidents?${new URLSearchParams(filters)}`);
+  const response = await request.get(`/api/v1/incidents/health?${new URLSearchParams(filters)}`);
   expect(response.ok(), await response.text()).toBe(true);
-  return response.json();
+  return response.json().then(unpackAPI);
 }
 
 async function detail(request, id, filters = {}) {
-  const response = await request.get(`/api/v1/incidents/${id}?${new URLSearchParams(filters)}`);
+  const response = await request.get(`/api/v1/incidents/health/${id}?${new URLSearchParams(filters)}`);
   expect(response.ok(), await response.text()).toBe(true);
-  return response.json();
+  return response.json().then(unpackAPI);
 }
 
 async function reset(request) {
@@ -171,7 +172,7 @@ test('maintained new impact ends shared acknowledgement and preserves independen
   await page.locator('#maintenance-confirm-cancel').click();
   await expect(page.locator('#maintenance-saved')).toContainText('Ended early');
   await expect.poll(async()=>(await detail(request,group.id,{notification_status:'all'})).occurrences.find(notice=>notice.id===impact.id)?.status).toBe('delivered');
-  const receipts=await(await request.get(`${fixtureURL}/records`)).json();
+  const receipts=await(await request.get(`${fixtureURL}/records`)).json().then(unpackAPI);
   expect(receipts.records.some(receipt=>receipt.payload.occurrence_id===impact.id)).toBe(true);
   await samples(request,{available:false});
   await measured(request,'linux-volume-monitoring','CRIT','unavailable');

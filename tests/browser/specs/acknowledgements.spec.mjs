@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import {test, expect} from '@playwright/test';
@@ -10,7 +11,7 @@ test.beforeEach(async ({request}) => {
   const checks=await demoAssignments(request);
   ({filesystem:{id:filesystemId},http:{id:httpId},consumer:{id:consumerId}}=checks);
   const filesystem=checks.filesystem;
-  const response=await request.put(`/api/v1/assignments/${filesystemId}`,{data:{revision:filesystem.revision,
+  const response=await request.put(`/api/v1/assignments/${filesystemId}/configuration`,{data:{revision:filesystem.revision,
     params:{...filesystem.params,warn_percent:99,crit_percent:100}}});
   expect(response.ok(),await response.text()).toBe(true);
   await measured(request,filesystemId);
@@ -109,7 +110,7 @@ test('acknowledgements retain reviewed drafts, long deadlines and original held 
   await expect(form(page).getByRole('combobox',{name:'Unit',exact:true})).toHaveValue('hours');
   await expect(form(page).locator('textarea[name=note]')).toHaveValue('Long investigation with a reviewed deadline');
   const concurrentBase=await currentIncident();
-  const concurrent=await request.post(`/api/v1/incidents/${incident.id}/acknowledge`,{data:{mode:'duration',seconds:604800,
+  const concurrent=await request.post(`/api/v1/incidents/health/${incident.id}/acknowledge`,{data:{mode:'duration',seconds:604800,
     note:'Concurrent one-week acknowledgement',revision:concurrentBase.acknowledgement_revision,
     attention_revision:concurrentBase.attention_revision}});
   expect(concurrent.ok(),await concurrent.text()).toBe(true);
@@ -162,7 +163,7 @@ test('acknowledgements retain reviewed drafts, long deadlines and original held 
   const delivered=(await snapshot(request)).occurrences.find(item=>item.id===held.id);
   expect(delivered.payload).toEqual(held.payload);
   expect(delivered.attempt_count).toBe(1);
-  const receipts=await(await request.get(`${fixtureURL}/records`)).json();
+  const receipts=await(await request.get(`${fixtureURL}/records`)).json().then(unpackAPI);
   expect(receipts.records.some(item=>item.payload.occurrence_id===held.id)).toBe(true);
   await page.setViewportSize({width:1280,height:900});
   await form(page).locator('input[name=mode][value=until_incident_ends]').check();

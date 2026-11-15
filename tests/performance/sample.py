@@ -124,7 +124,7 @@ def microbench() -> dict:
             before = resource.getrusage(resource.RUSAGE_CHILDREN)
             start = time.monotonic()
             response = post_json(
-                f"http://127.0.0.1:{server.server_port}/api/v1/control",
+                f"http://127.0.0.1:{server.server_port}/api/v1/runner/control",
                 {"version": 1},
                 8,
             )

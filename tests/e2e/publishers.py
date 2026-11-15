@@ -118,13 +118,13 @@ class PublisherAcceptance(CoverageAcceptance):
 
     def group(self, id_: str | None = None) -> dict:
         if id_ is None:
-            groups = self.request("/api/v1/incidents")
+            groups = self.request("/api/v1/incidents/health")
             assert groups["total"] <= 1, (
                 "Same explicit condition created duplicate episodes"
             )
             id_ = next(iter(groups["items"]))["id"]
         return self.request(
-            f"/api/v1/incidents/{id_}?state=all&notification_status=all"
+            f"/api/v1/incidents/health/{id_}?state=all&notification_status=all"
         )
 
     def installed_source(self, service: str) -> str:
@@ -260,7 +260,7 @@ class PublisherAcceptance(CoverageAcceptance):
         stale = self.preview(self.proposal("replace", successor=True))
         assert stale["can_apply"]
         self.request(
-            f"/api/v1/incidents/{self.old_incident['id']}/acknowledge",
+            f"/api/v1/incidents/health/{self.old_incident['id']}/acknowledge",
             {
                 "mode": "until_incident_ends",
                 "revision": self.old_incident["acknowledgement_revision"],
@@ -336,7 +336,7 @@ class PublisherAcceptance(CoverageAcceptance):
             )["health"]
             == "CRIT"
         )
-        closed = self.request(f"/api/v1/incidents/{self.old_incident['id']}")[
+        closed = self.request(f"/api/v1/incidents/health/{self.old_incident['id']}")[
             "incident"
         ]
         assert_administrative_closure(closed, "publisher_replaced")
@@ -345,7 +345,9 @@ class PublisherAcceptance(CoverageAcceptance):
             continuity["incident"]["status"] == "open"
             and continuity["counts"]["open"] == 1
         )
-        successor = self.request(f"/api/v1/incidents/{peer_incident['id']}")["incident"]
+        successor = self.request(f"/api/v1/incidents/health/{peer_incident['id']}")[
+            "incident"
+        ]
         assert (
             successor["status"] == "open" and successor["acknowledgement_mode"] is None
         )
@@ -400,7 +402,7 @@ class PublisherAcceptance(CoverageAcceptance):
         self.retired_envelope = envelope
         attempted = copy.deepcopy(envelope)
         attempted["inventory_revision"] += 100
-        response = self.request("/api/v1/inventory", attempted, code=409)
+        response = self.request("/api/v1/runner/inventory", attempted, code=409)
         assert response["code"] == "publisher_retired"
         retired = self.lifecycle(self.predecessor_id)["publisher"]
         assert retired["lifecycle_status"] == "retired"
@@ -448,7 +450,7 @@ class PublisherAcceptance(CoverageAcceptance):
             key: current_session[key]
             for key in ("installation_id", "session_id", "boot")
         }
-        rejection = self.request("/api/v1/inventory", replayed, code=409)
+        rejection = self.request("/api/v1/runner/inventory", replayed, code=409)
         assert rejection["code"] == "publication_refresh_required"
         failed_refresh = self.eventually(
             "post-restore rediscovery actually fails while membership remains fenced",
@@ -480,7 +482,9 @@ class PublisherAcceptance(CoverageAcceptance):
             and active["inventory_revision"] > floor
         )
         assert_administrative_closure(
-            self.request(f"/api/v1/incidents/{self.old_incident['id']}")["incident"],
+            self.request(f"/api/v1/incidents/health/{self.old_incident['id']}")[
+                "incident"
+            ],
             "publisher_replaced",
         )
         shared = self.eventually(
@@ -551,7 +555,9 @@ class PublisherAcceptance(CoverageAcceptance):
         saved = self.apply(review)
         assert saved["publisher"]["lifecycle_status"] == "retired"
         assert_administrative_closure(
-            self.request(f"/api/v1/incidents/{successor_incident['id']}")["incident"]
+            self.request(f"/api/v1/incidents/health/{successor_incident['id']}")[
+                "incident"
+            ]
         )
         self.save_lifecycle("intentional-retirement")
         return {

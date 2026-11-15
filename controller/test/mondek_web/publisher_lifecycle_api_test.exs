@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.PublisherLifecycleAPITest do
   use Mondek.DataCase, async: false
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [json_response: 2]
+  import Mondek.APIResponse
   alias Mondek.{PublisherLifecycle, SourceInventory}
   alias Mondek.CoverageFixtures, as: F
   @endpoint MondekWeb.Endpoint
@@ -19,7 +20,7 @@ defmodule MondekWeb.PublisherLifecycleAPITest do
     result = request("/api/v1/publishers/apply", apply, 200)
     assert result["publisher"]["lifecycle_status"] == "retired"
 
-    assert request("/api/v1/inventory", Map.put(p, "inventory_revision", 50), 409)["code"] ==
+    assert request("/api/v1/runner/inventory", Map.put(p, "inventory_revision", 50), 409)["code"] ==
              "publisher_retired"
 
     assert (build_conn()
@@ -51,18 +52,18 @@ defmodule MondekWeb.PublisherLifecycleAPITest do
           Map.put(p, "inventory_revision", 50),
           Map.merge(p, %{"inventory_revision" => 50, "restoration_revision" => epoch - 1})
         ] do
-      assert request("/api/v1/inventory", inventory, 409)["code"] ==
+      assert request("/api/v1/runner/inventory", inventory, 409)["code"] ==
                "publication_refresh_required"
     end
 
     for marker <- [nil, "3", 0, -1, 9_223_372_036_854_775_807] do
-      assert request("/api/v1/inventory", Map.put(p, "restoration_revision", marker), 422)[
+      assert request("/api/v1/runner/inventory", Map.put(p, "restoration_revision", marker), 422)[
                "error"
              ]
     end
 
     assert request(
-             "/api/v1/inventory",
+             "/api/v1/runner/inventory",
              Map.merge(p, %{"inventory_revision" => 51, "restoration_revision" => epoch}),
              200
            )["accepted_checks"] == 1
@@ -159,7 +160,9 @@ defmodule MondekWeb.PublisherLifecycleAPITest do
           path <> "bad",
           "/api/v1/publishers/#{id}/events/#{event}/evidence/#{Ecto.UUID.generate()}"
         ] do
-      assert build_conn() |> get(invalid) |> json_response(404)
+      assert build_conn()
+             |> get(invalid)
+             |> json_response(if(String.ends_with?(invalid, "bad"), do: 422, else: 404))
     end
   end
 

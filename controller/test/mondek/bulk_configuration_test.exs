@@ -386,7 +386,7 @@ defmodule Mondek.BulkConfigurationTest do
 
     decoded =
       case Jason.decode(data) do
-        {:ok, value} -> value
+        {:ok, value} -> Mondek.APIResponse.unpack(value)
         _ -> %{"error" => data}
       end
 

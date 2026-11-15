@@ -33,7 +33,8 @@ end
 
 defmodule Mondek.ConditionDeliveryTest do
   use Mondek.DataCase, async: false
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [json_response: 2]
+  import Mondek.APIResponse
   import Plug.Conn
   @endpoint MondekWeb.Endpoint
 
@@ -49,18 +50,21 @@ defmodule Mondek.ConditionDeliveryTest do
 
   test "the API lists one operator incident and applies reviewed shared acknowledgement to every contribution" do
     {_checks, group} = fire_pair()
-    listed = build_conn() |> get("/api/v1/incidents") |> json_response(200)
+    listed = build_conn() |> get("/api/v1/incidents/health") |> json_response(200)
     assert listed["total"] == 1
     assert [%{"id" => id, "incident_kind" => "condition"}] = listed["items"]
     assert id == group.id
+    assert hd(listed["items"])["incident_type"] == "condition"
 
-    filtered = build_conn() |> get("/api/v1/incidents?search=search") |> json_response(200)
+    filtered = build_conn() |> get("/api/v1/incidents/health?search=search") |> json_response(200)
     assert hd(filtered["items"])["health"] == "CRIT"
     assert hd(filtered["items"])["matching_result_count"] == 1
 
-    path = "/api/v1/incidents/#{id}"
+    path = "/api/v1/incidents/health/#{id}"
     detail = build_conn() |> get(path) |> json_response(200)
     assert detail["counts"]["open"] == 2
+    assert detail["incident"]["incident_type"] == "condition"
+    assert Enum.all?(detail["contributions"], &(&1["incident"]["incident_type"] == "individual"))
     assert detail["counts"]["uncovered"] == 2
 
     request = ack(group) |> Map.put("note", "Investigating both observers")
@@ -72,6 +76,7 @@ defmodule Mondek.ConditionDeliveryTest do
       |> json_response(200)
 
     assert saved["id"] == id
+    assert saved["incident_type"] == "condition"
     assert saved["acknowledgement_mode"] == "until_incident_ends"
     detail = build_conn() |> get(path) |> json_response(200)
     assert detail["counts"]["shared_acknowledged"] == 2

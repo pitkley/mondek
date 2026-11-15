@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.RunnersLiveTest do
   use Mondek.DataCase, async: false
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [json_response: 2]
+  import Mondek.APIResponse
   import Phoenix.LiveViewTest
   alias Mondek.{Runner, SourceInventory}
   alias MondekWeb.{InvestigationTrail, RunnersLive}
@@ -56,7 +57,7 @@ defmodule MondekWeb.RunnersLiveTest do
     assert api_page["counts"]["total"] == 50
     assert Enum.map(api_page["items"], & &1["id"]) == second_ids
     assert get(build_conn(), "/api/v1/runners/#{id}") |> json_response(200) |> Map.get("id") == id
-    assert get(build_conn(), "/api/v1/runners/invalid") |> json_response(404)
+    assert get(build_conn(), "/api/v1/runners/invalid") |> json_response(422)
   end
 
   test "chip drafts survive ticks and combined text/contact/collection filters survive reload" do

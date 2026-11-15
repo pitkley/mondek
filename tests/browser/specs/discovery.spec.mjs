@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -30,9 +31,9 @@ test('consumer discoveries propose source changes without accepting inventory an
     const declarations = before.assignments.map((item) => ({ id: item.id, source_revision: item.source_revision, desired_generation: item.desired_generation }));
     const incident = before.incidents.find((item) => item.stream_id === initial.id && item.status === 'open');
     expect(incident).toBeTruthy();
-    const incidentResponse = await request.get(`/api/v1/incidents/${incident.id}`);
+    const incidentResponse = await request.get(`/api/v1/incidents/health/${incident.id}`);
     expect(incidentResponse.ok(), await incidentResponse.text()).toBe(true);
-    const openingDetail = await incidentResponse.json();
+    const openingDetail = await incidentResponse.json().then(unpackAPI);
     const openingId = openingDetail.occurrences.find(item => item.kind === 'firing').payload.observation_id;
     expect(openingId).toMatch(/^[0-9a-f-]{36}$/);
     const openingReport = openingDetail.evidence.find(item => item.id === openingId).payload;

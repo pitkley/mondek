@@ -17,7 +17,7 @@ class AcknowledgementAcceptance(Acceptance):
 
     def acknowledge(self, incident: dict, mode: str, **options: Any) -> dict:
         return self.request(
-            f"/api/v1/incidents/{incident['id']}/acknowledge",
+            f"/api/v1/incidents/health/{incident['id']}/acknowledge",
             {
                 "mode": mode,
                 "revision": incident["acknowledgement_revision"],
@@ -133,7 +133,7 @@ class AcknowledgementAcceptance(Acceptance):
         assert deadline > datetime.now(timezone.utc) + timedelta(days=89)
         # Stale cancellation cannot silently overwrite the longer acknowledgement.
         self.request(
-            f"/api/v1/incidents/{incident['id']}/acknowledge",
+            f"/api/v1/incidents/health/{incident['id']}/acknowledge",
             {
                 "mode": "end",
                 "revision": incident["acknowledgement_revision"],

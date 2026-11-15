@@ -13,7 +13,7 @@ export async function mode(request, changes) {
 export async function snapshot(request) {
   const response = await request.get('/api/v1/snapshot');
   expect(response.ok()).toBeTruthy();
-  return response.json();
+  return response.json().then(unpackAPI);
 }
 
 export async function demoAssignments(request) {
@@ -35,7 +35,7 @@ export async function incidentNavigation(page, request, expected) {
   await expect.poll(async () => {
     const response = await request.get('/api/v1/overview');
     expect(response.ok()).toBeTruthy();
-    const overview = await response.json();
+    const overview = await response.json().then(unpackAPI);
     counts = { health: overview.unacknowledged_incident_count || 0,
       monitoring: overview.monitoring_loss?.unacknowledged_count || 0 };
     return expected ? counts : true;
@@ -114,9 +114,9 @@ export async function checkpoint(page, testInfo, label) {
 }
 
 export async function streams(request, filters = {}) {
-  const response = await request.get(`/api/v1/checks?${new URLSearchParams(filters)}`);
+  const response = await request.get(`/api/v1/results?${new URLSearchParams(filters)}`);
   expect(response.ok(), `Check inventory returned HTTP ${response.status()}`).toBeTruthy();
-  return response.json();
+  return response.json().then(unpackAPI);
 }
 
 export async function streamMeasured(request, target, health = 'OK', timeout = 45_000) {
@@ -140,18 +140,18 @@ export async function attachState(request, testInfo, label) {
 export async function reviewedMaintenance(request, assignment, seconds, reason) {
   const seedResponse = await request.get(`/api/v1/maintenance/seed/${assignment}`);
   expect(seedResponse.ok(), await seedResponse.text()).toBe(true);
-  const seed = await seedResponse.json();
+  const seed = await seedResponse.json().then(unpackAPI);
   const proposal = { ...seed.proposal, name: 'Browser maintenance', reason,
     timezone: 'UTC', start_mode: 'now',
     ends_local: new Date(Date.now() + seconds * 1000).toISOString().slice(0, 19) };
   const previewResponse = await request.post('/api/v1/maintenance/preview', { data: { proposal } });
   expect(previewResponse.ok(), await previewResponse.text()).toBe(true);
-  const preview = await previewResponse.json();
+  const preview = await previewResponse.json().then(unpackAPI);
   const response = await request.post('/api/v1/maintenance/apply', {
     data: { proposal: preview.proposal, review_token: preview.review_token },
   });
   expect(response.ok(), await response.text()).toBe(true);
-  return response.json();
+  return response.json().then(unpackAPI);
 }
 
 export async function cancelReviewedMaintenance(request, window, reason) {
@@ -238,4 +238,12 @@ export async function reconnect(page, {alreadyDisconnected = false} = {}) {
   await expect(page.locator('[data-phx-main]')).not.toHaveClass(/phx-connected/);
   await page.evaluate(() => window.liveSocket.connect());
   await connected(page);
+}
+
+// Convert API envelopes for the domain-focused browser assertions below.
+export function unpackAPI(value) {
+  if (value && Object.hasOwn(value, 'data') && value.meta) {
+    return Array.isArray(value.data) ? { items: value.data, ...value.meta } : value.data;
+  }
+  return value;
 }

@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.AcknowledgementsAPITest do
   use Mondek.DataCase, async: false
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [json_response: 2]
+  import Mondek.APIResponse
   import Plug.Conn
   @endpoint MondekWeb.Endpoint
 
@@ -10,7 +11,7 @@ defmodule MondekWeb.AcknowledgementsAPITest do
     connect()
     ingest(measurement("CRIT"))
     row = Repo.one!(Incident)
-    path = "/api/v1/incidents/#{row.id}/acknowledge"
+    path = "/api/v1/incidents/health/#{row.id}/acknowledge"
 
     request = %{
       "mode" => "until_incident_ends",
@@ -56,7 +57,7 @@ defmodule MondekWeb.AcknowledgementsAPITest do
     }
 
     assert json_response(post_json(path, cancel), 200)["acknowledgement_mode"] == nil
-    assert json_response(post_json("/api/v1/incidents/invalid/acknowledge", request), 422)
+    assert json_response(post_json("/api/v1/incidents/health/invalid/acknowledge", request), 422)
   end
 
   defp post_json(path, body),

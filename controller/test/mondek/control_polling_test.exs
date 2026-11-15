@@ -264,7 +264,7 @@ defmodule Mondek.ControlPollingTest do
       {:ok, {{_, status, _}, _, json}} =
         :httpc.request(
           :post,
-          {String.to_charlist(url <> "/api/v1/control"), [], ~c"application/json",
+          {String.to_charlist(url <> "/api/v1/runner/control"), [], ~c"application/json",
            Jason.encode!(body)},
           [timeout: 8_000],
           body_format: :binary

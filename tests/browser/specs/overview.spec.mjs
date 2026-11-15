@@ -1,10 +1,11 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import {test, expect} from '@playwright/test';
 import {checkpoint, connected, mode} from '../support/helpers.mjs';
 
 test('LiveView overview preserves independent evidence and missing declarations across navigation and reconnect', async ({page, request}, testInfo) => {
-  const scopes = async () => (await (await request.get('/api/v1/coverage')).json()).items;
+  const scopes = async () => (await (await request.get('/api/v1/coverage')).json().then(unpackAPI)).items;
   let staging;
   await expect.poll(async () => {
     staging = (await scopes()).find(scope => scope.environment === 'staging');
@@ -19,7 +20,7 @@ test('LiveView overview preserves independent evidence and missing declarations 
   }});
   await expect.poll(async () => {
     const response = await request.get(`/api/v1/coverage/${staging.id}/observers`);
-    return (await response.json()).items.some(observer => observer.current?.health === 'CRIT');
+    return (await response.json().then(unpackAPI)).items.some(observer => observer.current?.health === 'CRIT');
   }).toBe(true);
 
   await page.setViewportSize({width: 1600, height: 1000});
@@ -302,7 +303,7 @@ test('thirty real alerts remain compact and page without dropping evidence', asy
   const post = async (path, data) => {
     const response = await request.post(`/api/v1/${path}`, {data});
     expect(response.ok(), await response.text()).toBeTruthy();
-    return response.json();
+    return response.json().then(unpackAPI);
   };
   await post('inventory', {...identity, runner_label: 'Density preview', source_id: 'density-preview',
     source_revision: 'a'.repeat(64), inventory_revision: 1, complete: true, checks});

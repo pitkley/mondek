@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Mondek.ConfigurationPolicyTest do
   use Mondek.DataCase, async: false
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [json_response: 2]
+  import Mondek.APIResponse
   import Plug.Conn
   @endpoint MondekWeb.Endpoint
 
@@ -561,7 +562,12 @@ defmodule Mondek.ConfigurationPolicyTest do
     inspected = request(:get, "/configuration/policy/values?source_id=policy-tests", nil, 200)
     assert hd(inspected["rows"])["current_origin"]["managed_project"] == "personal"
     assert hd(inspected["rows"])["id"] == row.id
-    rule = hd(response["changes"])["after"]
+
+    rule =
+      Map.take(
+        hd(response["changes"])["after"],
+        ~w(id revision name source_id parameter_contract environment target_kind target_key priority enabled parameter_schema params)
+      )
 
     preview = request(:post, "/configuration/rules/preview", %{"proposal" => rule}, 200)
     assert is_binary(preview["review_token"])

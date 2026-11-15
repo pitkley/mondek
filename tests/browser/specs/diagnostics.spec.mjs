@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -136,7 +137,7 @@ test('measurement investigation distinguishes collection failure from lost runne
     await expect.poll(async () => {
       const response = await request.get(`${fixtureURL}/transport-records`);
       expect(response.ok()).toBeTruthy();
-      const records = (await response.json()).records;
+      const records = (await response.json().then(unpackAPI)).records;
       return records.flatMap((record) => record.request.reports).some((report) =>
         report.assignment_id === consumerId
         && Date.parse(report.started_at) > blockedAt

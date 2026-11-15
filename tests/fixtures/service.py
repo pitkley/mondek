@@ -209,7 +209,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def read_body(self) -> Any:
         size = int(self.headers.get("Content-Length", "0"))
-        limit = MAX_INVENTORY_BODY if self.path == "/api/v1/inventory" else MAX_BODY
+        limit = (
+            MAX_INVENTORY_BODY if self.path == "/api/v1/runner/inventory" else MAX_BODY
+        )
         if size < 0 or size > limit:
             raise ValueError(f"request exceeds {limit} bytes")
         return json.loads(self.rfile.read(size))
@@ -307,9 +309,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/mode":
                 self.respond(200, update_mode(body))
             elif self.path in {
-                "/api/v1/control",
-                "/api/v1/observations",
-                "/api/v1/inventory",
+                "/api/v1/runner/control",
+                "/api/v1/runner/observations",
+                "/api/v1/runner/inventory",
             }:
                 self.proxy(body)
             elif self.path == "/webhook":
@@ -353,7 +355,7 @@ class Handler(BaseHTTPRequestHandler):
             {"Content-Type": "application/json"},
         )
         response_limit = (
-            MAX_INVENTORY_BODY if self.path == "/api/v1/control" else MAX_BODY
+            MAX_INVENTORY_BODY if self.path == "/api/v1/runner/control" else MAX_BODY
         )
         try:
             with urllib.request.urlopen(request, timeout=15) as response:
@@ -371,7 +373,7 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(502, {"error": "local controller unavailable"})
             return
         drop = False
-        if self.path == "/api/v1/observations":
+        if self.path == "/api/v1/runner/observations":
             with closing(database()) as db, db:
                 db.execute("BEGIN IMMEDIATE")
                 current = read_mode(db)

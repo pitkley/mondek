@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -26,7 +27,7 @@ test('Linux pack groups, measurements and shared code policy on two runners', as
   const manifest = { version: 1, project: 'linux-acceptance', rules: [{ key: 'memory', name: 'Fleet memory limits', source_id: 'linux-pack-example', parameter_contract: 'mondek.linux.memory.v1', params: { warning: 30, critical: 40 } }] };
   let response = await request.post('/api/v1/configuration/policy/plan', { data: { manifest } });
   expect(response.ok(), await response.text()).toBeTruthy();
-  const plan = await response.json();
+  const plan = await response.json().then(unpackAPI);
   response = await request.post('/api/v1/configuration/policy/apply', { data: { manifest, review_token: plan.review_token } });
   expect(response.ok(), await response.text()).toBeTruthy();
   await expect.poll(async () => {
@@ -34,7 +35,7 @@ test('Linux pack groups, measurements and shared code policy on two runners', as
     return rows.find(row => row.id === memory.id).current.health;
   }, {timeout: 120000}).toBe('CRIT');
   for (const row of items.filter(row => row.check_label.includes('memory'))) {
-    const assignment = await (await request.get(`/api/v1/assignments/${row.assignment_id}`)).json();
+    const assignment = await (await request.get(`/api/v1/assignments/${row.assignment_id}/configuration`)).json().then(unpackAPI);
     expect(assignment.params).toEqual({warning: 30, critical: 40});
   }
   await page.reload();
@@ -48,10 +49,10 @@ test('Linux pack groups, measurements and shared code policy on two runners', as
   await expect(page.locator('[name="params[critical]"]')).toHaveValue('40');
   const empty = {...manifest, rules: []};
   // Deliberate fixture removal: production callers must review intervening edits first.
-  const revision = await (await request.get('/api/v1/configuration/revision')).json();
+  const revision = await (await request.get('/api/v1/configuration/revision')).json().then(unpackAPI);
   response = await request.post('/api/v1/configuration/policy/plan', {data: {manifest: empty, base_head: revision.head}});
   expect(response.ok(), await response.text()).toBeTruthy();
-  const removal = await response.json();
+  const removal = await response.json().then(unpackAPI);
   response = await request.post('/api/v1/configuration/policy/apply', {data: {manifest: empty, review_token: removal.review_token}});
   expect(response.ok(), await response.text()).toBeTruthy();
   await expect.poll(async () => (await streams(request, {page_size:100})).items.find(row => row.id === memory.id).current.health, {timeout:120000}).toBe('OK');
@@ -73,7 +74,7 @@ test('Linux pack groups, measurements and shared code policy on two runners', as
   await expect(page).toHaveURL(url => /^\/configuration\/rules\/[0-9a-f-]{36}$/.test(url.pathname)
     && url.searchParams.get('return_to') === `/configuration/${discovery.assignment_id}`);
   await expect.poll(async () => {
-    const assignment = await (await request.get(`/api/v1/assignments/${discovery.assignment_id}`)).json();
+    const assignment = await (await request.get(`/api/v1/assignments/${discovery.assignment_id}/configuration`)).json().then(unpackAPI);
     return assignment.params.filesystem_exclude;
   }).toBe('/data*');
   await page.setViewportSize({width: 390, height: 844});

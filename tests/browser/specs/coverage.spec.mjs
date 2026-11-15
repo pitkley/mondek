@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -6,13 +7,13 @@ import { checkpoint, connected, incidentNavigation, keyboardSubmit, mode, sectio
 async function coverage(request, filters = {}) {
   const response = await request.get(`/api/v1/coverage?${new URLSearchParams(filters)}`);
   expect(response.ok(), await response.text()).toBeTruthy();
-  return response.json();
+  return response.json().then(unpackAPI);
 }
 
 async function observers(request, id) {
   const response = await request.get(`/api/v1/coverage/${id}/observers`);
   expect(response.ok(), await response.text()).toBeTruthy();
-  return (await response.json()).items;
+  return (await response.json().then(unpackAPI)).items;
 }
 
 async function scopeInState(request, predicate, status) {

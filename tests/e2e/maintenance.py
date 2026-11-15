@@ -375,7 +375,7 @@ class MaintenanceAcceptance(MaintenanceClient, AcknowledgementAcceptance):
         )
         original_disk = self.assignment("filesystem")
         self.request(
-            f"/api/v1/assignments/{self.assignment('filesystem')['id']}",
+            f"/api/v1/assignments/{self.assignment('filesystem')['id']}/configuration",
             {
                 "revision": original_disk["revision"],
                 "params": original_disk["params"]
@@ -444,7 +444,7 @@ class MaintenanceAcceptance(MaintenanceClient, AcknowledgementAcceptance):
 
         disk = self.assignment("filesystem")
         self.request(
-            f"/api/v1/assignments/{self.assignment('filesystem')['id']}",
+            f"/api/v1/assignments/{self.assignment('filesystem')['id']}/configuration",
             {"revision": disk["revision"], "params": original_disk["params"]},
             method="PUT",
         )
