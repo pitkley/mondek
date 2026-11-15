@@ -1,25 +1,21 @@
-# Mondek 0.0.1
+# Mondek 0.0.2
 
-This release replaces the operator interface with the Pearl design. The Python SDK and controller versions are both `0.0.1`; the Git tag is `v0.0.1` and controller image tag is `0.0.1`. Mondek remains experimental, with no stable compatibility or production-readiness guarantee; removing the prerelease suffix does not change that scope.
+This release unifies the controller HTTP APIs and adds a documented API for read-only integrations, including incident investigation. The SDK and controller versions are both `0.0.2`; the intended Git tag is `v0.0.2` and controller image tag is `0.0.2`. Mondek remains experimental.
 
-## Operator interface
+## Breaking HTTP and runner changes
 
-The new interface replaces the legacy UI at the root URL. A compact overview combines results, monitoring gaps and open incidents. Incidents, checks, coverage, maintenance, configuration, discovery, runners and notification delivery use consistent tables, status colors, filters and pagination.
+Upgrade the controller and SDK/runners together. Version 0.0.1 runners cannot communicate with the 0.0.2 controller, and 0.0.2 runners cannot communicate with the 0.0.1 controller. Runner exchanges move from `/api/v1/{control,inventory,observations}` to `/api/v1/runner/{control,inventory,observations}` with no compatibility aliases.
 
-Search accepts plain text and editable filter chips, with keyboard navigation. Related incidents, contributing results and evidence open in stacked investigation panels. Panels and full detail pages share their entity content, including acknowledgement controls, maintenance settings, delivery evidence and histories. Check details support rendered Markdown with unsafe HTML and links excluded.
+Resource reads use `{data,meta}` envelopes and structured errors include a request ID. Result inspection uses `/api/v1/results`; assignment inspection uses `/api/v1/assignments`, with editable settings under `/api/v1/assignments/:id/configuration`. Health and monitoring-loss incidents use separate collections. Update integrations and any gateway path policies using the [route disposition table](API-ROUTES.md).
 
-Coverage separates declared results from runner diagnostics so unresolved declarations can be reviewed without mistaking them for measurements. Current health, monitoring freshness, retained evidence and notification controls remain distinct. Webhook destination secrets are excluded from operator views.
+## API contracts and integrations
 
-## Security update
+The unified `/api/v1` surface covers results, incidents, observations, runners, coverage, maintenance, configuration and existing runner exchanges. Read-only integrations can inspect monitoring state and evidence without using the operator UI. OpenAPI is generated from the Phoenix operation and schema definitions, checked into `contracts/http/v1/openapi.json`, served at `/api/v1/openapi.json` and browsable at `/api/docs`. Contract checks reject stale generated output and duplicate operation IDs.
 
-The locked Ecto dependency is updated to 3.14.3 to address CVE-2026-118391, unbounded query-cache growth from interpolated JSON paths, `splice/1` lists and `constant/1` values. Dependency notices and inventories are regenerated for the patched version. The dependency advisory audit remains a release gate.
+MCP remains a separate transport and shares investigation projections with the HTTP API. HTTP version 1, runner report format version 1 and MCP schema version 1 are unchanged; these identify formats rather than release numbers. Built-in authentication and permission management remain out of scope; retain the existing [external access boundary](CONTROLLER-AUTH.md).
 
 ## Upgrading
 
-Back up PostgreSQL and each runner's durable state before replacing artifacts. Use matching controller/SDK releases or build both from the same reviewed source revision. Preserve runner installation/state identities and verify fresh adopted measurements after the update. This release adds no database schema migration; packaged startup continues to apply pending migrations automatically. See [upgrading](UPGRADING.md).
+Back up PostgreSQL and each runner's complete durable state, then stop the old runners, upgrade the controller against the existing database and start the matching 0.0.2 SDK/runners. Retain installation identities, journals, buffered reports and configuration history. SDK updates require normal discovery/preparation for the new runtime identity. Verify fresh adopted measurements, retained incidents and pending notifications after the update. See the [coordinated upgrade guide](UPGRADING.md#002-unified-http-api-cutover).
 
-Browser routes have changed. The legacy interface and `/next` prefix are removed rather than redirected. Existing bookmarks and links in previously sent notifications may no longer resolve; open the root interface and find the relevant entity again. Stored measurements, incidents and configuration history are retained.
-
-For installations upgrading from 0.0.1a2, the already published [0.0.1a3 release](https://github.com/pitkley/mondek/releases/tag/v0.0.1a3) also introduced PostgreSQL TLS, production webhooks and explicit production database defaults. Directly launched controllers must supply the intended database name and port; retain old webhook destination definitions and credentials until queued work drains. The [upgrade guide](UPGRADING.md) records these requirements.
-
-Externally accessible installations still require an authentication gateway: Mondek has no built-in operator authentication or permission management. Review the [access boundary](CONTROLLER-AUTH.md) and [acceptance coverage](ACCEPTANCE-COVERAGE.md). Notification routing and fan-out remain outside this release. The sample runner image remains a demo, not a generic consumer deployment base.
+This release adds no database migration or stored report/configuration format change. Packaged startup continues to apply pending migrations automatically. Controller configuration repository identity is initialized before HTTP starts; reading its revision no longer creates durable state. Buffered reports retain their original identities, ages and replay dispositions.
