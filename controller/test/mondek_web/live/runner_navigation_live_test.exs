@@ -108,16 +108,16 @@ defmodule MondekWeb.RunnerNavigationLiveTest do
 
     {:ok, incidents, _} = live(build_conn(), path)
     assert has_element?(incidents, "#preview-chip-runner_id", "Observer one")
-    assert row_count(incidents, "table[aria-label=Incidents]") == 1
-    assert has_element?(incidents, "table[aria-label=Incidents]", "Observer one")
-    refute has_element?(incidents, "table[aria-label=Incidents]", "Observer two")
+    assert row_count(incidents, "#incidents-unacknowledged table") == 1
+    assert has_element?(incidents, "#incidents-unacknowledged table", "Observer one")
+    refute has_element?(incidents, "#incidents-unacknowledged table", "Observer two")
 
     incidents
     |> element("#preview-chip-runner_id a[aria-label='Remove Runner filter']")
     |> render_click()
 
     refute has_element?(incidents, "#preview-chip-runner_id")
-    assert row_count(incidents, "table[aria-label=Incidents]") == 2
+    assert row_count(incidents, "#incidents-unacknowledged table") == 2
   end
 
   defp publish_two do
