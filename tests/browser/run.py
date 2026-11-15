@@ -354,7 +354,7 @@ def run_suite(suite: str) -> bool:
                     ("snapshot", "snapshot"),
                     ("overview", "overview"),
                     ("runners", "runners"),
-                    ("monitoring-incidents", "monitoring-incidents?status=all"),
+                    ("monitoring-incidents", "incidents/monitoring-loss?status=all"),
                 ):
                     try:
                         url = (
