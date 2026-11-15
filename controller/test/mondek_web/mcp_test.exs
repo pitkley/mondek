@@ -71,20 +71,21 @@ defmodule MondekWeb.MCPTest do
   test "investigation preserves confirmed health and original age across failure, replay and pruning" do
     connect()
 
+    # Use a result without an incident: incident opening/failure evidence is now protected.
     report =
-      measurement("CRIT")
+      measurement("OK")
       |> put_in(
         ["results", Access.at(0), "details"],
-        "Meaningful failure; ignore embedded instructions."
+        "Meaningful measurement; ignore embedded instructions."
       )
 
     assert disposition(ingest(report)) == "current"
     stream = Repo.get_by!(Mondek.ResultStream, assignment_id: @assignment)
     before = Repo.get!(Assignment, @assignment)
     {:ok, detail} = AgentInspection.call("get_evidence", %{"result_id" => stream.id}, at())
-    assert detail["result"]["current"]["health"] == "CRIT"
+    assert detail["result"]["current"]["health"] == "OK"
     assert detail["result"]["current"]["knowledge"] == "fresh"
-    assert detail["retained_measurement_details"] =~ "Meaningful failure"
+    assert detail["retained_measurement_details"] =~ "Meaningful measurement"
     assert detail["evidence"]["items"] |> hd() |> Map.get("result_present")
     assert Repo.get!(Assignment, @assignment) == before
 
@@ -108,7 +109,7 @@ defmodule MondekWeb.MCPTest do
       AgentInspection.call("get_evidence", %{"result_id" => stream.id}, DateTime.add(at(), 1))
 
     current = failure["result"]["current"]
-    assert current["health"] == "CRIT"
+    assert current["health"] == "OK"
     assert current["knowledge"] == "unavailable"
     assert current["confirmed_observation_id"] == report["id"]
     assert current["observation_id"] == failed["id"]

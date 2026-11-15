@@ -751,8 +751,16 @@ defmodule Mondek.MonitoringLoss do
           offset: ^((page - 1) * @page_size)
       )
 
+    runner_ids = Enum.map(items, & &1.runner_id) |> Enum.reject(&is_nil/1)
+
+    runners =
+      Repo.all(from r in Runner, where: r.id in ^runner_ids) |> Map.new(&{&1.id, &1.label})
+
     Map.merge(counts(at), %{
-      "items" => Enum.map(items, &Monitoring.public/1),
+      "items" =>
+        Enum.map(items, fn i ->
+          Mondek.IncidentPresentation.loss(Monitoring.public(i), at, runners[i.runner_id])
+        end),
       "total" => total,
       "page" => page,
       "page_size" => @page_size
@@ -794,7 +802,10 @@ defmodule Mondek.MonitoringLoss do
       occurrences = from o in Occurrence, where: o.monitoring_incident_id == ^id
       controls = from c in Control, where: c.monitoring_incident_id == ^id
 
+      runner = incident.runner_id && Repo.get(Runner, incident.runner_id)
+
       Monitoring.public(incident)
+      |> Mondek.IncidentPresentation.loss(at, runner && runner.label)
       |> Map.merge(%{
         "members" => members,
         "occurrences" =>

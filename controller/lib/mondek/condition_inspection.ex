@@ -183,6 +183,8 @@ defmodule Mondek.ConditionInspection do
       {evidence, evidence_meta} = evidence(requested)
       by_id = Map.new(evidence, &{&1["id"], &1})
 
+      findings = Mondek.IncidentEvidence.resolve_many(incidents)
+
       contributions =
         Enum.map(incidents, fn incident ->
           assignment = assignments[incident.assignment_id]
@@ -191,13 +193,18 @@ defmodule Mondek.ConditionInspection do
           open? = incident.status == "open"
 
           %{
-            "incident" => Monitoring.public(incident),
+            "incident" =>
+              Mondek.IncidentPresentation.health(
+                Monitoring.public(incident),
+                at,
+                Monitoring.public(assignment),
+                streams[incident.stream_id]
+              ),
             "stream" => streams[incident.stream_id],
             "assignment" => Monitoring.public(assignment),
             "contribution_state" => contribution_state(incident),
             "last_failure_health" => incident.health,
-            "measured_result" =>
-              result(by_id[incident.latest_observation_id], incident.result_key),
+            "recorded_measurement" => findings[incident.id],
             "evidence_ids" => %{
               "opening" => incident.opening_observation_id,
               "latest" => incident.latest_observation_id,
@@ -215,7 +222,7 @@ defmodule Mondek.ConditionInspection do
         end)
 
       %{
-        "incident" => Monitoring.public(group) |> Map.put("acknowledgement_active", shared_ack?),
+        "incident" => Monitoring.public(group) |> Mondek.IncidentPresentation.health(at),
         "counts" => Map.put(counts, "contradictory_results", contradiction_page["total"]),
         "contributions" => contributions,
         "contribution_page" => Map.put(page_meta, "state", state),
@@ -537,11 +544,6 @@ defmodule Mondek.ConditionInspection do
        "missing" => length(ids) - length(rows)
      }}
   end
-
-  defp result(nil, _key), do: nil
-
-  defp result(evidence, key),
-    do: Enum.find(evidence["payload"]["results"] || [], &(&1["key"] == key))
 
   defp contribution_state(%{status: "open"}), do: "open"
   defp contribution_state(%{closure_reason: "measured_recovery"}), do: "recovered"

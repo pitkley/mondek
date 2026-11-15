@@ -703,7 +703,7 @@ defmodule Mondek.InventoryTest do
     assert Repo.one!(Incident).id == incident.id
 
     assert Monitoring.incident_detail(incident.id, at())["incident"]["environment_label"] ==
-             "Production"
+             "Primary production"
 
     rebound =
       renamed

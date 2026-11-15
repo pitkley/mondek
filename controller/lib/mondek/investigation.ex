@@ -7,7 +7,7 @@ defmodule Mondek.Investigation do
 
   @identity ~w(id assignment_id result_key label check_label runner_id runner_label source_id source_key source_revision definition_revision environment environment_label retired retirement_reason params_owner desired_generation authorized_generation prepared_generation active_generation observed_generation check_group condition)
   @current ~w(value health knowledge summary source_at confirmed_observation_id confirmed_generation confirmed_session_id confirmed_evaluated_at observation_id session_id generation started_at evaluated_at received_at complete diagnostic execution_summary reported_health reported_source_at)
-  @incident ~w(acknowledgement_revision attention_revision acknowledgement_mode acknowledged_until acknowledgement_note id incident_kind condition_incident_id assignment_id stream_id result_key environment label health status opened_at closed_at closure_reason opening_observation_id latest_observation_id closing_observation_id opening_generation scope_kind source_id runner_id member_count)
+  @incident ~w(acknowledgement_revision attention_revision acknowledgement_mode acknowledged_until acknowledgement_note id incident_kind condition_incident_id assignment_id stream_id result_key environment label health status opened_at closed_at closure_reason opening_observation_id latest_observation_id latest_failure_observation_id closing_observation_id opening_generation scope_kind source_id runner_id member_count)
   @member ~w(key stream_id assignment_id label source_id environment knowledge observation_id source_at coverage_id runner_id since_at ready_at)
 
   def read(fun) do
@@ -72,11 +72,14 @@ defmodule Mondek.Investigation do
         nil
 
       detail ->
-        selected_key = get_in(detail, ["stream", "result_key"])
+        selected_key =
+          if Map.has_key?(detail, "contributions"),
+            do: nil,
+            else: get_in(detail, ["incident", "result_key"]) || ""
 
         detail
         |> Map.take(
-          ~w(incident stream assignment counts contributions contribution_page contradictions contradiction_page occurrences notification_page notification_counts attempts controls evidence closing_evidence evidence_projection as_of limits)
+          ~w(incident stream assignment counts contributions contribution_page contradictions contradiction_page occurrences notification_page notification_counts attempts controls evidence closing_evidence recorded_measurement evidence_projection as_of limits)
         )
         |> Map.update!("incident", &health_summary/1)
         |> Map.update("assignment", nil, &safe_assignment/1)
@@ -85,15 +88,11 @@ defmodule Mondek.Investigation do
           Enum.map(rows, fn row ->
             row
             |> Map.take(
-              ~w(incident stream assignment contribution_state last_failure_health measured_result evidence_ids coverage)
+              ~w(incident stream assignment contribution_state last_failure_health recorded_measurement evidence_ids coverage)
             )
             |> Map.update!("incident", &health_summary/1)
             |> Map.update("assignment", nil, &safe_assignment/1)
             |> Map.update("stream", nil, &safe_result/1)
-            |> Map.update("measured_result", nil, fn result ->
-              if result,
-                do: Map.take(result, ~w(key health summary details value source_at impacts))
-            end)
           end)
         end)
         |> Map.update("contradictions", [], &Enum.map(&1, fn row -> safe_result(row) end))
@@ -156,7 +155,7 @@ defmodule Mondek.Investigation do
     Map.take(
       row,
       @incident ++
-        ~w(incident_type acknowledgement_active acknowledgement_scope acknowledgement_note acknowledged_at attention_revision acknowledgement_revision target member_count open_contributions contribution_count open_contribution_count result_count observer_count matching_result_count scope_filtered)
+        ~w(impacts display_title check_label result_label environment_label runner_label incident_type acknowledgement_active acknowledgement_scope acknowledgement_note acknowledged_at attention_revision acknowledgement_revision target member_count open_contributions contribution_count open_contribution_count result_count observer_count matching_result_count scope_filtered)
     )
   end
 

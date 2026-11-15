@@ -26,6 +26,64 @@ defmodule MondekWeb.API.Schemas do
 
   def ref(name), do: %OpenApiSpex.Reference{"$ref": "#/components/schemas/#{name}"}
 
+  defp incident_schema(summary?, types \\ ["individual", "condition"]) do
+    schema =
+      record(
+        Map.merge(
+          fields(
+            "id assignment_id stream_id result_key condition_incident_id environment environment_label check_label result_label runner_label display_title label scope_kind source_id runner_id closure_reason acknowledgement_mode acknowledgement_note acknowledgement_scope kind ui_path incident_kind",
+            nullable(string())
+          ),
+          Map.merge(
+            fields("opened_at closed_at acknowledged_until acknowledged_at", time()),
+            Map.merge(
+              fields(
+                "opening_observation_id latest_observation_id latest_failure_observation_id closing_observation_id",
+                nullable(uuid())
+              ),
+              %{
+                impacts: array(record(%{key: string(), label: string()}, [:key, :label])),
+                health: nullable(enum(~w(OK WARN CRIT UNKNOWN))),
+                status: enum(~w(open closed)),
+                incident_type: enum(~w(individual condition)),
+                member_count: nullable(integer()),
+                open_contributions: integer(),
+                contribution_count: integer(),
+                open_contribution_count: integer(),
+                result_count: integer(),
+                observer_count: integer(),
+                matching_result_count: integer(),
+                scope_filtered: boolean(),
+                opening_generation: nullable(integer()),
+                attention_revision: integer(),
+                acknowledgement_revision: integer(),
+                acknowledgement_active: boolean(),
+                target: nullable(ref("Target"))
+              }
+            )
+          )
+        ),
+        [:id, :status, :incident_type]
+      )
+
+    if summary? do
+      %{
+        schema
+        | required:
+            schema.required ++
+              ~w(display_title check_label result_label environment_label runner_label acknowledgement_active)a,
+          properties:
+            Map.merge(schema.properties, %{
+              display_title: string(),
+              acknowledgement_active: boolean(),
+              incident_type: enum(types)
+            })
+      }
+    else
+      schema
+    end
+  end
+
   def definitions do
     Map.merge(MondekWeb.API.WorkflowSchemas.definitions(), %{
       "Error" =>
@@ -101,42 +159,83 @@ defmodule MondekWeb.API.Schemas do
           ),
           [:id, :assignment_id, :current, :target]
         ),
-      "Incident" =>
+      "Incident" => incident_schema(false),
+      "IncidentSummary" => incident_schema(true),
+      "IndividualIncidentSummary" => incident_schema(true, ["individual"]),
+      "SharedIncidentSummary" => incident_schema(true, ["condition"]),
+      "RecordedMeasurement" =>
+        record(
+          %{
+            status: enum(~w(available unavailable)),
+            basis: nullable(enum(~w(latest_failure opening_failure notification_reference))),
+            measurement: nullable(ref("IncidentMeasurement")),
+            gaps: %Schema{type: :array, maxItems: 3, items: ref("IncidentEvidenceGap")}
+          },
+          [:status, :basis, :measurement, :gaps]
+        ),
+      "IncidentEvidenceGap" =>
+        record(
+          %{
+            role: enum(~w(latest_failure opening_failure notification_reference)),
+            observation_id: nullable(uuid()),
+            reason:
+              enum(
+                ~w(missing_reference observation_unavailable out_of_scope result_not_in_observation not_a_failure)
+              )
+          },
+          [:role, :observation_id, :reason]
+        ),
+      "IncidentMeasurement" =>
+        record(
+          %{
+            result_key: string(),
+            health: enum(~w(WARN CRIT)),
+            summary: string(),
+            details: nullable(string()),
+            value: nullable(number()),
+            impacts: array(object()),
+            source_at: time(),
+            evaluated_at: time(),
+            received_at: time(),
+            observation_id: uuid(),
+            provenance: ref("IncidentMeasurementProvenance")
+          },
+          [
+            :result_key,
+            :health,
+            :summary,
+            :details,
+            :observation_id,
+            :source_at,
+            :evaluated_at,
+            :received_at,
+            :provenance
+          ]
+        ),
+      "IncidentMeasurementProvenance" =>
         record(
           Map.merge(
             fields(
-              "id assignment_id stream_id result_key condition_incident_id environment label scope_kind source_id runner_id closure_reason acknowledgement_mode acknowledgement_note acknowledgement_scope kind ui_path incident_kind",
+              "assignment_id stream_id installation_id session_id disposition source_revision definition_revision",
               nullable(string())
             ),
-            Map.merge(
-              fields("opened_at closed_at acknowledged_until acknowledged_at", time()),
-              Map.merge(
-                fields(
-                  "opening_observation_id latest_observation_id closing_observation_id",
-                  nullable(uuid())
-                ),
-                %{
-                  health: nullable(enum(~w(OK WARN CRIT UNKNOWN))),
-                  status: enum(~w(open closed)),
-                  incident_type: enum(~w(individual condition)),
-                  member_count: nullable(integer()),
-                  open_contributions: integer(),
-                  contribution_count: integer(),
-                  open_contribution_count: integer(),
-                  result_count: integer(),
-                  observer_count: integer(),
-                  matching_result_count: integer(),
-                  scope_filtered: boolean(),
-                  opening_generation: nullable(integer()),
-                  attention_revision: integer(),
-                  acknowledgement_revision: integer(),
-                  acknowledgement_active: boolean(),
-                  target: ref("Target")
-                }
-              )
-            )
+            %{generation: integer(), sequence: integer()}
           ),
-          [:id, :status, :incident_type]
+          ~w(assignment_id stream_id installation_id session_id disposition source_revision definition_revision generation sequence)a
+        ),
+      "IncidentContribution" =>
+        record(
+          %{
+            incident: ref("IncidentSummary"),
+            stream: nullable(ref("Result")),
+            assignment: nullable(ref("Assignment")),
+            contribution_state: string(),
+            last_failure_health: string(),
+            recorded_measurement: ref("RecordedMeasurement"),
+            evidence_ids: object(),
+            coverage: object()
+          },
+          [:incident, :recorded_measurement]
         ),
       "Assignment" =>
         record(
@@ -357,7 +456,7 @@ defmodule MondekWeb.API.Schemas do
           )
 
         :incidents ->
-          array(ref("Incident"))
+          array(ref("IncidentSummary"))
 
         :observations ->
           ref("ObservationReceipt")

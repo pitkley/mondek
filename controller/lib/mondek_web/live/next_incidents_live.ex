@@ -385,13 +385,7 @@ defmodule MondekWeb.NextIncidentsLive do
     }
   end
 
-  defp title("loss", %{"scope_kind" => "coverage"}), do: "No runner selected"
-  defp title("loss", incident), do: incident["label"] || "Measurements missing"
-
-  defp title("health", incident),
-    do:
-      incident["label"] || incident["check_label"] || incident["result_label"] ||
-        "Health incident"
+  defp title(_, incident), do: Mondek.IncidentPresentation.title(incident)
 
   defp context(incident) do
     [

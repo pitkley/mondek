@@ -49,14 +49,23 @@ defmodule MondekWeb.API.V1.IncidentsController do
       )
 
   def acknowledge(conn, %{"id" => id} = p) do
+    at = Monitoring.now()
+
     result =
       case Monitoring.acknowledge(
              id,
              Map.drop(p, ["id", "note"]),
-             p["note"] || "Acknowledged locally"
+             p["note"] || "Acknowledged locally",
+             at
            ) do
-        {:ok, incident} -> {:ok, Mondek.Investigation.health_summary(incident)}
-        other -> other
+        {:ok, incident} ->
+          {:ok,
+           incident
+           |> Mondek.Inspection.incident_identity(at)
+           |> Mondek.Investigation.health_summary()}
+
+        other ->
+          other
       end
 
     respond(conn, result)

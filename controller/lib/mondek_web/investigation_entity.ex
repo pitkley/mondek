@@ -126,11 +126,8 @@ defmodule MondekWeb.InvestigationEntity do
   def title(%{identity: {"result", _}, data: %{selected: result}}),
     do: result["label"] || get_in(result, ["check", "label"]) || "Check result"
 
-  def title(%{identity: {"loss", _}, data: %{incident: %{"scope_kind" => "coverage"}}}),
-    do: "No runner selected"
-
-  def title(%{data: %{incident: incident, detail: detail}}) when is_map(incident),
-    do: incident["label"] || get_in(detail, ["assignment", "label"]) || "Incident"
+  def title(%{data: %{incident: incident}}) when is_map(incident),
+    do: Mondek.IncidentPresentation.title(incident)
 
   def title(_), do: "Evidence unavailable"
 
