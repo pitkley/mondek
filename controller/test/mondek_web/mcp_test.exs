@@ -18,6 +18,12 @@ defmodule MondekWeb.MCPTest do
         })
 
       assert response["result"]["protocolVersion"] == version
+
+      assert response["result"]["serverInfo"] == %{
+               "name" => "mondek",
+               "version" => to_string(Application.spec(:mondek, :vsn))
+             }
+
       assert response["result"]["capabilities"] == %{"tools" => %{"listChanged" => false}}
     end
 

@@ -105,7 +105,10 @@ defmodule Mondek.MCP do
     result(id, %{
       "protocolVersion" => if(version in @versions, do: version, else: hd(@versions)),
       "capabilities" => %{"tools" => %{"listChanged" => false}},
-      "serverInfo" => %{"name" => "mondek", "version" => "0.0.1"},
+      "serverInfo" => %{
+        "name" => "mondek",
+        "version" => to_string(Application.spec(:mondek, :vsn))
+      },
       "instructions" => instructions()
     })
   end
