@@ -98,7 +98,7 @@ class DiscoveryConfigurationAcceptance(Acceptance):
         )
         self.eventually(
             "preview measurements",
-            lambda: len(self.request("/api/v1/checks?page_size=100")["items"]) == 9,
+            lambda: len(self.request("/api/v1/results?page_size=100")["items"]) == 9,
             timeout=180,
         )
         self.browser("preview")
@@ -138,7 +138,7 @@ class DiscoveryConfigurationAcceptance(Acceptance):
             self.eventually(
                 "all three observers provide fresh real measurements",
                 lambda: (
-                    len(rows := self.request("/api/v1/checks?page_size=100")["items"])
+                    len(rows := self.request("/api/v1/results?page_size=100")["items"])
                     == 9
                     and all(row["current"].get("knowledge") == "fresh" for row in rows)
                 ),

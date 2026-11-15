@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -9,7 +10,7 @@ const healthy = { available: true, used_percent: 40, sample_age_seconds: 0, writ
 async function api(request, path, data) {
   const response = data === undefined ? await request.get(path) : await request.post(path, { data });
   expect(response.ok(), `${path}: ${await response.text()}`).toBeTruthy();
-  return response.json();
+  return response.json().then(unpackAPI);
 }
 
 async function publisher(request, id) {
@@ -75,7 +76,7 @@ test('reviewed replacement accepts independent Critical evidence and restores ne
   const successor = await observerResult(request, b.runner_id, 'CRIT', { after: boundary });
   let incident;
   await expect.poll(async () => {
-    const list = await api(request, '/api/v1/incidents');
+    const list = await api(request, '/api/v1/incidents/health');
     incident = list.items[0];
     return list.total === 1 && incident.open_contribution_count === 2;
   }).toBe(true);
@@ -108,9 +109,9 @@ test('reviewed replacement accepts independent Critical evidence and restores ne
   await review(page, reason);
   await expect(page.locator('#publisher-apply')).toBeEnabled();
   await checkpoint(page, testInfo, 'critical-successor-review-desktop');
-  const group = await api(request, `/api/v1/incidents/${incident.id}`);
+  const group = await api(request, `/api/v1/incidents/health/${incident.id}`);
   const contribution = group.contributions.find((row) => row.incident.stream_id === predecessor.id).incident;
-  await api(request, `/api/v1/incidents/${contribution.id}/acknowledge`, {
+  await api(request, `/api/v1/incidents/health/${contribution.id}/acknowledge`, {
     mode: 'until_incident_ends', revision: contribution.acknowledgement_revision,
     attention_revision: contribution.attention_revision, note: 'Only the predecessor contribution',
   });
@@ -130,10 +131,10 @@ test('reviewed replacement accepts independent Critical evidence and restores ne
   await apply(page);
   await expect(page.locator('#publisher-status')).toContainText('Retired from this controller');
   await expect(page.locator('#publisher-history')).toContainText(reason);
-  const retained = await api(request, `/api/v1/incidents/${incident.id}?state=all`);
+  const retained = await api(request, `/api/v1/incidents/health/${incident.id}?state=all`);
   expect(retained.incident.status).toBe('open');
   expect(retained.counts.open).toBe(1);
-  const closed = (await api(request, `/api/v1/incidents/${contribution.id}`)).incident;
+  const closed = (await api(request, `/api/v1/incidents/health/${contribution.id}`)).incident;
   expect(closed.closure_reason).toBe('publisher_replaced');
   expect(closed.closing_observation_id).toBeNull();
   expect((await observerResult(request, b.runner_id, 'CRIT')).id).toBe(successor.id);
@@ -149,7 +150,7 @@ test('reviewed replacement accepts independent Critical evidence and restores ne
   await expect(page.locator('#publisher-status')).toContainText('Active');
   await expect(page.locator('#publisher-history')).toContainText(restoreReason);
   await expect(page.locator('#publisher-history')).toContainText(reason);
-  const now = await api(request, `/api/v1/incidents/${incident.id}?state=all`);
+  const now = await api(request, `/api/v1/incidents/health/${incident.id}?state=all`);
   expect(now.incident.status).toBe('open');
   expect(now.contributions.find((row) => row.incident.stream_id === restored.id).coverage.individual_acknowledgement).toBe(false);
   await checkpoint(page, testInfo, 'restored-new-membership-history-320');

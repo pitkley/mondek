@@ -12,78 +12,15 @@ The supported read-only `/mcp` integration has its own explicit [agent investiga
 
 “Owner” below means the module responsible for behavior, not a person. The controller web layer owns HTTP status, serialization and error envelopes. Domain contexts own validation, review and mutation semantics. The Python authoring layer owns consumer declarations; runtime/transport own wire protocol implementation. Changes at a supported boundary need focused contract tests and a stated transition when existing callers cannot continue unchanged. Additive fields are preferable only when existing validation accepts them; never assume strict clients ignore unknown fields.
 
-## Runner and operator HTTP inventory
+## Unified JSON HTTP inventory
 
-Paths in this table have the `/api/v1` prefix. Each row spells out one routed method/path; “API tests” means the matching tests in `controller/test/mondek_web`, while “browser” and “E2E” refer to maintained `tests/browser` and `tests/e2e` clients. LiveViews call domain contexts directly; they are not themselves JSON HTTP clients. “Internal” rows still have tested HTTP consumers in the harnesses. A listed context consumer alone does not establish an external HTTP integration.
+All retained runner, resource and operator operations share `/api/v1` and the generated [OpenAPI contract](../contracts/http/v1/openapi.json). The [route disposition inventory](API-ROUTES.md) accounts for every current method/path and records renamed predecessors; it is generated and checked alongside the spec. See [HTTP API conventions](HTTP-API.md) for envelopes, query validation, DTO ownership, operation budgets, errors and extension rules.
 
-| Method and path | Class | Behavior owner | Actual callers / evidence |
-| --- | --- | --- | --- |
-| `GET /snapshot` | Internal | Monitoring snapshot | E2E base harness, browser `helpers.mjs`, local verification/profiling; bounded development snapshot, not full inventory export. |
-| `GET /overview` | Internal | Monitoring / Inspection | Browser overview helper and attention assertions. |
-| `GET /coverage` | Internal | Coverage | Coverage E2E/browser, parity browser, publisher E2E. |
-| `GET /coverage/publishers` | Internal | Coverage | Coverage and publisher E2E/browser. |
-| `GET /publishers/:id` | Internal | PublisherLifecycle | Publisher E2E/browser and API tests. |
-| `GET /publishers/:id/successors` | Internal | PublisherLifecycle | Publisher lifecycle API tests; LiveView uses corresponding context workflow. |
-| `GET /publishers/:id/events/:event_id` | Internal | PublisherLifecycle | Publisher E2E/browser, including immutable witness assertions. |
-| `GET /publishers/:id/events/:event_id/evidence/:observation_id` | Internal | PublisherLifecycle | Publisher browser and API tests. |
-| `POST /publishers/preview` | Internal | PublisherLifecycle | Publisher E2E/browser and API tests. |
-| `POST /publishers/apply` | Internal | PublisherLifecycle | Publisher E2E/browser and API tests. |
-| `GET /coverage/diagnostics` | Internal | Coverage | Coverage E2E and API tests. |
-| `GET /coverage/:id/observers` | Internal | Coverage | Coverage E2E/browser and API tests. |
-| `GET /coverage/:id` | Internal | Coverage | Coverage API tests; LiveView detail uses corresponding context. |
-| `GET /checks` | Internal | Monitoring / Inspection | Inventory browser helper, starter/coverage/policy and other E2E evidence inspection. |
-| `GET /checks/:id` | Internal | Monitoring / Inspection | Grouped/policy E2E, bulk browser and diagnostic inspection. |
-| `GET /configuration` | Internal | Monitoring / Inspection | Bulk browser pages assignments; configuration context drives UI. |
-| `POST /configuration/policy/plan` | Supported | ConfigurationPolicy | `mondek-policy plan`, policy E2E/browser and CLI tests. |
-| `POST /configuration/policy/apply` | Supported | ConfigurationPolicy | `mondek-policy apply`, policy E2E/browser and CLI tests. |
-| `GET /configuration/policy/export` | Supported | ConfigurationPolicy | `mondek-policy export`, CLI tests and policy E2E. |
-| `GET /configuration/policy/values` | Supported | ConfigurationPolicy | `mondek-policy values`, CLI tests and policy E2E. |
-| `GET /maintenance` | Supported | Maintenance | Documented maintenance API; maintenance E2E/API tests. |
-| `GET /maintenance/seed/:assignment_id` | Supported | Maintenance | Documented API; maintenance E2E/browser/API tests. |
-| `POST /maintenance/preview` | Supported | Maintenance | Documented API; maintenance E2E/browser/API tests. |
-| `POST /maintenance/apply` | Supported | Maintenance | Documented API; maintenance E2E/browser/API tests. |
-| `GET /maintenance/:id` | Supported | Maintenance | Documented API; maintenance E2E/browser/parity/API tests. |
-| `POST /maintenance/:id/cancel` | Supported | Maintenance | Documented API; maintenance E2E/browser/API tests. |
-| `POST /maintenance-series/preview` | Supported | MaintenanceSchedules | Recurring maintenance workflow; maintenance E2E/API tests. |
-| `POST /maintenance-series/apply` | Supported | MaintenanceSchedules | Recurring maintenance workflow; maintenance E2E/API tests. |
-| `GET /maintenance-series/:id` | Supported | MaintenanceSchedules | Maintenance E2E/browser/API tests. |
-| `POST /maintenance-series/:id/cancel-preview` | Supported | MaintenanceSchedules | Maintenance E2E/API tests. |
-| `POST /maintenance-series/:id/cancel` | Supported | MaintenanceSchedules | Maintenance E2E/browser/API tests. |
-| `GET /configuration/rules` | Internal | ConfigurationRules | Rules API tests; corresponding LiveView context workflow. |
-| `GET /configuration/rules/seed/:assignment_id` | Internal | ConfigurationRules | Policy E2E/browser and rules API tests. |
-| `POST /configuration/rules/preview` | Internal | ConfigurationRules | Policy E2E/browser and rules API tests. |
-| `POST /configuration/rules/apply` | Internal | ConfigurationRules | Policy browser and rules API tests. |
-| `GET /configuration/rules/:id` | Supported | ConfigurationRules | **Also used by `mondek-policy adopt`**, plus policy E2E and rules API tests; cannot treat the entire rules response as UI-only. |
-| `POST /configuration/exception/reset` | Internal | ConfigurationRules | Policy E2E and rules API tests. |
-| `POST /configuration/bulk/select` | Internal | BulkConfiguration via Monitoring | Bulk browser dynamic action helper. |
-| `POST /configuration/bulk/prepare` | Internal | BulkConfiguration via Monitoring | Bulk browser dynamic action helper. |
-| `POST /configuration/bulk/preview` | Internal | BulkConfiguration via Monitoring | Bulk browser dynamic action helper. |
-| `POST /configuration/bulk/apply` | Internal | BulkConfiguration via Monitoring | Bulk browser dynamic action helper. |
-| `POST /configuration/bulk/status` | Internal | BulkConfiguration via Monitoring | Bulk browser dynamic action helper. |
-| `GET /runners` | Supported | RunnerFleet | Documented inspection API; fleet browser and profiling. Preserve pagination and independent contact/collection fields; full internal map is not frozen. |
-| `GET /runners/:id` | Supported | RunnerFleet | Documented inspection API; runner inspection workflow and tests. |
-| `GET /notifications` | Supported | Monitoring / Inspection | Documented delivery inspection API; no direct maintained HTTP caller found (UI/tests use domain inspection). |
-| `GET /notifications/:id` | Supported | Inspection | Documented delivery detail API; no direct maintained HTTP caller found (UI/tests use domain detail). |
-| `GET /assignments/:id` | Internal | Monitoring | Policy/rules browser, policy E2E and CLI-adjacent adoption verification. |
-| `GET /assignments/:id/inspection` | Internal | Monitoring / Inspection | No direct maintained HTTP caller found; corresponding result-investigation context is used by the UI. |
-| `POST /assignments/:id/exception/preview` | Internal | ConfigurationRules | Policy E2E and rules API tests. |
-| `GET /incidents` | Internal | Monitoring / Conditions | Grouped/publisher/coverage E2E, grouped/publisher browser. |
-| `GET /monitoring-incidents` | Internal | MonitoringLoss | Monitoring-loss browser and E2E inspection. |
-| `GET /monitoring-incidents/:id` | Internal | MonitoringLoss | Monitoring-loss browser detail. |
-| `GET /incidents/:id` | Internal | Monitoring / Conditions | Grouped/publisher/starter/policy E2E and grouped/publisher browser; revisions feed reviewed acknowledgement. |
-| `GET /health` | Supported | APIController | Health probe alias; deployment/harnesses primarily use `/health`. Returns process response, not a complete monitoring-readiness assertion. |
-| `POST /setup` | Legacy | Monitoring | No direct maintained HTTP caller found; wraps historical built-in setup context still used by demo/acceptance. Current projects publish inventory instead. |
-| `POST /control` | Supported | Monitoring / Protocol | Runner runtime; transport proxy fixture, protocol and polling tests. Versioned control/session/configuration contract. |
-| `POST /inventory` | Supported | Monitoring / Protocol / inventory contexts | Runner runtime; coverage/publisher E2E replay/fencing assertions. Versioned complete publication contract. |
-| `POST /observations` | Supported | Monitoring / Protocol | Runner runtime, fixture transport and E2E replay/malformed report assertions. Versioned evidence/admission contract. |
-| `PUT /assignments/:id` | Internal | Monitoring | Current instance-exception save plus built-in compatibility; acceptance, starter/policy/maintenance E2E, rules/bulk browser concurrent-change tests. Not merely obsolete setup. |
-| `POST /assignments` | Legacy | Monitoring | No direct maintained HTTP caller found; built-in context creation remains tested. Retain until setup and migration dependencies are accounted for. |
-| `POST /assignments/:id/retire` | Legacy | Monitoring | No direct maintained HTTP caller found; built-in context retirement remains tested. Source-owned removal is authoritative inventory withdrawal. |
-| `POST /notifications/:id/retry` | Internal | Monitoring / notification contexts | Grouped E2E retry and delivery/operator context workflow. |
-| `POST /incidents/:id/acknowledge` | Supported | Monitoring / Conditions | Explicit mode and both reviewed revisions are required. Service/browser callers use this contract; seconds-only requests reject. |
-| `POST /assignments/:id/maintenance` | Removed | — | Use the reviewed maintenance seed/preview/apply/cancel APIs. Service/browser callers exercise those routes. |
+Runner communication uses `/runner/control`, `/runner/inventory` and `/runner/observations` under that root. Result streams use `/results`; scheduled executions use `/assignments`, with editable state at `/assignments/:id/configuration`. Health and monitoring-loss episodes have separate concrete collections under `/incidents`. Existing reviewed commands retain their domain contexts, token/revision checks and atomicity. The bounded snapshot and selected result inspection are intentional documented operator diagnostics, with explicit limits rather than a complete-export guarantee.
 
-The supported operator interfaces above preserve their documented operations, scope/revision rules and shipped-client fields. This inventory does not retroactively promise every context-map field as stable. Before introducing a DTO or changing a response, extract exact field dependencies from the named clients and add a contract test; retain current fields until that transition is explicit. Publisher, bulk and configuration review tokens are opaque, short-lived capabilities for an exact reviewed proposal, not durable identifiers to manufacture or reinterpret.
+No old HTTP aliases are retained. Controller, runner, policy CLI and repository-owned clients change together under the experimental same-release policy. Durable journals, buffered report identities, original evidence age, replay/admission authority and stored configuration history survive the cutover. HTTP path alignment does not change those persistence contracts.
+
+Closed schemas define the explicitly rendered DTO fields. Dynamic consumer parameter values/schema metadata and heterogeneous reviewed/audit aggregates are declared JSON subtrees; their domain validators retain ownership of semantic, numeric and byte constraints. A context map is not automatically the public response. Changed output must be reflected in the declaration and serialized-response/behavior tests. The public Python SDK and Git transport remain separately owned boundaries.
 
 ## Browser and framework HTTP surfaces
 
@@ -107,7 +44,7 @@ The following GET routes are operator navigation. HTML, internal assigns and eve
 
 Result, execution and incident routes have distinct identities. Fly-overs opened from a host use its bounded typed `inspect` trail; page promotion uses a validated `page_entity`. Editing destinations keep their explicit workflow owners. See [UI architecture](UI-ARCHITECTURE.md).
 
-`GET /health` outside the API scope is a supported probe owned by APIController with the same body as its `/api/v1/health` alias. Endpoint also mounts Phoenix's `/live` WebSocket transport (long polling disabled) and serves static `/assets/*` and `/favicon.ico`; these are internal framework/browser assets, not controller integration APIs. `Plug.Head` supplies HEAD behavior for GET routes. Fixture-server `/mode`, `/records`, proxy controls and SMTP test controls belong to isolated test services, not this controller's API.
+`GET /health` outside the API scope is a supported probe owned by API.V1.SystemController outside the JSON API specification; its former JSON API alias was removed. Endpoint also mounts Phoenix's `/live` WebSocket transport (long polling disabled) and serves static `/assets/*` and `/favicon.ico`; these are internal framework/browser assets, not controller integration APIs. `Plug.Head` supplies HEAD behavior for GET routes. Fixture-server `/mode`, `/records`, proxy controls and SMTP test controls belong to isolated test services, not this controller's API.
 
 ## Python public SDK inventory
 
@@ -160,27 +97,13 @@ The module attributes `mondek_runner.api` and `mondek_runner.authoring` are inte
 
 The legacy `App` behavior when no `RunnerContext` is supplied and restored private settings without the new context fields also remain in authoring. Worker compatibility supports old built-in/consumer execution paths. Their removal requires TD-12's explicit migration evidence; this inventory is not that migration.
 
-## Machine-readable errors: current behavior and required discipline
+## Machine-readable errors
 
-`APIController.respond/2` currently maps errors as follows. Human `error` prose is explanatory, not a stable discriminant. Direct detail endpoints have their own 404 prose. Framework/parser/body-limit errors can occur before the controller and do not necessarily use this envelope.
+JSON errors use `{error: {code, message, details?}, request_id}`. Parser/content/body failures are normalized before controller actions where a response can be produced. HTTP status and `error.code` are machine-readable; explanatory wording is not a discriminant. See [HTTP conventions](HTTP-API.md) and the generated error/operation schemas for statuses and bounds.
 
-| Status / `code` | Current meaning | Client expectation |
-| --- | --- | --- |
-| 422, no code | Invalid parameters or domain validation | Correct the request; do not parse message wording as an enum. |
-| 409, `configuration_conflict` | **Generic** `{:conflict, reason}` from multiple domains | Treat as conflict requiring current state/review; the name does not prove this is exclusively a configuration conflict. |
-| 404, no code | Missing resource | Handle absence; preserve caller's selected identity rather than substituting another resource. |
-| 409, `publisher_retired` | Publication fenced after operator retirement | Do not bypass fence by silently changing source/installation identity. |
-| 409, `publication_refresh_required` | Restoration requires current successful discovery/new complete inventory | Honor current restoration request; replaying the old inventory is not restoration. |
-| 409, `stale_selection` plus `stale_ids` | Selected assignments changed | Retain draft, refresh and review again. |
-| 409, `review_expired` | Review lifetime expired | Retain draft and obtain a fresh review. |
-| 409, `review_changed` | Reviewed proposal or matching records changed | Review current draft/state before apply. |
-| 422, `invalid_review` | Missing/invalid review capability | Obtain a valid review; do not manufacture tokens. |
-| 409, no code | Other domain atom/error fallback | Unknown conflict; no uniform machine-readable taxonomy exists yet. |
-| 415, no code | API write is not `application/json` | Send the required JSON media type; this is the router's browser-cross-origin defense. |
+Domain review/fencing codes retain their meaning: `publisher_retired`, `publication_refresh_required`, `stale_selection`, `review_expired`, `review_changed`, `invalid_review` and `configuration_conflict`. Stale selected IDs are bounded structured details. Generic domain atom conflicts retain an explicit code, rather than requiring message parsing. Successful observation envelopes still use independent per-report dispositions; they are not HTTP errors.
 
-Runner transport currently preserves HTTP status but does **not** parse the controller's error-body code into domain-specific runtime control flow. Successful runner responses require `version: 1`; session fencing, complete-inventory authority, replay identity and original evidence age are more important compatibility contracts than human error wording. Policy transport currently reports HTTP status plus bounded `error` text and does not branch on JSON `code`; its existing behavior refuses redirects and automatic retries. Acceptance/API tests do assert specific codes for review, retirement and restoration outcomes. A future specialized error must therefore preserve those tests and consider old clients; do not rename `configuration_conflict` globally without an alias/version or coordinated migration.
-
-For future supported response changes: define the exact endpoint/fields or error variants being stabilized; add independent request/response contract tests for the shipped client and controller; document unknown-code behavior and retriable versus re-review-required outcomes; state the compatibility path. Keep internal inspection projections separate from that explicit promise. No generic API framework or blanket serializer rewrite is justified by this inventory.
+Runner transport preserves HTTP status and safe gateway diagnostics without branching on private controller prose. Policy transport understands read envelopes and reports the nested bounded error message; it still refuses redirects and automatic retries/replanning. The coordinated migration updates every maintained HTTP caller, including native, service, browser and profiling harnesses.
 
 ## Rechecking completeness
 
@@ -188,7 +111,7 @@ Use the source lists rather than trusting a manually maintained count: compare e
 
 The static consistency check used devenv Python to extract method/path pairs and LiveView routes from the router and AST literals from `__all__`: **64 API routes, 30 browser routes and 25 public exports, zero missing table entries**. This is static completeness verification, not a new execution test of all endpoints. Behavioral evidence remains in the existing native/API, CLI and real acceptance suites.
 
-Source anchors: [router](../controller/lib/mondek_web/router.ex), [endpoint](../controller/lib/mondek_web/endpoint.ex), [API controller](../controller/lib/mondek_web/controllers/api_controller.ex), [public exports](../runner/mondek_runner/__init__.py), [policy client](../runner/mondek_runner/policy.py), [runner transport](../runner/mondek_runner/transport.py), [runner entrypoint](../runner/mondek_runner/__main__.py), [maintenance API](MAINTENANCE.md), [recurring maintenance API](RECURRING-MAINTENANCE.md), [acknowledgements](ACKNOWLEDGEMENTS.md), [runner/delivery inspection](RUNNERS-AND-NOTIFICATIONS.md).
+Source anchors: [router](../controller/lib/mondek_web/router.ex), [endpoint](../controller/lib/mondek_web/endpoint.ex), [API controllers](../controller/lib/mondek_web/api/v1), [public exports](../runner/mondek_runner/__init__.py), [policy client](../runner/mondek_runner/policy.py), [runner transport](../runner/mondek_runner/transport.py), [runner entrypoint](../runner/mondek_runner/__main__.py), [maintenance API](MAINTENANCE.md), [recurring maintenance API](RECURRING-MAINTENANCE.md), [acknowledgements](ACKNOWLEDGEMENTS.md), [runner/delivery inspection](RUNNERS-AND-NOTIFICATIONS.md).
 
 ## Optional pack API
 

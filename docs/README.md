@@ -2,6 +2,8 @@
 
 These guides are for people using and developing Mondek. Coding agents use the same SDK and protocol references; [agent workflows](AGENT-WORKFLOWS.md) provide task-specific entry points. Start with the path that matches your task; there is no need to read every guide before trying the experimental alpha.
 
+For HTTP integrations, the generated OpenAPI contract and API development workflow, see [the HTTP API guide](HTTP-API.md).
+
 For live read-only access from ChatGPT, Claude or another MCP client, see [agent integration](AGENT-INTEGRATION.md).
 
 ## Get started

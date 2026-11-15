@@ -36,7 +36,7 @@ An indefinite hold shows no scheduled delivery time. Internally it has a bounded
 
 ## API
 
-Read the incident's `acknowledgement_revision` and `attention_revision`, then send both in `POST /api/v1/incidents/:id/acknowledge`:
+Read the incident's `acknowledgement_revision` and `attention_revision`, then send both in `POST /api/v1/incidents/health/:id/acknowledge`:
 
 ```json
 {

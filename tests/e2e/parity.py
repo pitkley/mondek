@@ -49,7 +49,7 @@ class ParityAcceptance(SchemaEvolutionMixin, ParityTransportMixin, Acceptance):
         return self.request("/api/v1/overview")
 
     def streams(self, **filters: Any) -> dict[str, Any]:
-        return self.request("/api/v1/checks?" + urllib.parse.urlencode(filters))
+        return self.request("/api/v1/results?" + urllib.parse.urlencode(filters))
 
     def stream(self, target_key: str) -> dict[str, Any]:
         return next(
@@ -59,7 +59,7 @@ class ParityAcceptance(SchemaEvolutionMixin, ParityTransportMixin, Acceptance):
         )
 
     def detail(self, stream: dict[str, Any]) -> dict[str, Any]:
-        return self.request("/api/v1/checks/" + stream["id"])
+        return self.request("/api/v1/results/" + stream["id"] + "/inspection")
 
     def fresh(self, target: str, health: str = "OK") -> dict[str, Any] | bool:
         stream = self.stream(target)

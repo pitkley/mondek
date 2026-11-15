@@ -99,7 +99,15 @@ def main() -> None:
 
         def read(path):
             with urllib.request.urlopen(origin + path, timeout=5) as response:
-                return json.load(response)
+                value = json.load(response)
+                if "data" in value and "meta" in value:
+                    data = value["data"]
+                    return (
+                        {"items": data, **value["meta"]}
+                        if isinstance(data, list)
+                        else data
+                    )
+                return value
 
         def until(label, predicate):
             print("Waiting for", label, flush=True)

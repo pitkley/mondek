@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -10,7 +11,7 @@ async function fleet(request, changes) {
     ? await request.post(`${fleetURL}/fleet`, { data: changes, timeout: 60_000 })
     : await request.get(`${fleetURL}/fleet`);
   expect(response.ok(), await response.text()).toBeTruthy();
-  return response.json();
+  return response.json().then(unpackAPI);
 }
 
 async function result(request, index) {
@@ -144,7 +145,7 @@ test('twelve live runners recover while fifty authentically measured fleet ident
     await expect.poll(async () => {
       const response = await request.get('/api/v1/runners?page_size=50');
       expect(response.ok()).toBeTruthy();
-      const listing = await response.json();
+      const listing = await response.json().then(unpackAPI);
       return { recent: listing.counts.recent, overdue: listing.counts.overdue };
     }, { timeout: 45_000 }).toEqual({ recent: 12, overdue: 38 });
     await fleet(request, { samples: { 2: 'unavailable', 3: 'CRIT' } });
@@ -251,7 +252,7 @@ test('dedicated notification investigation retries a real rejected delivery with
     expect(delivered.attempt_count).toBe(4);
     expect(delivered.payload).toEqual(original.payload);
     expect(delivered.destination).toBe(original.destination);
-    const receipts = (await (await request.get(`${fixtureURL}/records`)).json()).records;
+    const receipts = (await (await request.get(`${fixtureURL}/records`)).json().then(unpackAPI)).records;
     expect(receipts.some((row) => row.payload.occurrence_id === original.id)).toBe(true);
     await page.locator('#overview-panel [data-overview-close]').click();
     await expect(page).toHaveURL((url) => url.pathname === '/notifications' && url.searchParams.get('notification_status') === 'exhausted');

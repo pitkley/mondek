@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -13,16 +14,16 @@ const rule = (extra = {}) => ({ key: 'volume-limits', name: 'Project volume limi
 
 async function policy(request, desired) {
   // Each fixture mutation is intentional; ordinary clients must reconcile before selecting a fresh base.
-  const revision = await (await request.get('/api/v1/configuration/revision')).json();
+  const revision = await (await request.get('/api/v1/configuration/revision')).json().then(unpackAPI);
   const response = await request.post('/api/v1/configuration/policy/plan', { data: { manifest: desired, base_head: revision.head } });
   expect(response.ok(), await response.text()).toBeTruthy();
-  const plan = await response.json();
+  const plan = await response.json().then(unpackAPI);
   expect(plan.review_token).toBeTruthy();
   const applied = await request.post('/api/v1/configuration/policy/apply', {
     data: { manifest: desired, review_token: plan.review_token },
   });
   expect(applied.ok(), await applied.text()).toBeTruthy();
-  return applied.json();
+  return applied.json().then(unpackAPI);
 }
 
 async function ready(request) {
@@ -35,7 +36,7 @@ test('project policy stays readable through exceptions, offline adoption and bro
   const stream = await ready(request);
   const assignmentID = stream.assignment_id;
   async function assignment() {
-    return (await request.get(`/api/v1/assignments/${assignmentID}`)).json();
+    return (await request.get(`/api/v1/assignments/${assignmentID}/configuration`)).json().then(unpackAPI);
   }
   await page.goto(`/results/${stream.id}/full?return_to=${encodeURIComponent('/checks?search=volume')}`);
   await page.getByRole('link', { name: 'View check configuration', exact: true }).click();
@@ -116,15 +117,15 @@ test('project policy stays readable through exceptions, offline adoption and bro
 test('adopting a UI rule preserves editing and removing policy retains an understandable page', async ({ page, request }, testInfo) => {
   const stream = await ready(request);
   const seeded = await request.get(`/api/v1/configuration/rules/seed/${stream.assignment_id}`);
-  const proposal = { ...await seeded.json(), name: 'Adopted project limits', params: limits };
+  const proposal = { ...await seeded.json().then(unpackAPI), name: 'Adopted project limits', params: limits };
   const preview = await request.post('/api/v1/configuration/rules/preview', { data: { proposal } });
   expect(preview.ok(), await preview.text()).toBeTruthy();
-  const reviewed = await preview.json();
+  const reviewed = await preview.json().then(unpackAPI);
   const response = await request.post('/api/v1/configuration/rules/apply', {
     data: { proposal: reviewed.proposal, review_token: reviewed.review_token },
   });
   expect(response.ok(), await response.text()).toBeTruthy();
-  const saved = await response.json();
+  const saved = await response.json().then(unpackAPI);
   await page.goto(`/configuration/rules/${saved.rule.id}`);
   await connected(page);
   await expect(page.locator('#configuration-rule-form')).toBeVisible();
@@ -140,7 +141,7 @@ test('adopting a UI rule preserves editing and removing policy retains an unders
   await page.locator('#rule-param-warning_items').fill('6');
   await page.getByRole('button', {name: 'Preview rule', exact: true}).click();
   await page.getByRole('button', {name: 'Save rule', exact: true}).click();
-  await expect.poll(async () => (await (await request.get(`/api/v1/configuration/rules/${saved.rule.id}`)).json()).params.warning_items).toBe(6);
+  await expect.poll(async () => (await (await request.get(`/api/v1/configuration/rules/${saved.rule.id}`)).json().then(unpackAPI)).params.warning_items).toBe(6);
   await page.goto('/configuration/history');
   await connected(page);
   await expect(page.locator('#configuration-repository-history')).toContainText('UI save');

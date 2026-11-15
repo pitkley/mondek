@@ -27,7 +27,7 @@ Runner controller requests stagger TCP connection attempts by 250 milliseconds a
 
 For a hosted installation, protect all operator HTTP routes and `/live` WebSocket connections, including their upgrade requests. Restrict direct origin access to the gateway, for example by binding to loopback behind a local proxy or using firewall rules, so clients cannot bypass those access checks. Protecting only the initial page load is insufficient.
 
-Configure machine access for the three runner endpoints: `/api/v1/inventory`, `/api/v1/control` and `/api/v1/observations`. Keep browser login and machine authentication separate. Gateways may match more specific path policies independently of the root policy; verify the complete gateway-to-origin route, including credential audience checks where applicable. Keep credentials outside source control and runner journals.
+Configure machine access for the three runner endpoints: `/api/v1/runner/inventory`, `/api/v1/runner/control` and `/api/v1/runner/observations`. Keep browser login and machine authentication separate. Gateways may match more specific path policies independently of the root policy; verify the complete gateway-to-origin route, including credential audience checks where applicable. Keep credentials outside source control and runner journals.
 
 `mondek-policy` uses the same private file format, but operator access to `/api/v1/configuration/*` needs an explicit gateway policy and appropriate credentials. Runner endpoint access alone does not grant configuration access. See [runner deployment](RUNNER-DEPLOYMENT.md) for installed-consumer and state handling.
 

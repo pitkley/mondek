@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -8,9 +9,9 @@ import {
 async function configurations(request) {
   const rows = [];
   for (let page = 1; page <= 5; page += 1) {
-    const response = await request.get(`/api/v1/configuration?page=${page}&page_size=100`);
+    const response = await request.get(`/api/v1/configuration/assignments?page=${page}&page_size=100`);
     expect(response.ok(), await response.text()).toBeTruthy();
-    const result = await response.json();
+    const result = await response.json().then(unpackAPI);
     expect(result.total).toBe(500);
     rows.push(...result.items);
   }
@@ -21,7 +22,7 @@ async function configurations(request) {
 async function postBulk(request, action, data) {
   const response = await request.post(`/api/v1/configuration/bulk/${action}`, { data });
   expect(response.ok(), await response.text()).toBeTruthy();
-  return response.json();
+  return response.json().then(unpackAPI);
 }
 
 async function selectAll(page) {
@@ -122,7 +123,7 @@ test('500 delegated checks can be reviewed and saved together without concealing
 
   // Another operator changes one check after this review. None of our 500 may save.
   const changed = before[0];
-  const concurrent = await request.put(`/api/v1/assignments/${changed.id}`, {
+  const concurrent = await request.put(`/api/v1/assignments/${changed.id}/configuration`, {
     data: { revision: changed.revision, params: { critical_min_bytes: 1, warn_min_bytes: 12 } },
   });
   expect(concurrent.ok(), await concurrent.text()).toBeTruthy();
@@ -227,13 +228,15 @@ test('500 delegated checks can be reviewed and saved together without concealing
   await mode(request, { webhook: 'reject' });
   try {
     const warnedVersions = await setBatch({ critical_min_bytes: 2, warn_min_bytes: 14 });
-    await expect.poll(async () => (await streams(request, { health: 'WARN', freshness: 'fresh' })).total,
+    await expect.poll(async () => (await streams(request, { health: 'WARN', freshness: 'fresh', page_size: 100 })).total,
       { timeout: 180_000 }).toBe(30);
-    failed = (await streams(request, { health: 'WARN', freshness: 'fresh' })).items;
+    failed = (await streams(request, { health: 'WARN', freshness: 'fresh', page_size: 100 })).items;
     expect(failed.map((row) => row.assignment_id).sort()).toEqual([...batchIDs].sort());
     for (const row of failed) {
       expect(row.current.confirmed_generation).toBe(warnedVersions.find((saved) => saved.id === row.assignment_id).target_generation);
-      expect(row.current.confirmed_params).toEqual({ critical_min_bytes: 2, warn_min_bytes: 14 });
+      const configuration = await (await request.get(`/api/v1/assignments/${row.assignment_id}/configuration`)).json().then(unpackAPI);
+      expect(configuration.current.confirmed_generation).toBe(row.current.confirmed_generation);
+      expect(configuration.current.confirmed_params).toEqual({ critical_min_bytes: 2, warn_min_bytes: 14 });
     }
     expect((await streams(request, { health: 'OK', freshness: 'fresh' })).total).toBe(470);
     expect(configurationIdentity((await configurations(request)).filter((row) => !batchIDs.has(row.id))))
@@ -310,7 +313,7 @@ test('500 delegated checks can be reviewed and saved together without concealing
     expect(afterRetry.incidents.filter((item) => item.status === 'open')).toHaveLength(30);
     const receiverResponse = await request.get(`${fixtureURL}/records`);
     expect(receiverResponse.ok()).toBeTruthy();
-    const received = (await receiverResponse.json()).records;
+    const received = (await receiverResponse.json().then(unpackAPI)).records;
     expect(received).toHaveLength(1);
     expect(received[0].payload).toEqual(original.payload);
     expect(received[0].behavior).toBe('ok');
@@ -353,9 +356,9 @@ test('500 delegated checks can be reviewed and saved together without concealing
   }
   await page.goto(`/results/${failed[0].id}/full`);
   await expect(page.getByRole('link', {name:'View incident',exact:true})).toHaveCount(0);
-  const selectedResponse = await request.get(`/api/v1/checks/${failed[0].id}`);
+  const selectedResponse = await request.get(`/api/v1/results/${failed[0].id}`);
   expect(selectedResponse.ok()).toBeTruthy();
-  const selected = (await selectedResponse.json()).stream;
+  const selected = (await selectedResponse.json().then(unpackAPI)).stream;
   expect(selected.current.confirmed_generation).toBe(restoredVersions.find((saved) => saved.id === selected.assignment_id).target_generation);
   expect(selected.current.confirmed_observation_id).not.toBe(failed[0].current.confirmed_observation_id);
   await checkpoint(page, testInfo, 'bulk-restored-parameters-measured-healthy');

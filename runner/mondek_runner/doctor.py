@@ -258,8 +258,10 @@ def main(arguments: list[str] | None = None) -> None:
         )
         results = []
         for endpoint in ENDPOINTS:
-            result = probe(origin + "/api/v1/" + endpoint, args.timeout, env, identity)
-            results.append({"endpoint": "/api/v1/" + endpoint, **result})
+            result = probe(
+                origin + "/api/v1/runner/" + endpoint, args.timeout, env, identity
+            )
+            results.append({"endpoint": "/api/v1/runner/" + endpoint, **result})
             if result.get("kind") == "authentication_file":
                 break
         output = {

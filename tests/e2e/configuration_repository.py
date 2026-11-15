@@ -135,7 +135,7 @@ class RepositoryAcceptance(DurableRulesAcceptance):
         assignment = self.assignment_state()
         params = {"warning_items": 40, "critical_items": 90}
         self.request(
-            "/api/v1/assignments/" + assignment["id"],
+            "/api/v1/assignments/" + assignment["id"] + "/configuration",
             {"revision": assignment["revision"], "params": params},
             method="PUT",
         )

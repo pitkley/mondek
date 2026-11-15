@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -31,7 +32,7 @@ function displayedDate(date) {
 async function maintenanceJSON(request, path, data) {
   const response = data === undefined ? await request.get(path) : await request.post(path, { data });
   expect(response.ok(), await response.text()).toBe(true);
-  return response.json();
+  return response.json().then(unpackAPI);
 }
 
 async function currentSeries(page, request) {
@@ -70,7 +71,7 @@ async function currentWindow(page, request) {
   const id = new URL(page.url()).pathname.split('/').filter(part => part && part !== 'full').at(-1);
   const response = await request.get(`/api/v1/maintenance/${id}`);
   expect(response.ok(), await response.text()).toBe(true);
-  return response.json();
+  return response.json().then(unpackAPI);
 }
 
 async function cancelWindow(page, reason) {
@@ -148,7 +149,7 @@ test('schedule exact civil times, preserve drafts through reconnect and review c
     data: { proposal: { ...saved.proposal, reason: 'Concurrent reviewed maintenance edit' } },
   });
   expect(concurrentPreview.ok(), await concurrentPreview.text()).toBe(true);
-  const reviewed = await concurrentPreview.json();
+  const reviewed = await concurrentPreview.json().then(unpackAPI);
   const changed = await request.post('/api/v1/maintenance/apply', {
     data: { proposal: reviewed.proposal, review_token: reviewed.review_token },
   });
@@ -232,7 +233,7 @@ test('default immediate window previews, independent overlaps hold real delivery
   const delivered = (await snapshot(request)).occurrences.find((item) => item.id === held.id);
   expect(delivered.payload).toEqual(held.payload);
   expect(delivered.attempt_count).toBe(1);
-  const receipts = await (await request.get(`${fixtureURL}/records`)).json();
+  const receipts = await (await request.get(`${fixtureURL}/records`)).json().then(unpackAPI);
   expect(receipts.records.some((item) => item.payload.occurrence_id === held.id)).toBe(true);
   await page.setViewportSize({ width: 1280, height: 800 });
   await checkpoint(page, testInfo, 'maintenance-end-retained-history');
@@ -326,15 +327,15 @@ test('one explicit selection survives unsent reconnect, reviews overlap drift an
   // A real independently saved window changes the reviewed overlap set.
   const seedResponse = await request.get(`/api/v1/maintenance/seed/${httpId}`);
   expect(seedResponse.ok(), await seedResponse.text()).toBe(true);
-  const seed = await seedResponse.json();
+  const seed = await seedResponse.json().then(unpackAPI);
   const concurrentReview = await request.post('/api/v1/maintenance/preview', {
     data: { proposal: { ...seed.proposal, name: 'Concurrent service hold', reason: 'Overlap changed after the other preview' } },
   });
   expect(concurrentReview.ok(), await concurrentReview.text()).toBe(true);
-  const review = await concurrentReview.json();
+  const review = await concurrentReview.json().then(unpackAPI);
   const concurrentSave = await request.post('/api/v1/maintenance/apply', { data: { proposal: review.proposal, review_token: review.review_token } });
   expect(concurrentSave.ok(), await concurrentSave.text()).toBe(true);
-  const otherWindow = await concurrentSave.json();
+  const otherWindow = await concurrentSave.json().then(unpackAPI);
   await expect(page.locator('#maintenance-error')).toContainText('changed after your preview');
   await expect(page.locator('#maintenance-save')).toHaveCount(0);
   await expect(page.locator('#maintenance-name')).toHaveValue('Unsent shared maintenance draft');
@@ -359,7 +360,7 @@ test('one explicit selection survives unsent reconnect, reviews overlap drift an
     data: { proposal: { ...shared.proposal, selections: shared.selections.slice(1) } },
   });
   expect(immutable.ok()).toBe(false);
-  expect((await (await request.get(`/api/v1/maintenance/${shared.id}`)).json()).selections).toEqual(shared.selections);
+  expect((await (await request.get(`/api/v1/maintenance/${shared.id}`)).json().then(unpackAPI)).selections).toEqual(shared.selections);
   const cancelOther = await request.post(`/api/v1/maintenance/${otherWindow.id}/cancel`, {
     data: { revision: otherWindow.revision, reason: 'Independent overlapping activity completed' },
   });

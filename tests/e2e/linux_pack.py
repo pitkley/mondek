@@ -90,7 +90,7 @@ class LinuxAcceptance(ParityTransportMixin, Acceptance):
         )
 
     def rows(self):
-        return self.request("/api/v1/checks?page_size=100")["items"]
+        return self.request("/api/v1/results?page_size=100")["items"]
 
     def fixture_rows(self):
         rows = self.rows()
@@ -341,7 +341,7 @@ class LinuxAcceptance(ParityTransportMixin, Acceptance):
             lambda: next(
                 (
                     item
-                    for item in self.request("/api/v1/incidents")["items"]
+                    for item in self.request("/api/v1/incidents/health")["items"]
                     if item.get("stream_id") == bridge["id"]
                 ),
                 None,
@@ -353,9 +353,9 @@ class LinuxAcceptance(ParityTransportMixin, Acceptance):
             lambda: {row["id"] for row in self.fixture_rows()} == baseline,
             timeout=120,
         )
-        retired = self.request("/api/v1/checks?status=retired&page_size=100")["items"]
+        retired = self.request("/api/v1/results?status=retired&page_size=100")["items"]
         assert discovered.issubset({row["id"] for row in retired})
-        detail = self.request(f"/api/v1/incidents/{incident['id']}")
+        detail = self.request(f"/api/v1/incidents/health/{incident['id']}")
         assert detail["incident"]["closure_reason"] == "source_removed"
         assert detail["incident"]["closing_observation_id"] is None
         (self.output / "dynamic-retirement.json").write_text(

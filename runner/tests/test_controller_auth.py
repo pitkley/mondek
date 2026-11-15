@@ -90,7 +90,7 @@ class ControllerAuthenticationTests(unittest.TestCase):
                 reply = {"version": 1, "error": owner.expected}
                 if (
                     code == 200
-                    and self.path == "/api/v1/observations"
+                    and self.path == "/api/v1/runner/observations"
                     and "reports" in getattr(self, "payload", {})
                 ):
                     owner.accepted.extend(self.payload["reports"])
@@ -158,9 +158,9 @@ class ControllerAuthenticationTests(unittest.TestCase):
                 ),
                 patch("mondek_runner.connections.socket.socket", side_effect=create),
             ):
-                result = exchange(self.origin + "/api/v1/control", b"{}", 3)
+                result = exchange(self.origin + "/api/v1/runner/control", b"{}", 3)
             self.assertEqual(result["version"], 1)
-            self.assertEqual(self.calls, [("/api/v1/control", self.expected)])
+            self.assertEqual(self.calls, [("/api/v1/runner/control", self.expected)])
             self.assertTrue(hole.closed)
         finally:
             hole.close()
@@ -168,17 +168,18 @@ class ControllerAuthenticationTests(unittest.TestCase):
     def test_all_runner_endpoints_and_policy_use_headers_and_rotation(self):
         for endpoint in ("inventory", "control", "observations"):
             self.assertEqual(
-                post_json(self.origin + "/api/v1/" + endpoint, {}, 5)["version"], 1
+                post_json(self.origin + "/api/v1/runner/" + endpoint, {}, 5)["version"],
+                1,
             )
         request(self.origin, "policy/plan", {})
         self.expected = "rotated-secret"
         # Rejection must not echo the gateway's reason/body or lose ability to retry.
         with self.assertRaises(Exception) as raised:
-            post_json(self.origin + "/api/v1/control", {}, 5)
+            post_json(self.origin + "/api/v1/runner/control", {}, 5)
         self.assertNotIn(self.expected, str(raised.exception))
         self.assertIn("access denied", str(raised.exception))
         self.configure()
-        post_json(self.origin + "/api/v1/control", {}, 5)
+        post_json(self.origin + "/api/v1/runner/control", {}, 5)
         request(self.origin, "policy/export?project=test")
         self.assertEqual(self.calls[-1][1], self.expected)
 
@@ -186,7 +187,7 @@ class ControllerAuthenticationTests(unittest.TestCase):
         for status in (302, 401, 403, 500):
             self.status = status
             for call in (
-                lambda: post_json(self.origin + "/api/v1/control", {}, 5),
+                lambda: post_json(self.origin + "/api/v1/runner/control", {}, 5),
                 lambda: request(self.origin, "policy/plan", {}),
             ):
                 with self.assertRaises(Exception) as raised:
@@ -297,7 +298,10 @@ class ControllerAuthenticationTests(unittest.TestCase):
         self.assertFalse(report["registration_tested"])
         self.assertEqual(
             [item["endpoint"] for item in report["results"]],
-            ["/api/v1/" + name for name in ("inventory", "control", "observations")],
+            [
+                "/api/v1/runner/" + name
+                for name in ("inventory", "control", "observations")
+            ],
         )
         self.assertTrue(
             all(item["outcome"] == "reachable_unverified" for item in report["results"])
@@ -309,27 +313,27 @@ class ControllerAuthenticationTests(unittest.TestCase):
         self.ray = "a3d1999bcdd8d963-TXL"
         self.status = 403
         self.body = b"secret reflected error code: 1010"
-        report = probe(self.origin + "/api/v1/control", 3, dict(os.environ), {})
+        report = probe(self.origin + "/api/v1/runner/control", 3, dict(os.environ), {})
         self.assertEqual(report["cf_error_code"], 1010)
         self.assertEqual(report["cf_ray"], self.ray)
         self.assertEqual(report["outcome"], "blocked")
         with self.assertRaises(Exception) as failure:
-            post_json(self.origin + "/api/v1/inventory", {}, 3)
+            post_json(self.origin + "/api/v1/runner/inventory", {}, 3)
         details = failure_details(failure.exception)
         self.assertEqual(details["cf_error_code"], 1010)
         self.assertEqual(details["cf_ray"], self.ray)
         self.assertNotIn("secret", json.dumps(details))
         self.body = b"Forbidden"
-        report = probe(self.origin + "/api/v1/control", 3, dict(os.environ), {})
+        report = probe(self.origin + "/api/v1/runner/control", 3, dict(os.environ), {})
         self.assertEqual(report["outcome"], "denied")
         self.assertIn("tunnel JWT audiences", report["message"])
         self.status = 302
-        report = probe(self.origin + "/api/v1/control", 3, dict(os.environ), {})
+        report = probe(self.origin + "/api/v1/runner/control", 3, dict(os.environ), {})
         self.assertEqual(report["outcome"], "redirect")
         self.assertFalse(any(path == "/stolen" for path, _ in self.calls))
         before = len(self.calls)
         self.path.chmod(0o644)
-        report = probe(self.origin + "/api/v1/control", 3, dict(os.environ), {})
+        report = probe(self.origin + "/api/v1/runner/control", 3, dict(os.environ), {})
         self.assertEqual(report["kind"], "authentication_file")
         self.assertEqual(len(self.calls), before)
         self.assertNotIn(self.expected, json.dumps(report))
@@ -338,7 +342,7 @@ class ControllerAuthenticationTests(unittest.TestCase):
         with patch.dict(os.environ):
             os.environ.pop("SSL_CERT_FILE")
             with self.assertRaises(Exception) as failure:
-                post_json(self.origin + "/api/v1/control", {}, 3)
+                post_json(self.origin + "/api/v1/runner/control", {}, 3)
         self.assertEqual(failure_details(failure.exception)["kind"], "tls_certificate")
 
     def test_upload_logs_auth_failure_and_recovery_and_clears_diagnostic(self):

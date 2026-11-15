@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -274,7 +275,7 @@ test('one maintenance window retains a reconnect-safe selection of 500 real expo
   const id = new URL(page.url()).pathname.match(/\/maintenance\/([0-9a-f-]{36})/)[1];
   const response = await request.get(`/api/v1/maintenance/${id}`);
   expect(response.ok(), await response.text()).toBe(true);
-  const saved = await response.json();
+  const saved = await response.json().then(unpackAPI);
   expect(saved.scope).toBe('selection');
   expect(saved.selections).toHaveLength(500);
   expect(saved.match_count).toBe(500);
@@ -304,7 +305,7 @@ test('500 actual declared scopes retain complete counts numbered paging and appl
   await expect.poll(async () => {
     const response = await request.get('/api/v1/coverage?source_id=export-capacity');
     expect(response.ok()).toBeTruthy();
-    return (await response.json()).summary.observed;
+    return (await response.json().then(unpackAPI)).summary.observed;
   }, {timeout: 240_000}).toBe(500);
   await page.goto('/coverage?source_id=export-capacity');
   await connected(page);

@@ -346,7 +346,13 @@ def _request_once(
                     raise PolicyError("controller response exceeded the size limit")
                 if not block:
                     break
-            return decode_json(bytes(chunks))
+            value = decode_json(bytes(chunks))
+            if "data" in value and "meta" in value:
+                data = value["data"]
+                return (
+                    {"items": data, **value["meta"]} if isinstance(data, list) else data
+                )
+            return value
     except urllib.error.HTTPError as error:
         with error:
             if auth or error.code in (401, 403):
@@ -357,6 +363,8 @@ def _request_once(
                 ) from error
             try:
                 detail = decode_json(error.read(8193)).get("error")
+                if isinstance(detail, dict):
+                    detail = detail.get("message")
                 detail = _text(detail, "controller error", 4096)
             except (ValueError, OSError):
                 detail = "request rejected"

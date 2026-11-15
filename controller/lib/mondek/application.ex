@@ -7,6 +7,7 @@ defmodule Mondek.Application do
     children =
       [
         Mondek.Repo,
+        Mondek.ConfigurationRepositoryBootstrap,
         {Phoenix.PubSub, name: Mondek.PubSub},
         {Oban, Application.fetch_env!(:mondek, Oban)},
         MondekWeb.Endpoint

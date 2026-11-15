@@ -113,7 +113,8 @@ defmodule Mondek.ConditionInspection do
               select: i
         end
 
-      {page, page_meta} = page(selected, filters["page"])
+      size = if filters["http_unclamped"], do: 20, else: @page_size
+      {page, page_meta} = page(selected, filters["page"], size, filters["http_unclamped"] == true)
 
       incidents =
         Repo.all(
@@ -124,8 +125,8 @@ defmodule Mondek.ConditionInspection do
               desc: i.opened_at,
               desc: i.id
             ],
-            limit: @page_size,
-            offset: ^((page - 1) * @page_size)
+            limit: ^size,
+            offset: ^((page - 1) * size)
         )
 
       assignment_ids = Enum.map(incidents, & &1.assignment_id) |> Enum.uniq()
@@ -548,9 +549,9 @@ defmodule Mondek.ConditionInspection do
   defp valid_state(state, _group) when state in ~w(open history all uncovered), do: state
   defp valid_state(_, group), do: if(group.status == "open", do: "open", else: "history")
 
-  defp page(query, requested) do
+  defp page(query, requested, size \\ @page_size, unclamped \\ false) do
     total = Repo.aggregate(query, :count)
-    pages = max(1, div(total + @page_size - 1, @page_size))
+    pages = max(1, div(total + size - 1, size))
 
     value =
       case requested do
@@ -567,13 +568,13 @@ defmodule Mondek.ConditionInspection do
           1
       end
 
-    page = min(pages, max(1, value))
-    returned = min(@page_size, max(0, total - (page - 1) * @page_size))
+    page = if unclamped, do: max(1, value), else: min(pages, max(1, value))
+    returned = min(size, max(0, total - (page - 1) * size))
 
     {page,
      %{
        "page" => page,
-       "page_size" => @page_size,
+       "page_size" => size,
        "total" => total,
        "pages" => pages,
        "returned" => returned,

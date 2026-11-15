@@ -462,9 +462,9 @@ with closing(sqlite3.connect('file:/state/runner.sqlite3?mode=ro', uri=True)) as
         assert (
             self.incident_for(failed["service-a"])["id"] == incidents["service-a"]["id"]
         )
-        recovered = self.request("/api/v1/incidents/" + incidents["service-b"]["id"])[
-            "incident"
-        ]
+        recovered = self.request(
+            "/api/v1/incidents/health/" + incidents["service-b"]["id"]
+        )["incident"]
         assert (
             recovered["status"] == "closed"
             and recovered["closure_reason"] == "measured_recovery"
@@ -500,7 +500,7 @@ with closing(sqlite3.connect('file:/state/runner.sqlite3?mode=ro', uri=True)) as
             lambda: self.counted("staging", SERVICE_TARGET, selected=2, fresh=2),
         )
         assert (
-            self.request("/api/v1/incidents/" + incidents["service-a"]["id"])[
+            self.request("/api/v1/incidents/health/" + incidents["service-a"]["id"])[
                 "incident"
             ]["closure_reason"]
             == "measured_recovery"
@@ -516,14 +516,14 @@ with closing(sqlite3.connect('file:/state/runner.sqlite3?mode=ro', uri=True)) as
     def rejected_catalogue_and_withdrawal(self) -> dict:
         before = publisher_authority(self.publisher("service-a"))
         envelope = self.runner_inventory(SERVICE_A)
-        replay = self.request("/api/v1/inventory", envelope)
+        replay = self.request("/api/v1/runner/inventory", envelope)
         assert replay["inventory_revision"] == envelope["inventory_revision"]
         assert publisher_authority(self.publisher("service-a")) == before
 
         rejected = copy.deepcopy(envelope)
         rejected["inventory_revision"] += 1
         rejected["coverage"]["version"] = 999
-        self.request("/api/v1/inventory", rejected, code=422)
+        self.request("/api/v1/runner/inventory", rejected, code=422)
         assert publisher_authority(self.publisher("service-a")) == before
         conflict = copy.deepcopy(envelope)
         conflict["coverage"]["code_revision"] = "0" * 64
@@ -531,7 +531,7 @@ with closing(sqlite3.connect('file:/state/runner.sqlite3?mode=ro', uri=True)) as
             conflict["coverage"]["code_revision"]
             != envelope["coverage"]["code_revision"]
         )
-        self.request("/api/v1/inventory", conflict, code=409)
+        self.request("/api/v1/runner/inventory", conflict, code=409)
         assert publisher_authority(self.publisher("service-a")) == before
         assert self.counted("staging", SERVICE_TARGET, declaring=4, selected=2, fresh=2)
 
@@ -621,7 +621,9 @@ with closing(sqlite3.connect('file:/state/runner.sqlite3?mode=ro', uri=True)) as
             assert publisher["coverage_confirmed"] and publisher["declarations"] == 0
             assert self.scope("production", SERVICE_TARGET)["id"] == production_id
             assert self.scope("production", SERVICE_TARGET)["counts"]["declaring"] == 3
-            closed = self.request("/api/v1/incidents/" + incident["id"])["incident"]
+            closed = self.request("/api/v1/incidents/health/" + incident["id"])[
+                "incident"
+            ]
             assert closed["status"] == "closed"
             assert closed["closure_reason"] == "source_removed"
             assert closed["closing_observation_id"] is None

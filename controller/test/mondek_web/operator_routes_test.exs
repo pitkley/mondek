@@ -72,8 +72,8 @@ defmodule MondekWeb.OperatorRoutesTest do
   test "API, Git and downloadable credits keep their explicit non-LiveView endpoints" do
     for {method, path} <- [
           {"GET", "/health"},
-          {"GET", "/api/v1/checks"},
-          {"GET", "/api/v1/monitoring-incidents"},
+          {"GET", "/api/v1/results"},
+          {"GET", "/api/v1/incidents/monitoring-loss"},
           {"GET", "/configuration.git/info/refs"},
           {"POST", "/configuration.git/git-upload-pack"},
           {"POST", "/configuration.git/git-receive-pack"},

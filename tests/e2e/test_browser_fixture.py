@@ -22,7 +22,12 @@ spec.loader.exec_module(browser)
 def response(expected, fresh):
     return io.StringIO(
         json.dumps(
-            {"counts": {"coverage": {"expected_count": expected, "fresh": fresh}}}
+            {
+                "data": [],
+                "meta": {
+                    "counts": {"coverage": {"expected_count": expected, "fresh": fresh}}
+                },
+            }
         )
     )
 

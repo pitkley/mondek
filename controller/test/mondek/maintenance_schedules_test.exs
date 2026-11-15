@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Mondek.MaintenanceSchedulesTest do
   use Mondek.DataCase, async: false
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [json_response: 2]
+  import Mondek.APIResponse
 
   alias Mondek.{
     Maintenance,

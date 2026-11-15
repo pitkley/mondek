@@ -728,7 +728,7 @@ defmodule Mondek.MonitoringLoss do
       end
 
     total = Repo.aggregate(query, :count)
-    page = page(params["page"], total)
+    page = if params["unclamped"], do: params["page"] || 1, else: page(params["page"], total)
 
     ordered =
       if params["priority_order"] == true,
@@ -766,7 +766,11 @@ defmodule Mondek.MonitoringLoss do
         if incident.status == "open" do
           query = active_gaps(incident.scope_key, at)
           total = Repo.aggregate(exclude(query, :order_by), :count)
-          page = page(params["members_page"], total)
+
+          page =
+            if params["unclamped"],
+              do: params["members_page"] || 1,
+              else: page(params["members_page"], total)
 
           %{
             "items" =>

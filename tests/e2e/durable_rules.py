@@ -94,7 +94,7 @@ class DurableRulesAcceptance(ParityAcceptance):
 
     def assignment_state(self, assignment_id: str | None = None) -> dict[str, Any]:
         assignment_id = assignment_id or self.stream(TARGET)["assignment_id"]
-        return self.request("/api/v1/assignments/" + assignment_id)
+        return self.request("/api/v1/assignments/" + assignment_id + "/configuration")
 
     def measured(self, params: dict[str, int], health: str) -> dict[str, Any] | bool:
         row = self.stream(TARGET)
@@ -107,7 +107,7 @@ class DurableRulesAcceptance(ParityAcceptance):
                 and assignment["active_generation"] == assignment["desired_generation"]
                 and current.get("confirmed_generation")
                 == assignment["desired_generation"]
-                and current.get("confirmed_params") == params
+                and assignment["current"].get("confirmed_params") == params
                 and current.get("knowledge") == "fresh"
                 and current.get("health") == health
             )
@@ -240,7 +240,9 @@ class DurableRulesAcceptance(ParityAcceptance):
         self.eventually(
             "explicit withdrawal leaves zero expected results", self.empty_coverage
         )
-        retired = self.request("/api/v1/checks/" + self.original_stream)
+        retired = self.request(
+            "/api/v1/results/" + self.original_stream + "/inspection"
+        )
         incident = next(
             item
             for item in retired["incidents"]
@@ -312,7 +314,7 @@ class DurableRulesAcceptance(ParityAcceptance):
         assignment = self.assignment_state()
         exception = {"warning_items": 20, "critical_items": 30}
         self.request(
-            "/api/v1/assignments/" + assignment["id"],
+            "/api/v1/assignments/" + assignment["id"] + "/configuration",
             {"revision": assignment["revision"], "params": exception},
             method="PUT",
         )

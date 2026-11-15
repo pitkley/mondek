@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Mondek.EnvironmentScopeTest do
   use Mondek.DataCase, async: false
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [json_response: 2]
+  import Mondek.APIResponse
   alias Mondek.{CoverageDeclaration, ResultStream, Runner, SourceInventory, Protocol}
   alias Mondek.CoverageFixtures, as: F
   @endpoint MondekWeb.Endpoint
@@ -25,7 +26,7 @@ defmodule Mondek.EnvironmentScopeTest do
         })
         |> put_in(["checks", Access.at(0), "outputs", Access.at(0), field], value)
 
-      error = post_json("/api/v1/inventory", changed, 422)
+      error = post_json("/api/v1/runner/inventory", changed, 422)
       assert error["error"] =~ "Outputs cannot declare environment or environment_label"
       assert error["error"] =~ "separate environment bindings"
       assert inventory_state(p) == before
@@ -50,7 +51,7 @@ defmodule Mondek.EnvironmentScopeTest do
 
       assert {:error, {:invalid, message}} = Monitoring.inventory(changed, at())
       assert message =~ "Outputs cannot declare"
-      assert post_json("/api/v1/inventory", changed, 422)["error"] == message
+      assert post_json("/api/v1/runner/inventory", changed, 422)["error"] == message
       assert inventory_state(p) == before
     end
   end
@@ -65,7 +66,7 @@ defmodule Mondek.EnvironmentScopeTest do
       })
 
     now = Monitoring.now()
-    assert post_json("/api/v1/inventory", p, 200)["accepted_checks"] == 1
+    assert post_json("/api/v1/runner/inventory", p, 200)["accepted_checks"] == 1
     assert {:ok, _} = F.activate(p, now)
     [a] = F.assignments(p)
 
@@ -101,7 +102,7 @@ defmodule Mondek.EnvironmentScopeTest do
 
       response =
         post_json(
-          "/api/v1/observations",
+          "/api/v1/runner/observations",
           envelope([changed], Map.take(p, ~w(installation_id session_id))),
           200
         )
@@ -137,7 +138,7 @@ defmodule Mondek.EnvironmentScopeTest do
 
     response =
       post_json(
-        "/api/v1/observations",
+        "/api/v1/runner/observations",
         envelope([invalid, valid], Map.take(p, ~w(installation_id session_id))),
         200
       )

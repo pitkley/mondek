@@ -509,7 +509,7 @@ class Runner:
                         try:
                             reply = await asyncio.to_thread(
                                 self.transport,
-                                self.controller_url + "/api/v1/inventory",
+                                self.controller_url + "/api/v1/runner/inventory",
                                 {
                                     "version": 1,
                                     "installation_id": self.state.installation_id,
@@ -542,7 +542,7 @@ class Runner:
                             self.inventory_retry_at = self.monotonic() + 5
                 response = await asyncio.to_thread(
                     self.transport,
-                    self.controller_url + "/api/v1/control",
+                    self.controller_url + "/api/v1/runner/control",
                     {
                         "version": 1,
                         "installation_id": self.state.installation_id,
@@ -710,7 +710,7 @@ class Runner:
             try:
                 response = await asyncio.to_thread(
                     self.transport,
-                    self.controller_url + "/api/v1/observations",
+                    self.controller_url + "/api/v1/runner/observations",
                     {
                         "version": 1,
                         "installation_id": self.state.installation_id,

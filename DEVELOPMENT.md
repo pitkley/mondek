@@ -19,6 +19,8 @@ Use `mondek help` for the small installation command set, and `mondek help devel
 
 Use [the acceptance coverage map](docs/ACCEPTANCE-COVERAGE.md) to select meaningful suites. Run native PostgreSQL suites serially; service/browser acceptance uses isolated Compose projects and removes only its own test data. `devenv shell -- python3 tests/browser/run.py --suite empty` verifies onboarding and packaged credits at desktop and narrow widths. Run `mondek browser` for all browser journeys.
 
+Use `devenv shell -- mondek api-spec` to regenerate the unified HTTP contract and route inventory. `mondek api-spec-check` verifies them without starting services; it also runs in `mondek check`. See [the HTTP API guide](docs/HTTP-API.md).
+
 After dependency changes, run `devenv shell -- mondek licenses` and review generated notices. `mondek licenses-check` rejects unapproved licenses, missing evidence and stale generated files. See [license collection and credits](docs/LICENSING.md) for coverage and remaining image/runtime inventory work.
 
 Write checks in a separate consumer project using [the authoring API](runner/README.md), [installed examples](examples/consumers/README.md) and [the deployment guide](docs/RUNNER-DEPLOYMENT.md). Keep real secrets in operator-managed runtime configuration. Do not commit runtime data, credentials or acceptance artifacts.

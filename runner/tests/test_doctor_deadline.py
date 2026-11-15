@@ -35,7 +35,10 @@ class DoctorDeadlineTests(unittest.TestCase):
         try:
             before = time.monotonic()
             report = probe(
-                f"http://127.0.0.1:{server.server_port}/api/v1/control", 1, env, {}
+                f"http://127.0.0.1:{server.server_port}/api/v1/runner/control",
+                1,
+                env,
+                {},
             )
             self.assertTrue(reached.is_set())
             self.assertEqual(report["kind"], "timeout")

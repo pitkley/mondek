@@ -41,7 +41,7 @@ def wait_for_scale_fixture(controller: str, expected: int, output: Path) -> None
                 with urllib.request.urlopen(
                     f"http://{controller}/api/v1/runners", timeout=min(5, remaining)
                 ) as response:
-                    coverage = json.load(response)["counts"]["coverage"]
+                    coverage = json.load(response)["meta"]["counts"]["coverage"]
                 evidence["samples"].append(
                     {"seconds": round(time.monotonic() - started, 2), **coverage}
                 )

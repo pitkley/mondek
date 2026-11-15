@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -8,7 +9,7 @@ const phase = process.env.MONDEK_DISCOVERY_PHASE || 'operator';
 const output = process.env.MONDEK_BROWSER_OUTPUT;
 const receiptFile = path.join(path.dirname(output), 'pending-discovery-change.json');
 const rows = async request => (await streams(request, {page_size:100})).items;
-const get = async (request, id) => (await request.get(`/api/v1/assignments/${id}`)).json();
+const get = async (request, id) => (await request.get(`/api/v1/assignments/${id}/configuration`)).json().then(unpackAPI);
 const locate = (items, observer, label) => items.find(row => row.runner_label === `Observer ${observer}` && row.check_label === label);
 async function edit(page, id, scope='local') {
   await page.goto(`/configuration/discovery/${id}`);

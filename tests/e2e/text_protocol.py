@@ -30,7 +30,7 @@ from mondek_runner.bundle import snapshot
 from mondek_runner.runtime import execute
 
 def post(path, body):
-    request = urllib.request.Request("http://controller:4000/api/v1/" + path,
+    request = urllib.request.Request("http://controller:4000/api/v1/runner/" + path,
         json.dumps(body).encode(), {"Content-Type": "application/json"})
     with urllib.request.urlopen(request, timeout=10) as response:
         return json.load(response)

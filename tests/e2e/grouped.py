@@ -101,11 +101,13 @@ class GroupedAcceptance(MaintenanceClient, ParityAcceptance):
         )
 
     def incident_list(self, **filters: Any) -> dict:
-        return self.request("/api/v1/incidents?" + urllib.parse.urlencode(filters))
+        return self.request(
+            "/api/v1/incidents/health?" + urllib.parse.urlencode(filters)
+        )
 
     def group(self, id_: str) -> dict:
         return self.request(
-            f"/api/v1/incidents/{id_}?state=all&notification_status=all"
+            f"/api/v1/incidents/health/{id_}?state=all&notification_status=all"
         )
 
     def one_group(self, count: int, health: str) -> dict | bool:
@@ -196,7 +198,7 @@ class GroupedAcceptance(MaintenanceClient, ParityAcceptance):
     def acknowledge(self, detail: dict, mode: str = "until_incident_ends") -> dict:
         incident = detail["incident"]
         self.request(
-            f"/api/v1/incidents/{incident['id']}/acknowledge",
+            f"/api/v1/incidents/health/{incident['id']}/acknowledge",
             {
                 "mode": mode,
                 "revision": incident["acknowledgement_revision"],
@@ -790,9 +792,9 @@ class GroupedAcceptance(MaintenanceClient, ParityAcceptance):
             )
             assert removed["incident"]["closure_reason"] == "source_removed"
             assert removed["evidence_ids"]["closing"] is None
-            assert self.request("/api/v1/checks/" + rows[VOLUME]["id"])["stream"][
-                "retired"
-            ]
+            assert self.request(
+                "/api/v1/results/" + rows[VOLUME]["id"] + "/inspection"
+            )["stream"]["retired"]
             self.capture("withdrawn-contributor", id_)
         finally:
             self.deploy_source(VOLUME_SERVICE, source)

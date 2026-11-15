@@ -116,7 +116,7 @@ class NumericMetricsMixin:
 
             assignment = self.assignment(initial["assignment_id"])
             changed = self.request(
-                "/api/v1/assignments/" + assignment["id"],
+                "/api/v1/assignments/" + assignment["id"] + "/configuration",
                 {
                     "revision": assignment["revision"],
                     "params": {"warning": 4, "critical": 8},

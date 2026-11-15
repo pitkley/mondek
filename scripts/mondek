@@ -40,6 +40,8 @@ Develop and maintain Mondek
   setup            Install locked controller and runner development dependencies
   assets           Build browser assets using devenv's esbuild
   check            Check formatting and static configuration
+  api-spec         Generate the unified HTTP OpenAPI contract
+  api-spec-check   Check HTTP route/spec coverage and generated contract
   licenses         Refresh pinned dependency evidence and generated credits
   licenses-check   Enforce dependency license policy and reject stale credits
   test             Run native runner and PostgreSQL controller tests
@@ -157,7 +159,14 @@ case "${1:-help}" in
     docker compose version
     docker info --format 'Docker engine: {{.ServerVersion}}'
     ;;
+  api-spec)
+    (cd controller && mix mondek.openapi)
+    ;;
+  api-spec-check)
+    (cd controller && mix mondek.openapi --check)
+    ;;
   check)
+    bash scripts/mondek api-spec-check
     python3 scripts/dependency_pins.py --toolchain
     bash scripts/mondek licenses-check
     python3 -m unittest discover -s tests/licensing -v

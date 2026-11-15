@@ -179,7 +179,7 @@ connection.close()
         assert self.incident(self.check_id)["id"] == incident["id"]
         sample.write_text("0\n")
         self.eventually("repair yields measured recovery", self.measured)
-        closed = self.request(f"/api/v1/incidents/{incident['id']}")["incident"]
+        closed = self.request(f"/api/v1/incidents/health/{incident['id']}")["incident"]
         assert closed["closure_reason"] == "measured_recovery"
         return {"recovered_incident": incident["id"]}
 
@@ -187,7 +187,7 @@ connection.close()
         assignment = self.assignment(self.check_id)
         params = {"warning_items": 15, "critical_items": 20}
         self.request(
-            f"/api/v1/assignments/{self.check_id}",
+            f"/api/v1/assignments/{self.check_id}/configuration",
             {"revision": assignment["revision"], "params": params},
             method="PUT",
         )
@@ -268,10 +268,10 @@ connection.close()
             "complete empty source inventory retires monitoring",
             lambda: self.assignment(self.check_id)["retired_at"],
         )
-        closed = self.request(f"/api/v1/incidents/{incident['id']}")["incident"]
+        closed = self.request(f"/api/v1/incidents/health/{incident['id']}")["incident"]
         assert closed["closure_reason"] == "source_removed"
         assert closed["closing_observation_id"] is None
-        retired = self.request("/api/v1/checks?status=retired")["items"]
+        retired = self.request("/api/v1/results?status=retired")["items"]
         assert len(retired) == 1
         old_stream = retired[0]["id"]
         self.stop_runner()
@@ -281,7 +281,7 @@ connection.close()
         active = self.eventually(
             "restored source has fresh result incarnation",
             lambda: (
-                (rows := self.request("/api/v1/checks")["items"])
+                (rows := self.request("/api/v1/results")["items"])
                 and len(rows) == 1
                 and rows[0]["id"] != old_stream
                 and rows[0]["current"]["knowledge"] == "fresh"
@@ -289,7 +289,7 @@ connection.close()
             ),
         )
         assert (
-            self.request(f"/api/v1/incidents/{incident['id']}")["incident"][
+            self.request(f"/api/v1/incidents/health/{incident['id']}")["incident"][
                 "closure_reason"
             ]
             == "source_removed"

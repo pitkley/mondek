@@ -19,7 +19,7 @@ class SchemaEvolutionMixin:
         assignment_id = before["assignment_id"]
         old = self.assignment(assignment_id)
         edited = self.request(
-            "/api/v1/assignments/" + assignment_id,
+            "/api/v1/assignments/" + assignment_id + "/configuration",
             {
                 "revision": old["revision"],
                 "params": old["params"] | {"warn_age_seconds": 45},
@@ -95,7 +95,7 @@ class SchemaEvolutionMixin:
             if item["status"] == "open"
         )
         self.request(
-            "/api/v1/assignments/" + assignment_id,
+            "/api/v1/assignments/" + assignment_id + "/configuration",
             {"revision": edited["revision"], "params": edited["params"]},
             method="PUT",
             code=409,
@@ -105,7 +105,7 @@ class SchemaEvolutionMixin:
         # is fresh. Stop only this test's node runner to make the stage stable.
         self.compose("stop", "node-a-runner")
         repaired = self.request(
-            "/api/v1/assignments/" + assignment_id,
+            "/api/v1/assignments/" + assignment_id + "/configuration",
             {
                 "revision": evolved["revision"],
                 "params": evolved["params"] | {"minimum_records": 1},
@@ -115,7 +115,7 @@ class SchemaEvolutionMixin:
         query = urllib.parse.urlencode(
             {"search": target, "configuration_stage": "saved"}
         )
-        pending = self.request("/api/v1/configuration?" + query)
+        pending = self.request("/api/v1/assignments?" + query)
         assert pending["total"] == 1 and pending["items"][0]["id"] == assignment_id
         assert pending["configuration_summary"]["scope_total"] == 1
         self.compose("start", "node-a-runner")
@@ -144,7 +144,7 @@ class SchemaEvolutionMixin:
         measured_query = urllib.parse.urlencode(
             {"search": target, "configuration_stage": "measured"}
         )
-        measured = self.request("/api/v1/configuration?" + measured_query)
+        measured = self.request("/api/v1/assignments?" + measured_query)
         assert measured["total"] == 1 and measured["items"][0]["id"] == assignment_id
 
         # An old source cannot silently drop the new operator-owned field. Its

@@ -1,3 +1,4 @@
+import { unpackAPI } from '../support/helpers.mjs';
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
 import { test, expect } from '@playwright/test';
@@ -13,7 +14,7 @@ test.beforeEach(async ({ request }) => {
   // These journeys assert exact attention counts. Measure a healthy unrelated
   // filesystem even when the real Docker VM exceeds the demo warning default.
   const filesystem = checks.filesystem;
-  const response = await request.put(`/api/v1/assignments/${filesystemId}`, {
+  const response = await request.put(`/api/v1/assignments/${filesystemId}/configuration`, {
     data: { revision: filesystem.revision, params: { ...filesystem.params, warn_percent: 99, crit_percent: 100 } },
   });
   expect(response.ok(), await response.text()).toBe(true);
@@ -24,15 +25,15 @@ const phase = process.env.MONDEK_BROWSER_PHASE;
 const restartStatePath = process.env.MONDEK_BROWSER_RESTART_STATE || path.join(process.env.MONDEK_BROWSER_OUTPUT || '.', 'controller-restart.json');
 
 async function incidents(request, filters = {}) {
-  const response = await request.get(`/api/v1/monitoring-incidents?${new URLSearchParams(filters)}`);
+  const response = await request.get(`/api/v1/incidents/monitoring-loss?${new URLSearchParams(filters)}`);
   expect(response.ok(), await response.text()).toBe(true);
-  return response.json();
+  return response.json().then(unpackAPI);
 }
 
 async function detail(request, id) {
-  const response = await request.get(`/api/v1/monitoring-incidents/${id}`);
+  const response = await request.get(`/api/v1/incidents/monitoring-loss/${id}`);
   expect(response.ok(), await response.text()).toBe(true);
-  return response.json();
+  return response.json().then(unpackAPI);
 }
 
 async function occurrence(request, incidentId, kind = 'firing') {
@@ -178,7 +179,7 @@ test('real monitoring failures debounce, group by runner, hold original delivery
     expect(delivered.payload).toEqual(exhausted.payload);
     expect(delivered.destination).toBe(exhausted.destination);
     expect(delivered.attempt_count).toBe(4);
-    const receipts = await (await request.get(`${fixtureURL}/records`)).json();
+    const receipts = await (await request.get(`${fixtureURL}/records`)).json().then(unpackAPI);
     expect(receipts.records.some((row) => row.payload.occurrence_id === opening.id && row.payload.monitoring_incident_id === episode.id)).toBe(true);
     await acknowledge(page, 'Awaiting fresh evidence after transport returns');
 
@@ -200,7 +201,7 @@ test('real monitoring failures debounce, group by runner, hold original delivery
     expect(ended.closing_evidence.length).toBeGreaterThan(0);
     expect(ended.closing_evidence.every((row) => row.knowledge === 'fresh' && row.observation_id && row.source_at)).toBe(true);
     await expect.poll(async () => {
-      const records = (await (await request.get(`${fixtureURL}/transport-records`)).json()).records;
+      const records = (await (await request.get(`${fixtureURL}/transport-records`)).json().then(unpackAPI)).records;
       return records.flatMap((row) => row.request.reports).some((report) => report.assignment_id === consumerId
         && Date.parse(report.started_at) > changedAt && Date.parse(report.started_at) > blockedAt
         && Date.parse(report.started_at) < resumedAt

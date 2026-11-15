@@ -115,7 +115,7 @@ class ConnectionTests(unittest.TestCase):
                     ):
                         start = time.monotonic()
                         result = exchange(
-                            "http://controller.invalid/api/v1/control", b"{}", 2
+                            "http://controller.invalid/api/v1/runner/control", b"{}", 2
                         )
                         elapsed = time.monotonic() - start
                     self.assertEqual(result, {"version": 1})

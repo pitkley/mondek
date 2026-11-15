@@ -41,7 +41,7 @@ defmodule MondekWeb.InvestigationNavigationTest do
           "/unknown",
           "/checks/../runners",
           String.duplicate("x", 8193),
-          "/api/v1/checks",
+          "/api/v1/results",
           "/configuration.git/info/refs",
           "/licenses/notices"
         ] do

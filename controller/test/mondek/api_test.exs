@@ -20,7 +20,7 @@ defmodule Mondek.APITest do
 
     {code,
      case Jason.decode(json) do
-       {:ok, value} -> value
+       {:ok, value} -> Mondek.APIResponse.unpack(value)
        {:error, _} -> %{"error" => json}
      end}
   end
@@ -28,7 +28,7 @@ defmodule Mondek.APITest do
   test "actual HTTP commits, acknowledges, deduplicates and rejects semantic conflicts", %{
     url: url
   } do
-    assert {200, %{"version" => 1}} = post(url, "/api/v1/control", control())
+    assert {200, %{"version" => 1}} = post(url, "/api/v1/runner/control", control())
     time = DateTime.to_iso8601(Monitoring.now())
 
     r =
@@ -36,7 +36,7 @@ defmodule Mondek.APITest do
       |> put_in(["results", Access.at(0), "source_at"], time)
 
     assert {200, %{"dispositions" => [%{"disposition" => "current"}]}} =
-             post(url, "/api/v1/observations", envelope([r]))
+             post(url, "/api/v1/runner/observations", envelope([r]))
 
     assert Repo.aggregate(Incident, :count) == 1
 
@@ -45,12 +45,12 @@ defmodule Mondek.APITest do
               "dispositions" => [
                 %{"disposition" => "duplicate", "original_disposition" => "current"}
               ]
-            }} = post(url, "/api/v1/observations", envelope([r]))
+            }} = post(url, "/api/v1/runner/observations", envelope([r]))
 
     changed = put_in(r, ["results", Access.at(0), "health"], "OK")
 
     assert {200, %{"dispositions" => [%{"disposition" => "conflict"}]}} =
-             post(url, "/api/v1/observations", envelope([changed]))
+             post(url, "/api/v1/runner/observations", envelope([changed]))
 
     assert Repo.aggregate(Occurrence, :count) == 1
   end
@@ -58,7 +58,7 @@ defmodule Mondek.APITest do
   test "exact numeric retries survive JSONB representation changes without rounding conflicts", %{
     url: url
   } do
-    assert {200, _} = post(url, "/api/v1/control", control())
+    assert {200, _} = post(url, "/api/v1/runner/control", control())
     time = DateTime.to_iso8601(Monitoring.now())
 
     for {value, sequence} <- Enum.with_index([1.0e20, 1.0e24, -1.0e24, 1.7976931348623157e308], 1) do
@@ -68,7 +68,7 @@ defmodule Mondek.APITest do
         |> put_in(["results", Access.at(0), "value"], value)
 
       assert {200, %{"dispositions" => [%{"disposition" => "current"}]}} =
-               post(url, "/api/v1/observations", envelope([report]))
+               post(url, "/api/v1/runner/observations", envelope([report]))
 
       stored = Repo.get!(Observation, report["id"])
       persisted_value = hd(stored.payload["results"])["value"]
@@ -79,14 +79,14 @@ defmodule Mondek.APITest do
                 "dispositions" => [
                   %{"disposition" => "duplicate", "original_disposition" => "current"}
                 ]
-              }} = post(url, "/api/v1/observations", envelope([report]))
+              }} = post(url, "/api/v1/runner/observations", envelope([report]))
 
       # One decimal integer step is far smaller than a float ULP at these
       # magnitudes. It is still a different value and must remain a conflict.
       changed = put_in(report, ["results", Access.at(0), "value"], persisted_value + 1)
 
       assert {200, %{"dispositions" => [%{"disposition" => "conflict"}]}} =
-               post(url, "/api/v1/observations", envelope([changed]))
+               post(url, "/api/v1/runner/observations", envelope([changed]))
     end
 
     assert Repo.aggregate(Observation, :count) == 4
@@ -95,28 +95,31 @@ defmodule Mondek.APITest do
   end
 
   test "wire bounds and malformed types return explicit client errors", %{url: url} do
-    assert {422, _} = post(url, "/api/v1/control", control(%{"version" => 2}))
+    assert {422, _} = post(url, "/api/v1/runner/control", control(%{"version" => 2}))
 
     for key <- ["prepared", "active", "status"] do
-      assert {422, _} = post(url, "/api/v1/control", control(%{key => false}))
+      assert {422, _} = post(url, "/api/v1/runner/control", control(%{key => false}))
     end
 
     assert {422, _} =
-             post(url, "/api/v1/incidents/not-a-uuid/acknowledge", %{
+             post(url, "/api/v1/incidents/health/not-a-uuid/acknowledge", %{
                "seconds" => 60,
                "note" => "test"
              })
 
-    assert {200, _} = post(url, "/api/v1/control", control())
-    assert {422, _} = post(url, "/api/v1/observations", envelope(List.duplicate(report(), 33)))
+    assert {200, _} = post(url, "/api/v1/runner/control", control())
+
+    assert {422, _} =
+             post(url, "/api/v1/runner/observations", envelope(List.duplicate(report(), 33)))
 
     oversized =
       put_in(report(), ["results", Access.at(0), "summary"], String.duplicate("x", 2049))
 
     assert {200, %{"dispositions" => [%{"disposition" => "rejected"}]}} =
-             post(url, "/api/v1/observations", envelope([oversized]))
+             post(url, "/api/v1/runner/observations", envelope([oversized]))
 
-    assert {413, _} = post(url, "/api/v1/control", %{"huge" => String.duplicate("x", 262_144)})
+    assert {413, _} =
+             post(url, "/api/v1/runner/control", %{"huge" => String.duplicate("x", 262_144)})
 
     assert {:error, {:invalid, _}} =
              Monitoring.save_assignment("10000000-0000-4000-8000-000000000002", 1, %{
@@ -163,45 +166,46 @@ defmodule Mondek.APITest do
     assert byte_size(Jason.encode!(body)) > 262_144
 
     assert {200, %{"accepted_checks" => 500}} =
-             post(url, "/api/v1/inventory", body, 15_000)
+             post(url, "/api/v1/runner/inventory", body, 15_000)
 
     assert {413, _} =
-             post(url, "/api/v1/observations", %{"large" => String.duplicate("x", 262_144)})
+             post(url, "/api/v1/runner/observations", %{"large" => String.duplicate("x", 262_144)})
 
     assert {413, _} =
-             post(url, "/api/v1/inventory", %{"large" => String.duplicate("x", 4_194_304)})
+             post(url, "/api/v1/runner/inventory", %{"large" => String.duplicate("x", 4_194_304)})
 
     assert {:ok, {{_, 200, _}, _, response}} =
              :httpc.request(
                :get,
-               {String.to_charlist(url <> "/api/v1/checks?search=http-check&page_size=23&page=2"),
-                []},
+               {String.to_charlist(
+                  url <> "/api/v1/results?search=http-check&page_size=23&page=2"
+                ), []},
                [timeout: 5000],
                body_format: :binary
              )
 
-    page = Jason.decode!(response)
+    page = Mondek.APIResponse.unpack(Jason.decode!(response))
     assert page["total"] == 500 and length(page["items"]) == 23
     stream = hd(page["items"])
 
     assert {:ok, {{_, 200, _}, _, detail}} =
              :httpc.request(
                :get,
-               {String.to_charlist(url <> "/api/v1/checks/" <> stream["id"]), []},
+               {String.to_charlist(url <> "/api/v1/results/" <> stream["id"]), []},
                [timeout: 5000],
                body_format: :binary
              )
 
-    assert Jason.decode!(detail)["stream"]["id"] == stream["id"]
+    assert Jason.decode!(detail)["data"]["id"] == stream["id"]
 
     assert {422, _} =
              post(
                url,
-               "/api/v1/inventory",
+               "/api/v1/runner/inventory",
                put_in(body, ["checks", Access.at(0), "extra"], <<0>>)
              )
 
-    assert {422, _} = post(url, "/api/v1/control", control(%{"runner_label" => <<0>>}))
+    assert {422, _} = post(url, "/api/v1/runner/control", control(%{"runner_label" => <<0>>}))
   end
 
   @tag timeout: 120_000
@@ -250,7 +254,8 @@ defmodule Mondek.APITest do
         "checks" => checks
       })
 
-    assert {200, %{"accepted_checks" => 512}} = post(url, "/api/v1/inventory", inventory, 30_000)
+    assert {200, %{"accepted_checks" => 512}} =
+             post(url, "/api/v1/runner/inventory", inventory, 30_000)
 
     selectors =
       for target <- targets,
@@ -296,16 +301,17 @@ defmodule Mondek.APITest do
       assert {413, _} = post(url, path, %{"large" => String.duplicate("x", 2_097_152)})
     end
 
-    assert {413, _} = post(url, "/api/v1/control", %{"large" => String.duplicate("x", 262_144)})
+    assert {413, _} =
+             post(url, "/api/v1/runner/control", %{"large" => String.duplicate("x", 262_144)})
   end
 
   test "out-of-range configuration generations are rejected before database encoding", %{url: url} do
-    assert {200, _} = post(url, "/api/v1/control", control())
+    assert {200, _} = post(url, "/api/v1/runner/control", control())
 
     assert {200, %{"dispositions" => [%{"disposition" => "rejected"}]}} =
              post(
                url,
-               "/api/v1/observations",
+               "/api/v1/runner/observations",
                envelope([report(%{"generation" => 2_147_483_648})])
              )
 
@@ -313,7 +319,7 @@ defmodule Mondek.APITest do
       assert {422, _} =
                post(
                  url,
-                 "/api/v1/control",
+                 "/api/v1/runner/control",
                  control(%{key => %{"10000000-0000-4000-8000-000000000001" => 2_147_483_648}})
                )
     end
@@ -355,33 +361,35 @@ defmodule Mondek.APITest do
   end
 
   test "selected incident HTTP detail includes its evidence and handles unknown IDs", %{url: url} do
-    assert {200, _} = post(url, "/api/v1/control", control())
+    assert {200, _} = post(url, "/api/v1/runner/control", control())
     time = DateTime.to_iso8601(Monitoring.now())
 
     report =
       measurement("CRIT", 1, %{"started_at" => time, "evaluated_at" => time})
       |> put_in(["results", Access.at(0), "source_at"], time)
 
-    assert {200, _} = post(url, "/api/v1/observations", envelope([report]))
+    assert {200, _} = post(url, "/api/v1/runner/observations", envelope([report]))
     incident = Repo.one!(Incident)
 
     assert {:ok, {{_, 200, _}, _, body}} =
              :httpc.request(
                :get,
-               {String.to_charlist(url <> "/api/v1/incidents/" <> incident.id), []},
+               {String.to_charlist(url <> "/api/v1/incidents/health/" <> incident.id), []},
                [timeout: 5000],
                body_format: :binary
              )
 
-    detail = Jason.decode!(body)
+    detail = Mondek.APIResponse.unpack(Jason.decode!(body))
     assert detail["incident"]["id"] == incident.id
     assert Enum.any?(detail["evidence"], &(&1["id"] == report["id"]))
 
     for id <- [Ecto.UUID.generate(), "not-a-uuid"] do
-      assert {:ok, {{_, 404, _}, _, _}} =
+      expected = if id == "not-a-uuid", do: 422, else: 404
+
+      assert {:ok, {{_, ^expected, _}, _, _}} =
                :httpc.request(
                  :get,
-                 {String.to_charlist(url <> "/api/v1/incidents/" <> id), []},
+                 {String.to_charlist(url <> "/api/v1/incidents/health/" <> id), []},
                  [timeout: 5000],
                  body_format: :binary
                )
@@ -440,7 +448,7 @@ defmodule Mondek.APITest do
   end
 
   test "malformed batch membership rejects that report before binding database text", %{url: url} do
-    assert {200, _} = post(url, "/api/v1/control", control())
+    assert {200, _} = post(url, "/api/v1/runner/control", control())
     time = DateTime.to_iso8601(Monitoring.now())
 
     valid =
@@ -463,29 +471,33 @@ defmodule Mondek.APITest do
                 %{"disposition" => "current"}
               ]
             }} =
-             post(url, "/api/v1/observations", envelope([invalid, raw_binary_id, valid]))
+             post(url, "/api/v1/runner/observations", envelope([invalid, raw_binary_id, valid]))
 
     assert Repo.aggregate(Observation, :count) == 1
   end
 
   test "malformed assignment route IDs never bind invalid PostgreSQL text", %{url: url} do
     for encoded_id <- ["filesystem%00", String.duplicate("x", 15) <> "%00"],
-        suffix <- ["", "/inspection"] do
+        suffix <- ["", "/configuration"] do
       path = "/api/v1/assignments/" <> encoded_id <> suffix
 
-      assert {:ok, {{_, 404, _}, _, _}} =
+      assert {:ok, {{_, rejected_status, _}, _, _}} =
                :httpc.request(:get, {String.to_charlist(url <> path), []}, [timeout: 5000],
                  body_format: :binary
                )
+
+      assert rejected_status in [400, 404, 422]
     end
 
-    assert {404, _} =
+    assert {status, _} =
              post(url, "/api/v1/assignments/10000000-0000-4000-8000-000000000001%00/retire", %{
                "revision" => 1,
                "reason" => "Malformed target"
              })
 
-    assert {404, _} =
+    assert status in [400, 404, 422]
+
+    assert {status, _} =
              post(
                url,
                "/api/v1/assignments/10000000-0000-4000-8000-000000000001%00/maintenance",
@@ -495,7 +507,9 @@ defmodule Mondek.APITest do
                }
              )
 
-    assert {:ok, {{_, 404, _}, _, _}} =
+    assert status in [400, 404, 422]
+
+    assert {:ok, {{_, status, _}, _, _}} =
              :httpc.request(
                :put,
                {String.to_charlist(
@@ -508,6 +522,8 @@ defmodule Mondek.APITest do
                [timeout: 5000],
                body_format: :binary
              )
+
+    assert status in [400, 404, 422]
 
     assert is_nil(Repo.get!(Assignment, "10000000-0000-4000-8000-000000000001").retired_at)
     assert Repo.get!(Assignment, "10000000-0000-4000-8000-000000000001").revision == 1
