@@ -58,6 +58,17 @@ defmodule MondekWeb.PreviewIncidentDetail do
           acknowledged={Monitoring.acknowledgement_active?(@incident, @now)}
         />
       </div>
+      <aside
+        :if={@incident && Monitoring.acknowledgement_active?(@incident, @now)}
+        class="preview-acknowledged-section"
+        aria-label="Incident acknowledgement"
+      >
+        <strong>Acknowledged {if @incident["acknowledged_until"],
+          do: "until " <> time(@incident["acknowledged_until"]),
+          else: "until incident ends"}</strong>
+        <p>{@incident["acknowledgement_note"]}</p>
+        <p class="preview-caption">Failure notifications are held. This incident remains open.</p>
+      </aside>
       <dl :if={@incident} class="preview-incident-facts">
         <div>
           <dt>Opened</dt>
@@ -562,7 +573,7 @@ defmodule MondekWeb.PreviewIncidentDetail do
     ~H"""
     <span class="preview-incident-state">
       <span>{if @status == "open", do: "Open", else: "Closed"}</span>
-      <span :if={@acknowledged} class="preview-caption">Acknowledged</span>
+      <span :if={@acknowledged} class="preview-acknowledgement-label">Acknowledged</span>
     </span>
     """
   end

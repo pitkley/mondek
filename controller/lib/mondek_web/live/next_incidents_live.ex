@@ -291,8 +291,15 @@ defmodule MondekWeb.NextIncidentsLive do
   end
 
   def open_summary(now) do
-    listing = incident_listing(filters(%{}), now)
-    %{rows: Enum.take(listing.rows, 4), total: listing.totals["health"] + listing.totals["loss"]}
+    for acknowledgement <- ~w(unacknowledged acknowledged), into: %{} do
+      listing = incident_listing(filters(%{"acknowledgement" => acknowledgement}), now)
+
+      {acknowledgement,
+       %{
+         rows: Enum.take(listing.rows, 4),
+         total: listing.totals["health"] + listing.totals["loss"]
+       }}
+    end
   end
 
   defp refresh_listing(%{assigns: %{filters: filters}} = socket, now) do
@@ -369,6 +376,11 @@ defmodule MondekWeb.NextIncidentsLive do
       health: incident["health"],
       status: incident["status"],
       opened_at: incident["opened_at"],
+      acknowledgement_label:
+        if(incident["acknowledged_until"],
+          do: "Acknowledged until " <> incident["acknowledged_until"],
+          else: "Acknowledged until incident ends"
+        ),
       acknowledged: Monitoring.acknowledgement_active?(incident, now)
     }
   end
@@ -446,6 +458,15 @@ defmodule MondekWeb.NextIncidentsLive do
   end
 
   defp listing(assigns) do
+    assigns =
+      assign(assigns, :incident_groups, [
+        {"unacknowledged", "Unacknowledged",
+         Enum.filter(assigns.rows, &(&1.status == "open" && !&1.acknowledged))},
+        {"acknowledged", "Acknowledged",
+         Enum.filter(assigns.rows, &(&1.status == "open" && &1.acknowledged))},
+        {"closed", "Closed", Enum.filter(assigns.rows, &(&1.status != "open"))}
+      ])
+
     ~H"""
     <section class="preview-list" aria-labelledby="incidents-heading">
       <header class="preview-heading">
@@ -479,14 +500,24 @@ defmodule MondekWeb.NextIncidentsLive do
         />
       </div>
       <p class="preview-incident-order preview-caption">
-        Open first, then unacknowledged. Critical → monitoring loss → warning → unknown. Oldest first within each group.
+        Open incidents are separated into Unacknowledged and Acknowledged tables; closed incidents appear separately. Critical → monitoring loss → warning → unknown. Oldest first within each group.
       </p>
-      <div class="preview-table-group">
-        <p :if={@rows == []} class="preview-empty">No incidents match these filters.</p>
+      <p :if={@rows == []} class="preview-empty">No incidents match these filters.</p>
+      <section
+        :for={{key, label, rows} <- @incident_groups}
+        :if={rows != []}
+        id={"incidents-" <> key}
+        class="preview-table-group"
+        aria-labelledby={"incidents-" <> key <> "-heading"}
+      >
+        <div class="preview-section-heading">
+          <h2 id={"incidents-" <> key <> "-heading"} class="pf-v6-c-title pf-m-md">{label}</h2>
+          <span class="pf-v6-c-badge pf-m-read">{length(rows)} shown</span>
+        </div>
         <table
           :if={@rows != []}
           class="pf-v6-c-table pf-m-compact preview-table preview-incident-table"
-          aria-label="Incidents"
+          aria-label={label <> " incidents"}
         >
           <thead class="pf-v6-c-table__thead">
             <tr class="pf-v6-c-table__tr">
@@ -499,7 +530,7 @@ defmodule MondekWeb.NextIncidentsLive do
           </thead>
           <tbody class="pf-v6-c-table__tbody">
             <tr
-              :for={row <- @rows}
+              :for={row <- rows}
               class={[
                 "pf-v6-c-table__tr",
                 @id == row.id && to_string(@live_action) == row.kind && "preview-selected"
@@ -537,6 +568,8 @@ defmodule MondekWeb.NextIncidentsLive do
             </tr>
           </tbody>
         </table>
+      </section>
+      <div class="preview-pager-group">
         <MondekWeb.PreviewPagination.pagination
           :if={@page}
           page={@page.page}
