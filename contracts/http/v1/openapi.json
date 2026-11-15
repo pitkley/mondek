@@ -138,6 +138,9 @@
             "nullable": true,
             "type": "string"
           },
+          "acknowledgement_active": {
+            "type": "boolean"
+          },
           "acknowledgement_mode": {
             "nullable": true,
             "type": "string"
@@ -154,6 +157,10 @@
             "nullable": true,
             "type": "integer"
           },
+          "check_label": {
+            "nullable": true,
+            "type": "string"
+          },
           "closed_at": {
             "format": "date-time",
             "nullable": true,
@@ -164,6 +171,13 @@
             "type": "string"
           },
           "closure_reason": {
+            "nullable": true,
+            "type": "string"
+          },
+          "display_title": {
+            "type": "string"
+          },
+          "environment_label": {
             "nullable": true,
             "type": "string"
           },
@@ -199,7 +213,15 @@
             "nullable": true,
             "type": "string"
           },
+          "result_label": {
+            "nullable": true,
+            "type": "string"
+          },
           "runner_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "runner_label": {
             "nullable": true,
             "type": "string"
           },
@@ -220,6 +242,14 @@
             "type": "string"
           }
         },
+        "required": [
+          "display_title",
+          "check_label",
+          "result_label",
+          "environment_label",
+          "runner_label",
+          "acknowledgement_active"
+        ],
         "type": "object"
       },
       "ConfigurationProvenance": {
@@ -733,6 +763,49 @@
         },
         "type": "object"
       },
+      "RecordedMeasurement": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "enum": [
+              "latest_failure",
+              "opening_failure",
+              "notification_reference"
+            ],
+            "nullable": true,
+            "type": "string"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentEvidenceGap"
+            },
+            "maxItems": 3,
+            "type": "array"
+          },
+          "measurement": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IncidentMeasurement"
+              }
+            ],
+            "nullable": true
+          },
+          "status": {
+            "enum": [
+              "available",
+              "unavailable"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "basis",
+          "measurement",
+          "gaps"
+        ],
+        "type": "object"
+      },
       "CoverageCatalogue": {
         "additionalProperties": true,
         "description": "Complete pre-selection intent. Context validates candidate selection and scoped metadata against executable checks.",
@@ -852,6 +925,57 @@
             "nullable": true
           }
         },
+        "type": "object"
+      },
+      "IncidentMeasurementProvenance": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "definition_revision": {
+            "nullable": true,
+            "type": "string"
+          },
+          "disposition": {
+            "nullable": true,
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "installation_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "session_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "source_revision": {
+            "nullable": true,
+            "type": "string"
+          },
+          "stream_id": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignment_id",
+          "stream_id",
+          "installation_id",
+          "session_id",
+          "disposition",
+          "source_revision",
+          "definition_revision",
+          "generation",
+          "sequence"
+        ],
         "type": "object"
       },
       "InventoryCheck": {
@@ -1232,12 +1356,8 @@
             "type": "string"
           },
           "runner_label": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/JSONValue"
-              }
-            ],
-            "nullable": true
+            "nullable": true,
+            "type": "string"
           },
           "scope_reason": {
             "allOf": [
@@ -1540,6 +1660,73 @@
         ],
         "type": "object"
       },
+      "IncidentMeasurement": {
+        "additionalProperties": false,
+        "properties": {
+          "details": {
+            "nullable": true,
+            "type": "string"
+          },
+          "evaluated_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "health": {
+            "enum": [
+              "WARN",
+              "CRIT"
+            ],
+            "type": "string"
+          },
+          "impacts": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "observation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/IncidentMeasurementProvenance"
+          },
+          "received_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "result_key": {
+            "type": "string"
+          },
+          "source_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "value": {
+            "nullable": true,
+            "type": "number"
+          }
+        },
+        "required": [
+          "result_key",
+          "health",
+          "summary",
+          "details",
+          "observation_id",
+          "source_at",
+          "evaluated_at",
+          "received_at",
+          "provenance"
+        ],
+        "type": "object"
+      },
       "Target": {
         "additionalProperties": false,
         "properties": {
@@ -1570,12 +1757,8 @@
             "type": "string"
           },
           "runner_label": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/JSONValue"
-              }
-            ],
-            "nullable": true
+            "nullable": true,
+            "type": "string"
           },
           "source_id": {
             "nullable": true,
@@ -1955,12 +2138,8 @@
             "type": "string"
           },
           "runner_label": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/JSONValue"
-              }
-            ],
-            "nullable": true
+            "nullable": true,
+            "type": "string"
           },
           "runtime_revision": {
             "nullable": true,
@@ -2779,12 +2958,8 @@
             "type": "string"
           },
           "runner_label": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/JSONValue"
-              }
-            ],
-            "nullable": true
+            "nullable": true,
+            "type": "string"
           },
           "effective_configuration": {
             "allOf": [
@@ -3014,10 +3189,60 @@
         },
         "type": "object"
       },
+      "IncidentContribution": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Assignment"
+              }
+            ],
+            "nullable": true
+          },
+          "contribution_state": {
+            "type": "string"
+          },
+          "coverage": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "evidence_ids": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "incident": {
+            "$ref": "#/components/schemas/IncidentSummary"
+          },
+          "last_failure_health": {
+            "type": "string"
+          },
+          "recorded_measurement": {
+            "$ref": "#/components/schemas/RecordedMeasurement"
+          },
+          "stream": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Result"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "required": [
+          "incident",
+          "recorded_measurement"
+        ],
+        "type": "object"
+      },
       "Incident": {
         "additionalProperties": false,
         "properties": {
           "environment": {
+            "nullable": true,
+            "type": "string"
+          },
+          "runner_label": {
             "nullable": true,
             "type": "string"
           },
@@ -3075,6 +3300,10 @@
             "nullable": true,
             "type": "string"
           },
+          "environment_label": {
+            "nullable": true,
+            "type": "string"
+          },
           "stream_id": {
             "nullable": true,
             "type": "string"
@@ -3104,7 +3333,35 @@
             "type": "string"
           },
           "target": {
-            "$ref": "#/components/schemas/Target"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Target"
+              }
+            ],
+            "nullable": true
+          },
+          "check_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "impacts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "acknowledgement_mode": {
             "nullable": true,
@@ -3153,6 +3410,10 @@
           "open_contribution_count": {
             "type": "integer"
           },
+          "result_label": {
+            "nullable": true,
+            "type": "string"
+          },
           "kind": {
             "nullable": true,
             "type": "string"
@@ -3173,6 +3434,15 @@
           },
           "acknowledged_at": {
             "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "display_title": {
+            "nullable": true,
+            "type": "string"
+          },
+          "latest_failure_observation_id": {
+            "format": "uuid",
             "nullable": true,
             "type": "string"
           },
@@ -3295,12 +3565,8 @@
             "type": "string"
           },
           "runner_label": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/JSONValue"
-              }
-            ],
-            "nullable": true
+            "nullable": true,
+            "type": "string"
           },
           "runtime_revision": {
             "nullable": true,
@@ -3503,6 +3769,40 @@
           "assignment_id",
           "current",
           "target"
+        ],
+        "type": "object"
+      },
+      "IncidentEvidenceGap": {
+        "additionalProperties": false,
+        "properties": {
+          "observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "missing_reference",
+              "observation_unavailable",
+              "out_of_scope",
+              "result_not_in_observation",
+              "not_a_failure"
+            ],
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "latest_failure",
+              "opening_failure",
+              "notification_reference"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "observation_id",
+          "reason"
         ],
         "type": "object"
       },
@@ -3933,6 +4233,239 @@
         ],
         "type": "object"
       },
+      "IncidentSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "environment": {
+            "nullable": true,
+            "type": "string"
+          },
+          "runner_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "runner_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "incident_kind": {
+            "nullable": true,
+            "type": "string"
+          },
+          "scope_filtered": {
+            "type": "boolean"
+          },
+          "source_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "opening_generation": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "incident_type": {
+            "enum": [
+              "individual",
+              "condition"
+            ],
+            "type": "string"
+          },
+          "contribution_count": {
+            "type": "integer"
+          },
+          "result_key": {
+            "nullable": true,
+            "type": "string"
+          },
+          "latest_observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "closed_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "closed"
+            ],
+            "type": "string"
+          },
+          "acknowledgement_scope": {
+            "nullable": true,
+            "type": "string"
+          },
+          "environment_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "stream_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "scope_kind": {
+            "nullable": true,
+            "type": "string"
+          },
+          "opening_observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "acknowledgement_active": {
+            "type": "boolean"
+          },
+          "condition_incident_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "attention_revision": {
+            "type": "integer"
+          },
+          "acknowledged_until": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "target": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Target"
+              }
+            ],
+            "nullable": true
+          },
+          "check_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "impacts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "acknowledgement_mode": {
+            "nullable": true,
+            "type": "string"
+          },
+          "closure_reason": {
+            "nullable": true,
+            "type": "string"
+          },
+          "matching_result_count": {
+            "type": "integer"
+          },
+          "observer_count": {
+            "type": "integer"
+          },
+          "open_contributions": {
+            "type": "integer"
+          },
+          "assignment_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "closing_observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "member_count": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "health": {
+            "enum": [
+              "OK",
+              "WARN",
+              "CRIT",
+              "UNKNOWN"
+            ],
+            "nullable": true,
+            "type": "string"
+          },
+          "ui_path": {
+            "nullable": true,
+            "type": "string"
+          },
+          "open_contribution_count": {
+            "type": "integer"
+          },
+          "result_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "kind": {
+            "nullable": true,
+            "type": "string"
+          },
+          "acknowledgement_note": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "result_count": {
+            "type": "integer"
+          },
+          "acknowledgement_revision": {
+            "type": "integer"
+          },
+          "acknowledged_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "display_title": {
+            "type": "string"
+          },
+          "latest_failure_observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "incident_type",
+          "display_title",
+          "check_label",
+          "result_label",
+          "environment_label",
+          "runner_label",
+          "acknowledgement_active"
+        ],
+        "type": "object"
+      },
       "ObservationEnvelope": {
         "additionalProperties": true,
         "properties": {
@@ -3991,6 +4524,470 @@
             "type": "number"
           }
         },
+        "type": "object"
+      },
+      "IndividualIncidentSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "environment": {
+            "nullable": true,
+            "type": "string"
+          },
+          "runner_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "runner_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "incident_kind": {
+            "nullable": true,
+            "type": "string"
+          },
+          "scope_filtered": {
+            "type": "boolean"
+          },
+          "source_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "opening_generation": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "incident_type": {
+            "enum": [
+              "individual"
+            ],
+            "type": "string"
+          },
+          "contribution_count": {
+            "type": "integer"
+          },
+          "result_key": {
+            "nullable": true,
+            "type": "string"
+          },
+          "latest_observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "closed_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "closed"
+            ],
+            "type": "string"
+          },
+          "acknowledgement_scope": {
+            "nullable": true,
+            "type": "string"
+          },
+          "environment_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "stream_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "scope_kind": {
+            "nullable": true,
+            "type": "string"
+          },
+          "opening_observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "acknowledgement_active": {
+            "type": "boolean"
+          },
+          "condition_incident_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "attention_revision": {
+            "type": "integer"
+          },
+          "acknowledged_until": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "target": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Target"
+              }
+            ],
+            "nullable": true
+          },
+          "check_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "impacts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "acknowledgement_mode": {
+            "nullable": true,
+            "type": "string"
+          },
+          "closure_reason": {
+            "nullable": true,
+            "type": "string"
+          },
+          "matching_result_count": {
+            "type": "integer"
+          },
+          "observer_count": {
+            "type": "integer"
+          },
+          "open_contributions": {
+            "type": "integer"
+          },
+          "assignment_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "closing_observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "member_count": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "health": {
+            "enum": [
+              "OK",
+              "WARN",
+              "CRIT",
+              "UNKNOWN"
+            ],
+            "nullable": true,
+            "type": "string"
+          },
+          "ui_path": {
+            "nullable": true,
+            "type": "string"
+          },
+          "open_contribution_count": {
+            "type": "integer"
+          },
+          "result_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "kind": {
+            "nullable": true,
+            "type": "string"
+          },
+          "acknowledgement_note": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "result_count": {
+            "type": "integer"
+          },
+          "acknowledgement_revision": {
+            "type": "integer"
+          },
+          "acknowledged_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "display_title": {
+            "type": "string"
+          },
+          "latest_failure_observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "incident_type",
+          "display_title",
+          "check_label",
+          "result_label",
+          "environment_label",
+          "runner_label",
+          "acknowledgement_active"
+        ],
+        "type": "object"
+      },
+      "SharedIncidentSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "environment": {
+            "nullable": true,
+            "type": "string"
+          },
+          "runner_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "runner_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "incident_kind": {
+            "nullable": true,
+            "type": "string"
+          },
+          "scope_filtered": {
+            "type": "boolean"
+          },
+          "source_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "opening_generation": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "incident_type": {
+            "enum": [
+              "condition"
+            ],
+            "type": "string"
+          },
+          "contribution_count": {
+            "type": "integer"
+          },
+          "result_key": {
+            "nullable": true,
+            "type": "string"
+          },
+          "latest_observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "closed_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "closed"
+            ],
+            "type": "string"
+          },
+          "acknowledgement_scope": {
+            "nullable": true,
+            "type": "string"
+          },
+          "environment_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "stream_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "scope_kind": {
+            "nullable": true,
+            "type": "string"
+          },
+          "opening_observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "acknowledgement_active": {
+            "type": "boolean"
+          },
+          "condition_incident_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "attention_revision": {
+            "type": "integer"
+          },
+          "acknowledged_until": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "target": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Target"
+              }
+            ],
+            "nullable": true
+          },
+          "check_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "impacts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "label"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "acknowledgement_mode": {
+            "nullable": true,
+            "type": "string"
+          },
+          "closure_reason": {
+            "nullable": true,
+            "type": "string"
+          },
+          "matching_result_count": {
+            "type": "integer"
+          },
+          "observer_count": {
+            "type": "integer"
+          },
+          "open_contributions": {
+            "type": "integer"
+          },
+          "assignment_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "closing_observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "member_count": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "health": {
+            "enum": [
+              "OK",
+              "WARN",
+              "CRIT",
+              "UNKNOWN"
+            ],
+            "nullable": true,
+            "type": "string"
+          },
+          "ui_path": {
+            "nullable": true,
+            "type": "string"
+          },
+          "open_contribution_count": {
+            "type": "integer"
+          },
+          "result_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "kind": {
+            "nullable": true,
+            "type": "string"
+          },
+          "acknowledgement_note": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "result_count": {
+            "type": "integer"
+          },
+          "acknowledgement_revision": {
+            "type": "integer"
+          },
+          "acknowledged_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "display_title": {
+            "type": "string"
+          },
+          "latest_failure_observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "incident_type",
+          "display_title",
+          "check_label",
+          "result_label",
+          "environment_label",
+          "runner_label",
+          "acknowledgement_active"
+        ],
         "type": "object"
       },
       "ControlReceipt": {
@@ -5962,7 +6959,7 @@
                   "properties": {
                     "data": {
                       "items": {
-                        "$ref": "#/components/schemas/Incident"
+                        "$ref": "#/components/schemas/IncidentSummary"
                       },
                       "type": "array"
                     },
@@ -6668,7 +7665,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Incident"
+                  "$ref": "#/components/schemas/IncidentSummary"
                 }
               }
             },
@@ -11871,12 +12868,8 @@
                           "type": "string"
                         },
                         "runner_label": {
-                          "allOf": [
-                            {
-                              "$ref": "#/components/schemas/JSONValue"
-                            }
-                          ],
-                          "nullable": true
+                          "nullable": true,
+                          "type": "string"
                         },
                         "scope_options": {
                           "items": {
@@ -15009,46 +16002,11 @@
                     "data": {
                       "additionalProperties": false,
                       "properties": {
-                        "acknowledged_at": {
-                          "format": "date-time",
+                        "runner_label": {
                           "nullable": true,
                           "type": "string"
                         },
-                        "acknowledged_until": {
-                          "format": "date-time",
-                          "nullable": true,
-                          "type": "string"
-                        },
-                        "acknowledgement_active": {
-                          "nullable": true,
-                          "type": "boolean"
-                        },
-                        "acknowledgement_mode": {
-                          "nullable": true,
-                          "type": "string"
-                        },
-                        "acknowledgement_note": {
-                          "nullable": true,
-                          "type": "string"
-                        },
-                        "acknowledgement_revision": {
-                          "nullable": true,
-                          "type": "integer"
-                        },
-                        "attention_revision": {
-                          "nullable": true,
-                          "type": "integer"
-                        },
-                        "closed_at": {
-                          "format": "date-time",
-                          "nullable": true,
-                          "type": "string"
-                        },
-                        "closing_observation_id": {
-                          "nullable": true,
-                          "type": "string"
-                        },
-                        "closure_reason": {
+                        "runner_id": {
                           "nullable": true,
                           "type": "string"
                         },
@@ -15058,13 +16016,106 @@
                           },
                           "type": "array"
                         },
-                        "gates": {
+                        "scope_key": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "source_id": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "latest_observation_id": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "closed_at": {
+                          "format": "date-time",
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "status": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "environment_label": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "scope_kind": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "opening_observation_id": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "acknowledgement_active": {
+                          "type": "boolean"
+                        },
+                        "maintenance_windows": {
                           "allOf": [
                             {
                               "$ref": "#/components/schemas/JSONValue"
                             }
                           ],
                           "nullable": true
+                        },
+                        "attention_revision": {
+                          "nullable": true,
+                          "type": "integer"
+                        },
+                        "acknowledged_until": {
+                          "format": "date-time",
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "check_label": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "acknowledgement_mode": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "occurrences": {
+                          "items": {
+                            "$ref": "#/components/schemas/Notification"
+                          },
+                          "type": "array"
+                        },
+                        "closure_reason": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "closing_observation_id": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "limits": {
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/JSONValue"
+                            }
+                          ],
+                          "nullable": true
+                        },
+                        "member_snapshot": {
+                          "items": {
+                            "$ref": "#/components/schemas/LossMember"
+                          },
+                          "type": "array"
+                        },
+                        "member_count": {
+                          "nullable": true,
+                          "type": "integer"
+                        },
+                        "result_label": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "acknowledgement_note": {
+                          "nullable": true,
+                          "type": "string"
                         },
                         "id": {
                           "anyOf": [
@@ -15077,39 +16128,25 @@
                           ],
                           "nullable": true
                         },
-                        "label": {
-                          "nullable": true,
-                          "type": "string"
-                        },
-                        "latest_observation_id": {
-                          "nullable": true,
-                          "type": "string"
-                        },
-                        "limits": {
-                          "allOf": [
-                            {
-                              "$ref": "#/components/schemas/JSONValue"
-                            }
-                          ],
-                          "nullable": true
-                        },
-                        "maintenance_windows": {
-                          "allOf": [
-                            {
-                              "$ref": "#/components/schemas/JSONValue"
-                            }
-                          ],
-                          "nullable": true
-                        },
-                        "member_count": {
+                        "acknowledgement_revision": {
                           "nullable": true,
                           "type": "integer"
                         },
-                        "member_snapshot": {
-                          "items": {
-                            "$ref": "#/components/schemas/LossMember"
-                          },
-                          "type": "array"
+                        "gates": {
+                          "allOf": [
+                            {
+                              "$ref": "#/components/schemas/JSONValue"
+                            }
+                          ],
+                          "nullable": true
+                        },
+                        "acknowledged_at": {
+                          "format": "date-time",
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "display_title": {
+                          "type": "string"
                         },
                         "members": {
                           "allOf": [
@@ -15119,42 +16156,24 @@
                           ],
                           "nullable": true
                         },
-                        "occurrences": {
-                          "items": {
-                            "$ref": "#/components/schemas/Notification"
-                          },
-                          "type": "array"
+                        "label": {
+                          "nullable": true,
+                          "type": "string"
                         },
                         "opened_at": {
                           "format": "date-time",
                           "nullable": true,
                           "type": "string"
-                        },
-                        "opening_observation_id": {
-                          "nullable": true,
-                          "type": "string"
-                        },
-                        "runner_id": {
-                          "nullable": true,
-                          "type": "string"
-                        },
-                        "scope_key": {
-                          "nullable": true,
-                          "type": "string"
-                        },
-                        "scope_kind": {
-                          "nullable": true,
-                          "type": "string"
-                        },
-                        "source_id": {
-                          "nullable": true,
-                          "type": "string"
-                        },
-                        "status": {
-                          "nullable": true,
-                          "type": "string"
                         }
                       },
+                      "required": [
+                        "display_title",
+                        "check_label",
+                        "result_label",
+                        "environment_label",
+                        "runner_label",
+                        "acknowledgement_active"
+                      ],
                       "type": "object"
                     },
                     "meta": {
@@ -16721,6 +17740,39 @@
                   "properties": {
                     "data": {
                       "additionalProperties": false,
+                      "anyOf": [
+                        {
+                          "properties": {
+                            "incident": {
+                              "$ref": "#/components/schemas/IndividualIncidentSummary"
+                            },
+                            "recorded_measurement": {
+                              "$ref": "#/components/schemas/RecordedMeasurement"
+                            }
+                          },
+                          "required": [
+                            "recorded_measurement"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "properties": {
+                            "contributions": {
+                              "items": {
+                                "$ref": "#/components/schemas/IncidentContribution"
+                              },
+                              "type": "array"
+                            },
+                            "incident": {
+                              "$ref": "#/components/schemas/SharedIncidentSummary"
+                            }
+                          },
+                          "required": [
+                            "contributions"
+                          ],
+                          "type": "object"
+                        }
+                      ],
                       "properties": {
                         "as_of": {
                           "format": "date-time",
@@ -16774,8 +17826,7 @@
                         },
                         "contributions": {
                           "items": {
-                            "additionalProperties": true,
-                            "type": "object"
+                            "$ref": "#/components/schemas/IncidentContribution"
                           },
                           "type": "array"
                         },
@@ -16804,7 +17855,7 @@
                           "type": "string"
                         },
                         "incident": {
-                          "$ref": "#/components/schemas/Incident"
+                          "$ref": "#/components/schemas/IncidentSummary"
                         },
                         "limits": {
                           "allOf": [
@@ -16836,6 +17887,9 @@
                           },
                           "type": "array"
                         },
+                        "recorded_measurement": {
+                          "$ref": "#/components/schemas/RecordedMeasurement"
+                        },
                         "stream": {
                           "allOf": [
                             {
@@ -16845,6 +17899,9 @@
                           "nullable": true
                         }
                       },
+                      "required": [
+                        "incident"
+                      ],
                       "type": "object"
                     },
                     "meta": {

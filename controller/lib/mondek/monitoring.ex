@@ -976,7 +976,9 @@ defmodule Mondek.Monitoring do
             health: health,
             impacts: impacts,
             opened_at: at,
-            opening_generation: o.generation
+            opening_generation: o.generation,
+            opening_observation_id: o.id,
+            latest_failure_observation_id: o.id
           })
 
         occurrence(incident, "firing", o, at)
@@ -993,6 +995,7 @@ defmodule Mondek.Monitoring do
         attrs = %{
           health: health,
           impacts: impacts,
+          latest_failure_observation_id: o.id,
           attention_revision: incident.attention_revision + 1
         }
 
@@ -1057,7 +1060,7 @@ defmodule Mondek.Monitoring do
         if attempted?, do: occurrence(incident, "resolved", o, at)
 
       health in ["WARN", "CRIT"] ->
-        change(incident, %{impacts: impacts})
+        change(incident, %{impacts: impacts, latest_failure_observation_id: o.id})
 
       true ->
         :ok
@@ -1490,6 +1493,7 @@ defmodule Mondek.Monitoring do
       reference_ids =
         ([
            incident.opening_observation_id,
+           incident.latest_failure_observation_id,
            incident.latest_observation_id,
            incident.closing_observation_id,
            current["observation_id"],
@@ -1514,10 +1518,15 @@ defmodule Mondek.Monitoring do
         |> Enum.uniq_by(& &1.id)
         |> Enum.sort_by(& &1.received_at, {:desc, DateTime})
 
+      assignment_view = assignment_detail(incident.assignment_id, at)
+      stream_view = Mondek.Inspection.stream_detail(incident.stream_id, at)
+
       %{
-        "incident" => public(incident),
-        "assignment" => assignment_detail(incident.assignment_id, at),
-        "stream" => Mondek.Inspection.stream_detail(incident.stream_id, at),
+        "incident" =>
+          Mondek.IncidentPresentation.health(public(incident), at, assignment_view, stream_view),
+        "recorded_measurement" => Mondek.IncidentEvidence.resolve_many([incident])[incident.id],
+        "assignment" => assignment_view,
+        "stream" => stream_view,
         "occurrences" => inspect_occurrences(occurrences, at),
         "attempts" => Enum.map(attempts, &public/1),
         "controls" => Enum.map(controls, &public/1),

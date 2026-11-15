@@ -184,29 +184,12 @@ defmodule MondekWeb.PreviewIncidentDetail do
     detail = assigns.detail
     incident = detail["incident"]
 
-    firing = Enum.find(detail["occurrences"] || [], &(&1["kind"] == "firing"))
-    evidence_by_id = Map.new(detail["evidence"] || [], &{&1["id"], &1})
-
-    evidence =
-      Enum.find_value(
-        [
-          incident["latest_observation_id"],
-          incident["opening_observation_id"],
-          get_in(firing, ["payload", "observation_id"])
-        ],
-        &Map.get(evidence_by_id, &1)
-      )
-
-    measured =
-      Enum.find(
-        get_in(evidence || %{}, ["payload", "results"]) || [],
-        &(&1["key"] == incident["result_key"])
-      )
+    measured = get_in(detail, ["recorded_measurement", "measurement"])
 
     assign(assigns,
       incident: incident,
       measured: measured,
-      measured_at: (measured && measured["source_at"]) || (evidence && evidence["evaluated_at"])
+      measured_at: measured && (measured["source_at"] || measured["evaluated_at"])
     )
     |> render_health_evidence()
   end
@@ -229,6 +212,11 @@ defmodule MondekWeb.PreviewIncidentDetail do
             {if @measured,
               do: @measured["summary"],
               else: "The recorded measurement is unavailable."}
+          </td>
+        </tr>
+        <tr :if={@measured && @detail["recorded_measurement"]["basis"] != "latest_failure"}>
+          <th scope="row">Evidence</th><td>
+            Retained failure evidence; latest failure is unavailable.
           </td>
         </tr>
         <tr :if={@detail["stream"]}>
@@ -341,9 +329,25 @@ defmodule MondekWeb.PreviewIncidentDetail do
                   <tr>
                     <th scope="row">Last failure</th>
                     <td>
-                      <.severity health={contribution["last_failure_health"]} />
-                      <p :if={contribution["measured_result"]}>
-                        {contribution["measured_result"]["summary"]}
+                      <.severity health={
+                        get_in(contribution, ["recorded_measurement", "measurement", "health"]) ||
+                          contribution["last_failure_health"]
+                      } />
+                      <p :if={
+                        get_in(contribution, ["recorded_measurement", "basis"]) not in [
+                          nil,
+                          "latest_failure"
+                        ]
+                      }>
+                        Retained failure evidence; latest failure is unavailable.
+                      </p>
+                      <p :if={
+                        get_in(contribution, ["recorded_measurement", "status"]) == "unavailable"
+                      }>
+                        The recorded measurement is unavailable.
+                      </p>
+                      <p :if={get_in(contribution, ["recorded_measurement", "measurement"])}>
+                        {get_in(contribution, ["recorded_measurement", "measurement", "summary"])}
                       </p>
                     </td>
                   </tr>

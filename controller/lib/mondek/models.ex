@@ -224,6 +224,7 @@ defmodule Mondek.Incident do
     field :condition_incident_id, Ecto.UUID
     field :opening_observation_id, Ecto.UUID
     field :latest_observation_id, Ecto.UUID
+    field :latest_failure_observation_id, Ecto.UUID
     field :impacts, {:array, :map}, default: []
     field :acknowledgement_impacts, {:array, :string}, default: []
     field :assignment_id, :string

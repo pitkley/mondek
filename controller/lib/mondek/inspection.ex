@@ -1324,6 +1324,25 @@ defmodule Mondek.Inspection do
   defp configuration_stage_filter(stage) when stage in @configuration_stages, do: stage
   defp configuration_stage_filter(_), do: nil
 
+  def incident_identity(row, at) do
+    if row["assignment_id"] do
+      assignment = Repo.get(Assignment, row["assignment_id"])
+      stream = row["stream_id"] && Repo.get(ResultStream, row["stream_id"])
+      runner = assignment && assignment.runner_id && Repo.get(Runner, assignment.runner_id)
+
+      Mondek.IncidentPresentation.health(
+        row,
+        at,
+        if(assignment,
+          do: Monitoring.public(assignment) |> Map.put("runner_label", runner && runner.label)
+        ),
+        if(stream, do: Monitoring.public(stream))
+      )
+    else
+      Mondek.IncidentPresentation.health(row, at)
+    end
+  end
+
   def list_incidents(filters, at) do
     f = normalize(filters)
 
@@ -1406,7 +1425,8 @@ defmodule Mondek.Inspection do
           "runner_id" => a.runner_id,
           "runner_label" => r && r.label,
           "environment" => i.environment,
-          "environment_label" => i.environment_label
+          "environment_label" =>
+            (s && s.environment_label) || a.environment_label || i.environment_label
         })
       end)
 
@@ -1443,8 +1463,8 @@ defmodule Mondek.Inspection do
         Monitoring.public(group)
         |> Map.merge(%{
           "incident_kind" => "condition",
-          "check_label" => group.label,
-          "result_label" => group.label,
+          "check_label" => nil,
+          "result_label" => nil,
           "environment_label" => group.environment,
           "contribution_count" => counts[group.id].contributions,
           "open_contribution_count" => counts[group.id].open_contributions,
@@ -1459,7 +1479,9 @@ defmodule Mondek.Inspection do
 
     items =
       for identity <- identities, item = by_id[identity.id], not is_nil(item) do
-        Map.put(item, "acknowledgement_active", identity.acknowledgement_active)
+        item
+        |> Map.put("acknowledgement_active", identity.acknowledgement_active)
+        |> Mondek.IncidentPresentation.health(at)
       end
 
     %{

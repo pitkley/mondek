@@ -6,7 +6,7 @@ The controller keeps ordinary receipts for seven days and trims unprotected rece
 
 Set MONDEK_RETENTION_RECEIPT_DAYS (default 7), MONDEK_RETENTION_HISTORY_DAYS (default 30), and MONDEK_RETENTION_MAX_OBSERVATIONS (default 100000) in the controller environment. Environment settings are read at startup; restart the controller to apply changes. Days accept integers from 1 to 36500; the count accepts 1 to 1000000000. Empty, zero, negative, malformed or out-of-range values stop startup with the setting name. There is no unbounded mode.
 
-Overview displays the effective policy under History retention; inspection API summaries use the same values. Increasing a limit cannot recover already-pruned history. Reducing it makes eligible unprotected records available to the next bounded cleanup pass. A count limit can shorten history below the configured age; references remain protected regardless. Back up before a deliberate policy reduction.
+Overview displays the effective policy under History retention; inspection API summaries use the same values. Increasing a limit cannot recover already-pruned history. Reducing it makes eligible unprotected records available to the next bounded cleanup pass. A count limit can shorten history below the configured age; references remain protected regardless. Incident opening, latest-failure and closing references protect their observations while the incident is retained; keeping an older failure is independent of the current result or a later recovery. Back up before a deliberate policy reduction.
 
 ## Bounded passes
 

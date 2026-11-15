@@ -329,7 +329,7 @@ test('incident fly-overs preserve the earlier panels and hand off a real pointer
   const sharedBack = await ancestorLink(`health:${group.id}`);
   const memberBack = await ancestorLink(`health:${memberId}`);
   await expect(sharedBack).toHaveAttribute('aria-label', 'Return to Shared incident: Search storage capacity');
-  await expect(memberBack).toHaveAttribute('aria-label', 'Return to Health incident: Search volume capacity');
+  await expect(memberBack).toHaveAttribute('aria-label', 'Return to Health incident: Search volume capacity — Search volume used space');
   const sharedCard = sharedBack.locator('..');
   const memberCard = memberBack.locator('..');
   const sharedCopy = sharedCard.locator('.preview-panel-snapshot');
@@ -368,7 +368,7 @@ test('incident fly-overs preserve the earlier panels and hand off a real pointer
 
   const revealedMember = await memberBack.boundingBox();
   await page.mouse.click(revealedMember.x + 12, 180);
-  await expect(panel.getByRole('heading', { name: 'Search volume capacity', exact: true })).toBeVisible();
+  await expect(panel.getByRole('heading', { name: 'Search volume capacity — Search volume used space', exact: true })).toBeVisible();
   const returnMotion = await page.evaluate(() => window.stackMotion.at(-1)?.start);
   expect(returnMotion).toBeLessThan(0);
   await expect(history).toHaveAttribute('open', '');
@@ -382,7 +382,7 @@ test('incident fly-overs preserve the earlier panels and hand off a real pointer
   await page.setViewportSize({ width: 390, height: 740 });
   await expect(trail).toBeHidden();
   await panel.getByRole('link', {name: '← Back one level', exact: true}).click();
-  await expect(panel.getByRole('heading', {name: 'Search volume capacity', exact: true})).toBeVisible();
+  await expect(panel.getByRole('heading', {name: 'Search volume capacity — Search volume used space', exact: true})).toBeVisible();
   await expect(panel).toHaveAttribute('data-panel-path', new RegExp(memberId));
   await panel.getByRole('link', {name: '← Back one level', exact: true}).click();
   await expect(panel.getByRole('heading', { name: 'Search storage capacity', exact: true })).toBeVisible();

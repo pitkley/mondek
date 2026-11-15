@@ -98,6 +98,7 @@ defmodule Mondek.Conditions do
           opened_at: at,
           opening_generation: observation.generation,
           opening_observation_id: observation.id,
+          latest_failure_observation_id: observation.id,
           latest_observation_id: observation.id
         })
 
@@ -107,6 +108,7 @@ defmodule Mondek.Conditions do
         attrs = %{
           health: health,
           impacts: state["impacts"] || [],
+          latest_failure_observation_id: observation.id,
           latest_observation_id: observation.id
         }
 

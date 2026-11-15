@@ -161,7 +161,7 @@ defmodule Mondek.Sweeper do
         WHERE n.payload->>'observation_id'=observations.id::text
         AND (i.status='open' OR n.status NOT IN ('delivered','superseded')))
       AND NOT EXISTS (SELECT 1 FROM incidents i WHERE observations.id IN
-        (i.opening_observation_id,i.latest_observation_id,i.closing_observation_id))
+        (i.opening_observation_id,i.latest_failure_observation_id,i.latest_observation_id,i.closing_observation_id))
       AND NOT EXISTS (SELECT 1 FROM condition_incidents g WHERE g.closing_observation_id=observations.id)
       AND NOT EXISTS (SELECT 1 FROM condition_facts f WHERE f.opening_observation_id=observations.id)
       AND NOT EXISTS (SELECT 1 FROM occurrence_evidence e WHERE e.observation_id=observations.id)

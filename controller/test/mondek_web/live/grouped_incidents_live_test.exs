@@ -646,6 +646,23 @@ defmodule MondekWeb.GroupedIncidentsLiveTest do
         {suffix, root} <- [{"", "#overview-panel"}, {"/full", "#incident-page"}] do
       {:ok, view, _} = live(build_conn(), "/incidents/health/#{id}" <> suffix)
 
+      api = json_response(get(build_conn(), "/api/v1/incidents/health/#{id}"), 200)["data"]
+      assert has_element?(view, root <> " #incident-heading", api["incident"]["display_title"])
+
+      if evidence == "Contributing results" do
+        assert Enum.all?(
+                 api["contributions"],
+                 &(&1["recorded_measurement"]["basis"] == "latest_failure")
+               )
+
+        assert Enum.any?(
+                 api["contributions"],
+                 &(&1["recorded_measurement"]["measurement"]["health"] == "CRIT")
+               )
+      else
+        assert api["recorded_measurement"]["measurement"]["health"] == "WARN"
+      end
+
       assert has_element?(view, root <> " table[aria-label='#{evidence}']")
       assert has_element?(view, root <> " a", link)
       assert has_element?(view, root <> " #preview-incident-ack-form")

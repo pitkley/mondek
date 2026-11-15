@@ -9,6 +9,25 @@ defmodule MondekWeb.API.WorkflowSchemas do
   defp json, do: S.ref("JSONValue")
   defp obj(keys), do: S.record(Map.new(String.split(keys), &{String.to_atom(&1), field(&1)}))
 
+  defp incident_summary_schema(schema) do
+    %{
+      schema
+      | required: [
+          :display_title,
+          :check_label,
+          :result_label,
+          :environment_label,
+          :runner_label,
+          :acknowledgement_active
+        ],
+        properties:
+          Map.merge(schema.properties, %{
+            display_title: S.string(),
+            acknowledgement_active: S.boolean()
+          })
+    }
+  end
+
   def definitions do
     %{
       "JSONValue" => %Schema{
@@ -214,8 +233,9 @@ defmodule MondekWeb.API.WorkflowSchemas do
         ),
       "MonitoringLossIncident" =>
         obj(
-          "id scope_key scope_kind runner_id source_id label status opened_at closed_at closure_reason member_count opening_observation_id latest_observation_id closing_observation_id acknowledgement_revision attention_revision acknowledgement_mode acknowledged_until acknowledged_at acknowledgement_note"
+          "id scope_key scope_kind runner_id source_id label display_title check_label result_label environment_label runner_label acknowledgement_active status opened_at closed_at closure_reason member_count opening_observation_id latest_observation_id closing_observation_id acknowledgement_revision attention_revision acknowledgement_mode acknowledged_until acknowledged_at acknowledgement_note"
         )
+        |> incident_summary_schema()
     }
   end
 
@@ -259,8 +279,9 @@ defmodule MondekWeb.API.WorkflowSchemas do
 
       :monitoring_incident ->
         obj(
-          "id scope_key scope_kind runner_id source_id label status opened_at closed_at closure_reason member_count member_snapshot opening_observation_id latest_observation_id closing_observation_id acknowledgement_revision attention_revision acknowledgement_mode acknowledged_until acknowledged_at acknowledgement_note members occurrences controls limits acknowledgement_active maintenance_windows gates"
+          "id scope_key scope_kind runner_id source_id label display_title check_label result_label environment_label runner_label status opened_at closed_at closure_reason member_count member_snapshot opening_observation_id latest_observation_id closing_observation_id acknowledgement_revision attention_revision acknowledgement_mode acknowledged_until acknowledged_at acknowledgement_note members occurrences controls limits acknowledgement_active maintenance_windows gates"
         )
+        |> incident_summary_schema()
 
       :configuration_revision ->
         obj("head installation_id")
@@ -373,7 +394,7 @@ defmodule MondekWeb.API.WorkflowSchemas do
         S.ref("AssignmentConfiguration")
 
       :acknowledge ->
-        S.ref("Incident")
+        S.ref("IncidentSummary")
 
       :retry_notification ->
         S.ref("Notification")
@@ -388,8 +409,33 @@ defmodule MondekWeb.API.WorkflowSchemas do
 
       :incident ->
         obj(
-          "incident assignment stream counts contributions contribution_page contradictions contradiction_page occurrences notification_page notification_counts attempts controls evidence closing_evidence evidence_projection as_of limits"
+          "incident assignment stream counts contributions contribution_page contradictions contradiction_page occurrences notification_page notification_counts attempts controls evidence closing_evidence recorded_measurement evidence_projection as_of limits"
         )
+        |> then(fn schema ->
+          %{
+            schema
+            | required: [:incident],
+              properties: Map.put(schema.properties, :incident, S.ref("IncidentSummary")),
+              anyOf: [
+                %Schema{
+                  type: :object,
+                  required: [:recorded_measurement],
+                  properties: %{
+                    recorded_measurement: S.ref("RecordedMeasurement"),
+                    incident: S.ref("IndividualIncidentSummary")
+                  }
+                },
+                %Schema{
+                  type: :object,
+                  required: [:contributions],
+                  properties: %{
+                    contributions: S.array(S.ref("IncidentContribution")),
+                    incident: S.ref("SharedIncidentSummary")
+                  }
+                }
+              ]
+          }
+        end)
 
       :result_inspection ->
         obj("stream assignment incidents controls occurrences evidence limits")
@@ -429,8 +475,17 @@ defmodule MondekWeb.API.WorkflowSchemas do
       key == "publisher" or key == "successor" ->
         n(S.ref("Publisher"))
 
+      key in ~w(display_title check_label result_label environment_label runner_label) ->
+        n(S.string())
+
       key == "stream" ->
         n(S.ref("Result"))
+
+      key == "recorded_measurement" ->
+        S.ref("RecordedMeasurement")
+
+      key == "contributions" ->
+        S.array(S.ref("IncidentContribution"))
 
       key == "incident" ->
         S.ref("Incident")

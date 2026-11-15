@@ -49,11 +49,13 @@ defmodule Mondek.BaselineTest do
           Path.expand("../../priv/repo/migrations/00000000000001_current_baseline.exs", __DIR__)
         )
 
+    before = Repo.query!("SELECT version FROM schema_migrations ORDER BY version").rows
+
     assert_raise RuntimeError, ~r/requires a fresh database/, fn ->
-      Ecto.Migrator.up(Repo, 2, migration, log: false)
+      Ecto.Migrator.up(Repo, 99_999_999_999_999, migration, log: false)
     end
 
     assert Repo.aggregate(Assignment, :count) == 3
-    assert %{rows: [[1]]} = Repo.query!("SELECT count(*) FROM schema_migrations")
+    assert Repo.query!("SELECT version FROM schema_migrations ORDER BY version").rows == before
   end
 end

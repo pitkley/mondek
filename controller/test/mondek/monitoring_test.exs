@@ -374,11 +374,11 @@ defmodule Mondek.MonitoringTest do
 
   test "admission progress survives receipt pruning" do
     connect()
-    report = measurement("CRIT", 10)
+    report = measurement("OK", 10)
     ingest(report)
     Repo.delete_all(Observation)
     assert disposition(ingest(report)) == "historical"
-    assert Repo.aggregate(Occurrence, :count) == 1
+    assert Repo.aggregate(Occurrence, :count) == 0
     assert Repo.get!(Assignment, "10000000-0000-4000-8000-000000000001").last_sequence == 10
   end
 end

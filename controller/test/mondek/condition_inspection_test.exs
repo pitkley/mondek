@@ -47,7 +47,7 @@ defmodule Mondek.ConditionInspectionTest do
     group = Repo.one!(ConditionIncident)
     detail = ConditionInspection.detail(group.id, %{}, at())
     [row] = detail["contributions"]
-    assert row["measured_result"]["health"] == "CRIT"
+    assert row["recorded_measurement"]["measurement"]["health"] == "CRIT"
     assert row["evidence_ids"]["latest"] == failure["id"]
     assert row["stream"]["current"]["observation_id"] == later["id"]
     assert row["stream"]["current"]["knowledge"] == "unavailable"
@@ -55,7 +55,7 @@ defmodule Mondek.ConditionInspectionTest do
     sample(a, "CRIT", 3)
     stale = ConditionInspection.detail(group.id, %{}, DateTime.add(at(), 20))
     assert stale["counts"]["stale"] == 1
-    assert hd(stale["contributions"])["measured_result"]["health"] == "CRIT"
+    assert hd(stale["contributions"])["recorded_measurement"]["measurement"]["health"] == "CRIT"
   end
 
   test "individual contribution inspection retains exact episode evidence beyond recent executions" do
@@ -109,12 +109,12 @@ defmodule Mondek.ConditionInspectionTest do
     assert closed["stream"]["current"]["observation_id"] == current["id"]
 
     assert closed["limits"]["evidence"] == %{
-             "referenced" => 3,
+             "referenced" => 4,
              "missing" => 0,
              "recent_limit" => 12
            }
 
-    assert length(ids) == 14
+    assert length(ids) == 15
     assert closed["occurrences"] == []
   end
 
@@ -178,7 +178,7 @@ defmodule Mondek.ConditionInspectionTest do
     assert detail["counts"]["open"] == 0
     [row] = detail["contributions"]
     assert row["contribution_state"] == "recovered"
-    assert row["measured_result"]["health"] == "OK"
+    assert row["recorded_measurement"]["measurement"]["health"] == "CRIT"
     assert row["evidence_ids"]["closing"] == recovery["id"]
     assert row["stream"]["current"]["health"] == "CRIT"
     refute row["coverage"]["shared_acknowledgement"]
