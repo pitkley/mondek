@@ -4,7 +4,7 @@ Local commands in this guide only validate/build/export artifacts; they never cr
 
 ## Artifact and version contract
 
-Version 0.0.3 is being prepared and has not been published. Installation defaults remain on the published 0.0.2 controller image and SDK until post-publication consumption checks pass. The release examples use Python SDK version 0.0.3, controller version 0.0.3, Git tag v0.0.3 and image tag 0.0.3. Python prerelease markers a/b/rc map to controller alpha/beta/rc identifiers; stable versions match directly. The SDK distribution is mondek. The source repository is pitkley/mondek and controller image is ghcr.io/pitkley/mondek/controller.
+Version 0.0.3 is published, and installation defaults use its matching controller image and SDK. The release examples use Python SDK version 0.0.3, controller version 0.0.3, Git tag v0.0.3 and image tag 0.0.3. Python prerelease markers a/b/rc map to controller alpha/beta/rc identifiers; stable versions match directly. The SDK distribution is mondek. The source repository is pitkley/mondek and controller image is ghcr.io/pitkley/mondek/controller.
 
 ```sh
 devenv shell -- python scripts/release.py check --tag v0.0.3
@@ -62,7 +62,7 @@ PyPI's [pending-publisher guide](https://docs.pypi.org/trusted-publishers/creati
 
 Verify the GHCR index lists both architectures, set/check public package visibility, then pull anonymously using a clean Docker configuration and the agreed version tag. Verify a clean Python 3.13+ environment can install mondek==0.0.3 from production PyPI without maintainer credentials. Generate a project, run its tests/validate/local execution, and connect it to the image-based controller using deploy/README.md. Compare the downloaded Python files with the recorded SDK checksums and record the published image digest. These checks require actual publication and are not closed by local builds or workflow lint.
 
-The [0.0.2 publication run](https://github.com/pitkley/mondek/actions/runs/43714134592) passed full CI and native AMD64/ARM64 qualification before promotion. Anonymous GHCR pull, a fresh Python 3.13 installation from production PyPI, package checksums against the release assets and the isolated image/installed-runner acceptance suite passed on 2026-11-15. The controller index digest is `sha256:f753ee5a5e209f08686b1eceb117a792230e714af30d7c341906851083a024ee`.
+The [0.0.3 publication run](https://github.com/pitkley/mondek/actions/runs/43763984059) passed full CI and native AMD64/ARM64 qualification before promotion. Public consumption verification completed on 2026-11-16: anonymous GHCR pull, a fresh Python 3.13 installation from production PyPI, package checksums against the release assets and a fresh isolated image/installed-runner acceptance run all passed. The pulled ARM64 image matches the immutable identity in the release evidence. The controller index digest is `sha256:75851677b80768d36b240a626b34b6cdee16e7e38c8d7ddd01ab533bfce72e80`.
 
 For future releases, after these checks pass, update the published installation pins and release links together in README.md, deploy/compose.yaml, deploy/README.md, docs/GETTING-STARTED.md and docs/DISTRIBUTION.md. Update this guide to identify the promoted installation default. Keep those pins on an available published release until then.
 

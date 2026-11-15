@@ -9,13 +9,13 @@ Mondek has no built-in user authentication or permission management. Use it on l
 
 A **Mondek server** stores results, tracks incidents and delivers notifications. **Runners** load your monitoring project and execute its checks independently near the systems they observe. A check can produce several results, and your project can use ordinary Python libraries and abstractions. See [how the pieces fit together](docs/CONCEPTS.md).
 
-Mondek is available as a [published controller image](https://github.com/pitkley/mondek/releases/tag/v0.0.2), a [Python SDK on PyPI](https://pypi.org/project/mondek/) and source. Use matching controller/SDK releases, or the same reviewed source revision when building locally; see the [release scope](docs/RELEASE-NOTES.md).
+Mondek is available as a [published controller image](https://github.com/pitkley/mondek/releases/tag/v0.0.3), a [Python SDK on PyPI](https://pypi.org/project/mondek/) and source. Use matching controller/SDK releases, or the same reviewed source revision when building locally; see the [release scope](docs/RELEASE-NOTES.md).
 
 Use the [documentation index](docs/README.md) to find guides for getting started, writing checks, operating an installation and contributing.
 
 ## Get started
 
-For the image-based server installation, use [the controller/PostgreSQL Compose recipe](deploy/README.md). For the installed SDK workflow, follow [your first monitoring project](docs/GETTING-STARTED.md). Release `0.0.2` is available from GHCR and PyPI. The source/contributor workflow below remains available for local development.
+For the image-based server installation, use [the controller/PostgreSQL Compose recipe](deploy/README.md). For the installed SDK workflow, follow [your first monitoring project](docs/GETTING-STARTED.md). Release `0.0.3` is available from GHCR and PyPI. The source/contributor workflow below remains available for local development.
 
 For agent-assisted installation before any server is running, copy [the repository setup prompt](docs/AGENT-WORKFLOWS.md#before-the-ui-is-running) into your coding agent.
 
