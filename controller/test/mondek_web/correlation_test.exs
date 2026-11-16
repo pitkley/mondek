@@ -91,7 +91,7 @@ defmodule MondekWeb.CorrelationTest do
     assert has_element?(detail, "#case-detail", "Suspected parent")
     assert has_element?(detail, "#grouping-action option[value=detach]")
     assert has_element?(detail, "#case-detail", "Local operator")
-    assert render(detail) =~ "Notifications, acknowledgements and maintenance remain independent"
+    assert render(detail) =~ "Native controls remain independent"
   end
 
   test "maximum size review token works through HTTP" do
@@ -240,5 +240,44 @@ defmodule MondekWeb.CorrelationTest do
 
     assert has_element?(view, "#correlation-review", a["id"])
     assert has_element?(view, "#correlation-review", b["id"])
+  end
+
+  test "HTTP and UI review case acknowledgement and batch policy" do
+    e = episode()
+    {:ok, r} = Mondek.Correlations.preview(proposal([e]))
+    {:ok, r} = Mondek.Correlations.apply(r["review_token"])
+    id = r["case_id"]
+
+    p = %{
+      "action" => "enable",
+      "request_id" => Ecto.UUID.generate(),
+      "note" => "Batch exact work"
+    }
+
+    conn = post_json("/api/v1/incidents/cases/#{id}/control/preview", p)
+    r = json_response(conn, 200)
+    assert_operation_response(conn)
+
+    conn =
+      post_json("/api/v1/incidents/cases/control/apply", %{"review_token" => r["review_token"]})
+
+    assert json_response(conn, 200)
+    assert_operation_response(conn)
+    {:ok, v, _} = live(build_conn(), "/incidents/cases/#{id}")
+
+    v
+    |> form("#case-control-form",
+      control: %{action: "acknowledge", note: "Reviewed exact members", seconds: "60"}
+    )
+    |> render_submit()
+
+    assert has_element?(v, "#case-control-review", "Ceiling:")
+    assert {:error, {:live_redirect, _}} = render_click(element(v, "#case-control-review button"))
+    refute is_nil(Mondek.CaseControls.latest(id))
+    assert {:ok, data} = Mondek.AgentInspection.call("get_case", %{"case_id" => id})
+    assert data["delivery"].acknowledgement.active
+    conn = get(build_conn(), "/api/v1/incidents/cases/#{id}")
+    assert json_response(conn, 200)["data"]["delivery"]["acknowledgement"]["active"]
+    assert_operation_response(conn)
   end
 end

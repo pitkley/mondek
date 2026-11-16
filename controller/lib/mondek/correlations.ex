@@ -4,6 +4,8 @@ defmodule Mondek.CorrelationCase do
   use Ecto.Schema
   @primary_key {:id, :binary_id, autogenerate: true}
   schema "correlation_cases" do
+    field :topology_revision, :integer, default: 1
+    field :batching_enabled, :boolean, default: false
     field :title, :string
     field :environment, :string
     field :revision, :integer, default: 1
@@ -76,7 +78,7 @@ defmodule Mondek.Correlations do
         "proposal" => p,
         "review_token" =>
           Phoenix.Token.sign(MondekWeb.Endpoint, @salt, {p, state_fingerprint(state)}),
-        "notification_effect" => "unchanged",
+        "notification_effect" => "case_policy",
         "cases" => Enum.map(state.cases, &summary(&1)),
         "as_of" => Monitoring.iso(at)
       }
@@ -348,6 +350,11 @@ defmodule Mondek.Correlations do
         hd(s.cases)
       end
 
+    for c <- s.cases do
+      Mondek.CaseControls.end!(c.id, "Topology changed", at)
+      Mondek.CorrelationDelivery.release_case!(c.id)
+    end
+
     ending =
       case p["action"] do
         "merge" -> Enum.filter(s.memberships, &(&1.case_id == p["other_case_id"]))
@@ -394,6 +401,9 @@ defmodule Mondek.Correlations do
     end
 
     for c <- Enum.uniq_by([destination | s.cases], & &1.id) do
+      Mondek.CaseControls.end!(c.id, "Topology changed", at)
+      Mondek.CorrelationDelivery.release_case!(c.id)
+
       live =
         Repo.all(
           from m in CorrelationMembership, where: m.case_id == ^c.id and is_nil(m.ended_at)
@@ -403,6 +413,7 @@ defmodule Mondek.Correlations do
 
       change(c,
         revision: c.revision + 1,
+        topology_revision: c.topology_revision + 1,
         terminal_at: if(ended, do: at),
         terminal_reason: if(ended, do: p["action"])
       )
@@ -458,7 +469,7 @@ defmodule Mondek.Correlations do
       "open_count" => length(open),
       "inserted_at" => Monitoring.iso(c.inserted_at),
       "anchor" => Enum.find(members, & &1.anchor) |> then(fn m -> if m, do: ref(m) end),
-      "notification_effect" => "unchanged"
+      "notification_effect" => "case_policy"
     }
   end
 
@@ -531,6 +542,7 @@ defmodule Mondek.Correlations do
 
         %{
           "case" => summary(c),
+          "delivery" => Mondek.CorrelationDelivery.details(id, filters["batch_page"]),
           "members" =>
             paged(members, filters["page"], fn m ->
               r = ref(m)
@@ -580,6 +592,9 @@ defmodule Mondek.Correlations do
         WHERE m.case_id=c.id AND (m.inserted_at >= $1 OR m.ended_at >= $1 OR i.status='open' OR g.status='open' OR i.closed_at >= $1 OR g.closed_at >= $1))
       AND NOT EXISTS (SELECT 1 FROM occurrences o JOIN correlation_memberships m ON (o.incident_id=m.incident_id OR o.condition_incident_id=m.condition_incident_id)
         WHERE m.case_id=c.id AND (o.status NOT IN ('delivered','superseded') OR EXISTS (SELECT 1 FROM oban_jobs j WHERE j.args->>'occurrence_id'=o.id::text AND j.state NOT IN ('completed','cancelled','discarded'))))
+      AND NOT EXISTS (SELECT 1 FROM correlation_batches b WHERE b.case_id=c.id AND (b.status IN ('pending','delivering') OR b.terminal_status NOT IN ('none','accepted') OR b.inserted_at >= $1 OR b.accepted_at >= $1
+        OR EXISTS (SELECT 1 FROM correlation_attempts t WHERE t.batch_id=b.id AND (t.started_at >= $1 OR t.finished_at >= $1))
+        OR EXISTS (SELECT 1 FROM oban_jobs j WHERE j.worker='Mondek.CorrelationDeliveryWorker' AND j.args->>'batch_id'=b.id::text AND j.state NOT IN ('completed','cancelled','discarded'))))
       ORDER BY c.inserted_at,c.id LIMIT $2)
     """
 
@@ -614,7 +629,7 @@ defmodule Mondek.Correlations do
         "case_id" => row.case_id,
         "episode" => ref(row),
         "provenance" => "operator",
-        "notification_effect" => "unchanged"
+        "notification_effect" => "case_policy"
       }
   end
 

@@ -23,14 +23,14 @@ defmodule Mondek.MCP do
       ),
       tool(
         "list_cases",
-        "List correlation hypotheses. Grouping does not inhibit notifications. Inspect member incidents for evidence and controls.",
+        "List correlation hypotheses. Enabled policy supports exact batching and case acknowledgement. Inspect member incidents for evidence and controls.",
         %{"page" => page, "status" => %{"type" => "string", "enum" => ~w(open closed all)}},
         []
       ),
       tool(
         "get_case",
         "Inspect a correlation case, paginated membership and provenance. Removed members are not recovered. No mutation authority.",
-        %{"case_id" => uuid, "page" => page, "history_page" => page},
+        %{"case_id" => uuid, "page" => page, "history_page" => page, "batch_page" => page},
         ["case_id"]
       ),
       tool(

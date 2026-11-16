@@ -29,6 +29,9 @@ defmodule Mondek.NotificationWorker do
       {:ok, :superseded} ->
         :ok
 
+      {:ok, :exhausted} ->
+        :ok
+
       {:ok, :delivered} ->
         :ok
 
@@ -57,6 +60,7 @@ defmodule Mondek.NotificationWorker do
     Repo.transaction(fn ->
       Mondek.Maintenance.lock!(:shared)
       occurrence = Repo.get!(Occurrence, id)
+      case_id = Mondek.CorrelationDelivery.lock_native!(occurrence)
       context = Monitoring.lock_delivery_context!(occurrence, at)
       occurrence = Repo.one!(from o in Occurrence, where: o.id == ^id, lock: "FOR UPDATE")
       # Production dispatch samples the clock after lock waits; tests may inject
@@ -64,6 +68,11 @@ defmodule Mondek.NotificationWorker do
       at = at || Monitoring.now()
 
       eligibility = Monitoring.delivery_context_eligibility(occurrence, context, at)
+
+      eligibility =
+        if eligibility == :eligible,
+          do: Mondek.CorrelationDelivery.gate!(occurrence, case_id, at),
+          else: eligibility
 
       if job && job.id && not match?({:gated, _, _}, eligibility),
         do:
@@ -96,9 +105,18 @@ defmodule Mondek.NotificationWorker do
           {:gated, min(86_400, seconds)}
 
         :eligible ->
-          attempt = Repo.insert!(%Attempt{occurrence_id: id, status: "started", started_at: at})
-          occurrence = Monitoring.change(occurrence, %{status: "delivering"})
-          {occurrence, attempt}
+          case Mondek.CorrelationDelivery.spend_native!(id) do
+            :exhausted ->
+              Monitoring.change(occurrence, %{status: "exhausted"})
+              :exhausted
+
+            :ok ->
+              attempt =
+                Repo.insert!(%Attempt{occurrence_id: id, status: "started", started_at: at})
+
+              occurrence = Monitoring.change(occurrence, %{status: "delivering"})
+              {occurrence, attempt}
+          end
       end
     end)
   end
@@ -125,6 +143,7 @@ defmodule Mondek.NotificationWorker do
     Repo.transaction(fn ->
       # Individual delivery locks its assignment; grouped delivery locks the
       # condition identity and never takes another observer's assignment lock.
+      Mondek.CorrelationDelivery.lock_native!(occurrence)
       context = Monitoring.lock_delivery_context!(occurrence, at)
       current = Repo.one!(from o in Occurrence, where: o.id == ^occurrence.id, lock: "FOR UPDATE")
 

@@ -21,13 +21,26 @@ defmodule MondekWeb.API.CorrelationSchemas do
     )
   end
 
+  def response(:case_control_preview),
+    do:
+      S.record(
+        %{case_id: S.uuid(), proposal: control(), scope: S.object(), review_token: S.string()},
+        [
+          :case_id,
+          :proposal,
+          :review_token
+        ]
+      )
+
+  def response(:case_control_apply), do: response(:correlation_apply)
+
   def response(:correlation_preview),
     do:
       S.record(
         %{
           proposal: proposal(),
           review_token: S.string(),
-          notification_effect: S.enum(["unchanged"]),
+          notification_effect: S.enum(["unchanged", "case_policy"]),
           cases: S.array(S.ref("CorrelationCase")),
           as_of: S.time()
         },
@@ -45,12 +58,16 @@ defmodule MondekWeb.API.CorrelationSchemas do
     do:
       S.record(
         %{
+          delivery: S.ref("CaseDelivery"),
           case: S.ref("CorrelationCase"),
           members: page(S.ref("CorrelationMember")),
           decisions: page(S.ref("CorrelationDecision"))
         },
         [:case, :members, :decisions]
       )
+
+  def request(:case_control_preview), do: control()
+  def request(:case_control_apply), do: request(:correlation_apply)
 
   def request(:correlation_preview), do: proposal()
 
@@ -67,8 +84,73 @@ defmodule MondekWeb.API.CorrelationSchemas do
         [:items, :page, :page_size, :total]
       )
 
+  defp control,
+    do:
+      S.record(
+        %{
+          action: S.enum(~w(enable disable acknowledge end)),
+          request_id: S.uuid(),
+          note: %OpenApiSpex.Schema{type: :string, maxLength: 2000, minLength: 1},
+          seconds: %OpenApiSpex.Schema{type: :integer, minimum: 1, maximum: 31_536_000}
+        },
+        [:action, :request_id, :note]
+      )
+
   def definitions do
     %{
+      "CaseDelivery" =>
+        S.record(
+          %{
+            batching_enabled: S.boolean(),
+            acknowledgement: S.ref("CaseAcknowledgement"),
+            batch_page:
+              S.record(%{page: S.integer(), page_size: S.integer(), total: S.integer()}, [
+                :page,
+                :page_size,
+                :total
+              ]),
+            batches: S.array(S.ref("CaseBatch"))
+          },
+          [:batching_enabled, :acknowledgement, :batch_page, :batches]
+        ),
+      "CaseAcknowledgement" =>
+        S.record(
+          %{
+            active: S.boolean(),
+            id: S.uuid(),
+            revision: S.integer(),
+            mode: S.string(),
+            until: S.time(),
+            ceiling: S.string(),
+            note: S.string(),
+            ended_at: S.time(),
+            end_reason: S.nullable(S.string()),
+            inserted_at: S.time()
+          },
+          [:active, :revision]
+        ),
+      "CaseBatch" =>
+        S.record(
+          %{
+            id: S.uuid(),
+            status: S.enum(~w(pending delivering released accepted)),
+            attempts: S.integer(),
+            accepted_at: S.time(),
+            deadline: S.time(),
+            inserted_at: S.time(),
+            terminal_id: S.uuid(),
+            terminal_status: S.enum(~w(none waiting pending delivering exhausted accepted)),
+            terminal_attempts: S.integer(),
+            members:
+              S.array(
+                S.record(
+                  %{occurrence_id: S.uuid(), status: S.enum(~w(reserved released accepted))},
+                  [:occurrence_id, :status]
+                )
+              )
+          },
+          [:id, :status, :attempts, :terminal_status, :members]
+        ),
       "CorrelationCase" =>
         S.record(
           %{
@@ -84,7 +166,7 @@ defmodule MondekWeb.API.CorrelationSchemas do
             open_count: S.integer(),
             inserted_at: S.time(),
             anchor: S.nullable(episode()),
-            notification_effect: S.enum(["unchanged"])
+            notification_effect: S.enum(["unchanged", "case_policy"])
           },
           [
             :id,
@@ -114,7 +196,8 @@ defmodule MondekWeb.API.CorrelationSchemas do
         S.record(
           %{
             id: S.uuid(),
-            action: S.enum(~w(create attach detach merge split anchor)),
+            action:
+              S.enum(~w(create attach detach merge split anchor enable disable acknowledge end)),
             provenance: S.enum(["operator"]),
             actor: S.string(),
             reason: S.string(),
@@ -130,7 +213,7 @@ defmodule MondekWeb.API.CorrelationSchemas do
             case_id: S.uuid(),
             episode: episode(),
             provenance: S.enum(["operator"]),
-            notification_effect: S.enum(["unchanged"])
+            notification_effect: S.enum(["unchanged", "case_policy"])
           },
           [:case_id, :episode, :provenance, :notification_effect]
         )

@@ -180,6 +180,12 @@ defmodule MondekWeb.Router do
     get "/incidents/candidates", API.V1.CorrelationController, :correlation_candidates
     get "/incidents/cases", API.V1.CorrelationController, :correlation_cases
     get "/incidents/cases/:id", API.V1.CorrelationController, :correlation_case
+
+    post "/incidents/cases/:id/control/preview",
+         API.V1.CorrelationController,
+         :case_control_preview
+
+    post "/incidents/cases/control/apply", API.V1.CorrelationController, :case_control_apply
     post "/incidents/correlation/preview", API.V1.CorrelationController, :correlation_preview
     post "/incidents/correlation/apply", API.V1.CorrelationController, :correlation_apply
     get "/incidents/health", API.V1.IncidentsController, :incidents

@@ -428,12 +428,20 @@ test('manual correlation case keeps condition evidence and supports reversible g
   await form.locator(`input[type=checkbox][value="condition:${group.id}"]`).check();
   await form.locator('#case-anchor').selectOption(`condition:${group.id}`);
   await form.getByRole('button', {name:'Review change', exact:true}).click();
-  await expect(page.locator('#correlation-review')).toContainText('Notifications and existing controls stay unchanged');
+  await expect(page.locator('#correlation-review')).toContainText('Case acknowledgement ends. Pending reservations are released');
   await page.locator('#correlation-review').getByRole('button', {name:'Save reviewed change'}).click();
   await expect(page).toHaveURL(/\/incidents\/cases\/[0-9a-f-]+$/);
   await expect(page.locator('#case-detail')).toContainText('Suspected parent');
   await expect(page.locator('#case-detail')).toContainText('Local operator');
   await expect(page.locator('#case-detail a')).toHaveAttribute('href', `/incidents/health/${group.id}/full`);
+  const control = page.locator('#case-control-form');
+  await control.locator('#case-control-note').fill('Investigating the exact reviewed membership');
+  await control.locator('#case-control-seconds').fill('600');
+  await control.getByRole('button',{name:'Review control'}).click();
+  await expect(page.locator('#case-control-review')).toContainText('CRIT');
+  await expect(page.locator('#case-control-review')).toContainText(group.id);
+  await page.locator('#case-control-review').getByRole('button',{name:'Save case control'}).click();
+  await expect(page.locator('#case-delivery')).toContainText('Acknowledgement: Active');
   await checkpoint(page, testInfo, 'correlation-case-desktop');
   for (const width of [390, 320]) {
     await page.setViewportSize({width, height:850});

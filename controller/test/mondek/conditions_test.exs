@@ -18,6 +18,7 @@ defmodule Mondek.ConditionsTest do
     elastic = member("Elasticsearch", source: "other-source")
     group = record(linux, "CRIT", 1)
     [critical] = occurrences(group)
+    assert Repo.get!(Mondek.CorrelationCredit, critical.id).limit > 0
     jobs = jobs()
     initial_fact_ids = facts(group) |> Enum.map(& &1.id) |> Enum.sort()
     assert group.attention_revision == 1

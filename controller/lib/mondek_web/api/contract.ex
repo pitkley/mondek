@@ -165,7 +165,7 @@ defmodule MondekWeb.API.Contract do
         ~w(page status)
 
       :correlation_case ->
-        ~w(page history_page)
+        ~w(page history_page batch_page)
 
       :result_inspection ->
         []
@@ -246,7 +246,7 @@ defmodule MondekWeb.API.Contract do
 
   defp query_schema(name, action) do
     cond do
-      name in ~w(page history_page occurrence_page result_page members_page contradiction_page notification_page evidence_page) ->
+      name in ~w(page batch_page history_page occurrence_page result_page members_page contradiction_page notification_page evidence_page) ->
         %Schema{type: :integer, minimum: 1, maximum: 1_000_000}
 
       name == "page_size" ->
@@ -307,8 +307,14 @@ defmodule MondekWeb.API.Contract do
 
   defp query_description(name), do: "Filter: #{name}."
 
-  def request_schema(action) when action in [:correlation_preview, :correlation_apply],
-    do: MondekWeb.API.CorrelationSchemas.request(action)
+  def request_schema(action)
+      when action in [
+             :correlation_preview,
+             :correlation_apply,
+             :case_control_preview,
+             :case_control_apply
+           ],
+      do: MondekWeb.API.CorrelationSchemas.request(action)
 
   def request_schema(action) do
     case action do
@@ -370,7 +376,7 @@ defmodule MondekWeb.API.Contract do
             key in ~w(review_token prepare_token reason base_head) ->
               S.nullable(S.string())
 
-            key in ~w(page history_page occurrence_page result_page revision) ->
+            key in ~w(page batch_page history_page occurrence_page result_page revision) ->
               S.integer()
 
             key in ~w(selection receipts) ->

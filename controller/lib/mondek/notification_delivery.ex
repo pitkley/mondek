@@ -150,16 +150,22 @@ defmodule Mondek.NotificationDelivery do
     subject = "[Mondek] #{heading}#{subject_health}: #{label}" |> String.slice(0, 180)
 
     incident_id =
-      payload["monitoring_incident_id"] || payload["condition_incident_id"] ||
+      payload["correlation_case_id"] || payload["monitoring_incident_id"] ||
+        payload["condition_incident_id"] ||
         payload["incident_id"]
 
     incident_path =
-      if payload["incident_type"] == "monitoring_loss",
-        do: "/incidents/loss/",
-        else: "/incidents/health/"
+      if payload["correlation_case_id"],
+        do: "/incidents/cases/",
+        else:
+          if(payload["incident_type"] == "monitoring_loss",
+            do: "/incidents/loss/",
+            else: "/incidents/health/"
+          )
 
     url =
-      String.trim_trailing(metadata["public_url"], "/") <> incident_path <> incident_id <> "/full"
+      String.trim_trailing(metadata["public_url"], "/") <>
+        incident_path <> incident_id <> if(payload["correlation_case_id"], do: "", else: "/full")
 
     target = payload["target"] || %{}
 
@@ -175,6 +181,9 @@ defmodule Mondek.NotificationDelivery do
             "Environment: #{payload["environment_label"] || payload["environment"] || "Unspecified"}"
         ),
         if(map_size(target) > 0, do: "Target: #{target["label"] || target["key"]}"),
+        if(payload["correlation_case_id"],
+          do: "#{payload["scope"]}\n#{Jason.encode!(payload["members"])}"
+        ),
         monitoring_scope(payload),
         monitoring_restoration(payload),
         metadata["summary"] && "\n#{metadata["summary"]}",
