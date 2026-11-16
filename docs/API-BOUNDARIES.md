@@ -120,3 +120,7 @@ Source anchors: [router](../controller/lib/mondek_web/router.ex), [endpoint](../
 ## Consumer state extension
 
 The supported execution-only SDK adds `CheckContext`, `StateStore`, `StateEntry`, `StateError`, `StateConflict` and `StateWriteIndeterminate`; [consumer state](CONSUMER-STATE.md) owns their behavior. `consumer_state` client internals are not additional public exports. `POST /api/v1/runner/state` uses existing gateway transport with independent live admission and no observation replay. Operator reads are `GET /api/v1/consumer-state` (metadata) and `/api/v1/consumer-state/:id` (selected current value); browser inspection lives at `/consumer-state`. No value data is added to ordinary snapshots, configuration Git or MCP.
+
+## Correlation
+
+`Mondek.Correlations` owns reviewed topology changes independently of native episode lifetimes. `/incidents/cases` and `/incidents/candidates` expose bounded projections; `/incidents/correlation/preview` and `/apply` preserve exact selection and idempotency. The CorrelationLive page owns manual editing at `/incidents/cases` and `/incidents/cases/:id`; it currently has no paired fly-over. Read-only MCP remains read-only. See [correlation](RUNTIME-INCIDENT-CORRELATION.md).

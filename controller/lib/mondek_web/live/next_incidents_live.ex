@@ -416,6 +416,7 @@ defmodule MondekWeb.NextIncidentsLive do
     >
       <MondekWeb.PreviewLayouts.navigation active={:incidents} />
       <main id="main-content" class="preview-main" tabindex="-1">
+        <.link navigate="/incidents/cases">Correlation cases and manual grouping</.link>
         <.listing :if={!@full_page} {assigns} />
         <section
           :if={

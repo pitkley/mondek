@@ -81,6 +81,8 @@ defmodule MondekWeb.Router do
       live "/maintenance/series/:id", MaintenanceLive, :series
       live "/maintenance/:id/full", MaintenanceLive, :edit
       live "/maintenance/:id", MaintenanceLive, :edit
+      live "/incidents/cases", CorrelationLive, :index
+      live "/incidents/cases/:id", CorrelationLive, :show
       live "/incidents", NextIncidentsLive, :index
       live "/incidents/health/:id", NextIncidentsLive, :health
       live "/incidents/loss/:id", NextIncidentsLive, :loss
@@ -175,6 +177,11 @@ defmodule MondekWeb.Router do
     get "/assignments/:id", API.V1.AssignmentsController, :assignment
     get "/assignments/:id/configuration", API.V1.AssignmentsController, :assignment_inspection
     post "/assignments/:id/exception/preview", API.V1.ConfigurationController, :exception_preview
+    get "/incidents/candidates", API.V1.CorrelationController, :correlation_candidates
+    get "/incidents/cases", API.V1.CorrelationController, :correlation_cases
+    get "/incidents/cases/:id", API.V1.CorrelationController, :correlation_case
+    post "/incidents/correlation/preview", API.V1.CorrelationController, :correlation_preview
+    post "/incidents/correlation/apply", API.V1.CorrelationController, :correlation_apply
     get "/incidents/health", API.V1.IncidentsController, :incidents
     get "/incidents/monitoring-loss", API.V1.IncidentsController, :monitoring_incidents
     get "/incidents/monitoring-loss/:id", API.V1.IncidentsController, :monitoring_incident

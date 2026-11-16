@@ -125,6 +125,7 @@ defmodule MondekWeb.API.Contract do
            (name == "id" and
               action in [
                 :consumer_state_entry,
+                :correlation_case,
                 :check,
                 :result_inspection,
                 :evidence,
@@ -156,6 +157,15 @@ defmodule MondekWeb.API.Contract do
     case action do
       :consumer_state ->
         ~w(source_id scope key page)
+
+      :correlation_candidates ->
+        ~w(page source_id runner_id environment search)
+
+      :correlation_cases ->
+        ~w(page status)
+
+      :correlation_case ->
+        ~w(page history_page)
 
       :result_inspection ->
         []
@@ -236,7 +246,7 @@ defmodule MondekWeb.API.Contract do
 
   defp query_schema(name, action) do
     cond do
-      name in ~w(page occurrence_page result_page members_page contradiction_page notification_page evidence_page) ->
+      name in ~w(page history_page occurrence_page result_page members_page contradiction_page notification_page evidence_page) ->
         %Schema{type: :integer, minimum: 1, maximum: 1_000_000}
 
       name == "page_size" ->
@@ -296,6 +306,9 @@ defmodule MondekWeb.API.Contract do
     do: "Positive live page number. Investigation pages beyond the end are empty."
 
   defp query_description(name), do: "Filter: #{name}."
+
+  def request_schema(action) when action in [:correlation_preview, :correlation_apply],
+    do: MondekWeb.API.CorrelationSchemas.request(action)
 
   def request_schema(action) do
     case action do
@@ -357,7 +370,7 @@ defmodule MondekWeb.API.Contract do
             key in ~w(review_token prepare_token reason base_head) ->
               S.nullable(S.string())
 
-            key in ~w(page occurrence_page result_page revision) ->
+            key in ~w(page history_page occurrence_page result_page revision) ->
               S.integer()
 
             key in ~w(selection receipts) ->

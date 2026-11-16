@@ -414,3 +414,41 @@ test('incident fly-overs preserve the earlier panels and hand off a real pointer
   expect(errors).toEqual([]);
   await reset(request);
 });
+
+test('manual correlation case keeps condition evidence and supports reversible grouping', async ({page, request}, testInfo) => {
+  await reset(request);
+  await samples(request, {used_percent:96});
+  await measured(request, 'linux-volume-monitoring', 'CRIT');
+  const group = await opened(request, 1);
+  await page.goto('/incidents/cases');
+  await connected(page);
+  const form = page.locator('#grouping-form');
+  await form.locator('#grouping-title').fill('Storage impact investigation');
+  await form.locator('#grouping-reason').fill('Reviewing a suspected shared dependency');
+  await form.locator(`input[type=checkbox][value="condition:${group.id}"]`).check();
+  await form.locator('#case-anchor').selectOption(`condition:${group.id}`);
+  await form.getByRole('button', {name:'Review change', exact:true}).click();
+  await expect(page.locator('#correlation-review')).toContainText('Notifications and existing controls stay unchanged');
+  await page.locator('#correlation-review').getByRole('button', {name:'Save reviewed change'}).click();
+  await expect(page).toHaveURL(/\/incidents\/cases\/[0-9a-f-]+$/);
+  await expect(page.locator('#case-detail')).toContainText('Suspected parent');
+  await expect(page.locator('#case-detail')).toContainText('Local operator');
+  await expect(page.locator('#case-detail a')).toHaveAttribute('href', `/incidents/health/${group.id}/full`);
+  await checkpoint(page, testInfo, 'correlation-case-desktop');
+  for (const width of [390, 320]) {
+    await page.setViewportSize({width, height:850});
+    await checkpoint(page, testInfo, `correlation-case-${width}`);
+  }
+  await page.locator('#grouping-action').selectOption('detach');
+  await page.locator('#grouping-reason').fill('Keep independent investigation');
+  await page.locator(`#grouping-form input[type=checkbox][value="condition:${group.id}"]:enabled`).check();
+  await page.locator('#grouping-form').getByRole('button', {name:'Review change', exact:true}).click();
+  await page.locator('#correlation-review').getByRole('button', {name:'Save reviewed change'}).click();
+  await expect(page.locator('#case-detail')).toContainText('closed');
+  await expect(page.locator('#case-detail')).toContainText('Removed from case (detach)');
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({width, height: 1000});
+    await checkpoint(page, testInfo, `manual-correlation-case-${width}`);
+  }
+  expect((await detail(request, group.id)).incident.status).toBe('open');
+});

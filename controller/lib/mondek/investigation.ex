@@ -81,7 +81,7 @@ defmodule Mondek.Investigation do
         |> Map.take(
           ~w(incident stream assignment counts contributions contribution_page contradictions contradiction_page occurrences notification_page notification_counts attempts controls evidence closing_evidence recorded_measurement evidence_projection as_of limits)
         )
-        |> Map.update!("incident", &health_summary/1)
+        |> Map.update!("incident", &correlated_summary/1)
         |> Map.update("assignment", nil, &safe_assignment/1)
         |> Map.update("stream", nil, &safe_result/1)
         |> Map.update("contributions", [], fn rows ->
@@ -90,7 +90,7 @@ defmodule Mondek.Investigation do
             |> Map.take(
               ~w(incident stream assignment contribution_state last_failure_health recorded_measurement evidence_ids coverage)
             )
-            |> Map.update!("incident", &health_summary/1)
+            |> Map.update!("incident", &correlated_summary/1)
             |> Map.update("assignment", nil, &safe_assignment/1)
             |> Map.update("stream", nil, &safe_result/1)
           end)
@@ -105,6 +105,16 @@ defmodule Mondek.Investigation do
           if row, do: report_excerpt(row, selected_key)
         end)
     end
+  end
+
+  defp correlated_summary(row) do
+    summary = health_summary(row)
+
+    Map.put(
+      summary,
+      "correlation",
+      Mondek.Correlations.membership(summary["incident_type"], summary["id"])
+    )
   end
 
   def safe_assignment(nil), do: nil

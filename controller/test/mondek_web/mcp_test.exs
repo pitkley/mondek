@@ -33,7 +33,7 @@ defmodule MondekWeb.MCPTest do
              tools
 
     assert Enum.map(tools, & &1["name"]) ==
-             ~w(list_attention get_check_context get_evidence get_incident)
+             ~w(list_correlation_candidates list_cases get_case list_attention get_check_context get_evidence get_incident)
 
     assert Enum.all?(tools, & &1["annotations"]["readOnlyHint"])
 
@@ -353,7 +353,7 @@ defmodule MondekWeb.MCPTest do
     assert child.returncode == 0, child.stderr
     replies = [json.loads(line) for line in child.stdout.splitlines()]
     assert [m['id'] for m in replies] == [1,2,3], replies
-    assert len(replies[1]['result']['tools']) == 4
+    assert len(replies[1]['result']['tools']) == 7
     assert replies[2]['result']['structuredContent']['result']['current']['health'] == 'CRIT'
     print('stdio investigation passed')
     """
