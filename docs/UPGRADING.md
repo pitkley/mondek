@@ -54,4 +54,8 @@ This patch adds no database migration, API or runner transport format change. Pr
 
 ## Runtime cases
 
-The additive correlation migration runs at packaged startup. Existing evidence, controls, jobs and identities remain unchanged. Back up before upgrading. Correlation grants no delivery authority; rollback to older code requires a reviewed database rollback and must not discard case history silently.
+The additive correlation migration runs at packaged startup. Existing evidence, controls, jobs and identities remain unchanged. Back up before upgrading. Correlation batching defaults off and case acknowledgements remain explicit; rollback to older code requires a reviewed database rollback and must not discard case history silently.
+
+## Exact case delivery
+
+The additive case-delivery migration preserves original occurrences, attempts and jobs. Existing work has no new automatic credits and remains native-only; new work and explicit retry budgets receive credit epochs. Case batching defaults off. Back up before upgrade. Batch/acknowledgement/witness and credit history is protected by retention. Rollback needs reviewed preservation of pending terminal work rather than dropping these tables.

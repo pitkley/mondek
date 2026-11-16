@@ -155,7 +155,8 @@ defmodule Mondek.WebhookNotification do
     monitoring? = payload["incident_type"] == "monitoring_loss"
 
     id =
-      payload["monitoring_incident_id"] || payload["condition_incident_id"] ||
+      payload["correlation_case_id"] || payload["monitoring_incident_id"] ||
+        payload["condition_incident_id"] ||
         payload["incident_id"]
 
     heading = Mondek.NotificationDelivery.heading(payload)
@@ -171,10 +172,17 @@ defmodule Mondek.WebhookNotification do
       },
       "incident" => %{
         "id" => id,
-        "type" => if(monitoring?, do: "monitoring_loss", else: "health"),
+        "type" =>
+          if(payload["correlation_case_id"],
+            do: "correlation",
+            else: if(monitoring?, do: "monitoring_loss", else: "health")
+          ),
         "url" =>
           String.trim_trailing(public_url, "/") <>
-            if(monitoring?, do: "/incidents/loss/", else: "/incidents/health/") <> id <> "/full",
+            if(payload["correlation_case_id"],
+              do: "/incidents/cases/",
+              else: if(monitoring?, do: "/incidents/loss/", else: "/incidents/health/")
+            ) <> id <> if(payload["correlation_case_id"], do: "", else: "/full"),
         "closure_reason" => payload["closure_reason"]
       },
       "evidence" => %{
@@ -236,6 +244,8 @@ defmodule Mondek.WebhookNotification do
 
     envelope = %{
       "version" => 1,
+      "template" => destination.template,
+      "public_url" => public_url,
       "destination_id" => config.active,
       "destination_hash" => fingerprint(destination.url),
       "document" => document,

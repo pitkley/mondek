@@ -447,6 +447,8 @@ defmodule MondekWeb.API.Schemas do
                :correlation_cases,
                :correlation_case,
                :correlation_preview,
+               :case_control_preview,
+               :case_control_apply,
                :correlation_apply
              ] ->
           MondekWeb.API.CorrelationSchemas.response(a)

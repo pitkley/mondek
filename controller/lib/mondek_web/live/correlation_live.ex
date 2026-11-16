@@ -15,6 +15,8 @@ defmodule MondekWeb.CorrelationLive do
        detail: nil,
        review: nil,
        error: nil,
+       control_review: nil,
+       control_draft: %{"action" => "acknowledge", "note" => "", "seconds" => ""},
        draft: %{
          "action" => "create",
          "title" => "",
@@ -92,6 +94,47 @@ defmodule MondekWeb.CorrelationLive do
 
   def handle_event("apply", _, socket),
     do: {:noreply, assign(socket, error: "Review the change before applying.")}
+
+  def handle_event("control_change", %{"control" => p}, socket),
+    do: {:noreply, assign(socket, control_draft: p, control_review: nil)}
+
+  def handle_event("control_review", %{"control" => p}, socket) do
+    fields = %{"action" => p["action"], "note" => p["note"], "request_id" => Ecto.UUID.generate()}
+
+    seconds =
+      if p["seconds"] in [nil, ""] do
+        nil
+      else
+        case Integer.parse(p["seconds"]) do
+          {n, ""} -> n
+          _ -> 0
+        end
+      end
+
+    fields =
+      if seconds && p["action"] == "acknowledge",
+        do: Map.put(fields, "seconds", seconds),
+        else: fields
+
+    case Mondek.CaseControls.preview(socket.assigns.detail["case"]["id"], fields) do
+      {:ok, review} ->
+        {:noreply, assign(socket, control_review: review, control_draft: p, error: nil)}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, control_review: nil, control_draft: p, error: message(reason))}
+    end
+  end
+
+  def handle_event(
+        "control_apply",
+        _,
+        %{assigns: %{control_review: %{"review_token" => token}}} = socket
+      ) do
+    case Mondek.CaseControls.apply(token) do
+      {:ok, _} -> {:noreply, push_navigate(socket, to: socket.assigns.current_path)}
+      {:error, reason} -> {:noreply, assign(socket, error: message(reason), control_review: nil)}
+    end
+  end
 
   defp proposal(d, detail) do
     decode = fn s ->
@@ -178,7 +221,7 @@ defmodule MondekWeb.CorrelationLive do
           <.link navigate="/incidents">All incidents</.link>
         </header>
         <p>
-          Cases record suspected relationships. Notifications, acknowledgements and maintenance remain independent for every member.
+          Cases record suspected relationships. Native controls remain independent; enabled case policy can batch exact delivery or hold it under a reviewed acknowledgement.
         </p>
         <PreviewDetail.card id="case-list" title="Cases" level={2}>
           <ul>
@@ -246,6 +289,104 @@ defmodule MondekWeb.CorrelationLive do
             >More decisions</.link>
           </nav>
         </PreviewDetail.card>
+        <PreviewDetail.card
+          :if={@detail}
+          id="case-delivery"
+          title="Case delivery and acknowledgement"
+          level={2}
+        >
+          <p>
+            Batching is {if @detail["delivery"].batching_enabled, do: "enabled", else: "disabled"}. Exact batches never cover later facts.
+          </p>
+          <p>
+            Acknowledgement: {if @detail["delivery"].acknowledgement.active,
+              do: "Active",
+              else: "Inactive"}. Scope is reviewed members only; native controls remain independent.
+          </p>
+          <p :if={@detail["delivery"].acknowledgement.active} id="saved-case-ack">
+            Saved note: {@detail["delivery"].acknowledgement.note} · ceiling {@detail["delivery"].acknowledgement.ceiling} · until {if @detail[
+                                                                                                                                         "delivery"
+                                                                                                                                       ].acknowledgement.until,
+                                                                                                                                       do:
+                                                                                                                                         Mondek.Monitoring.iso(
+                                                                                                                                           @detail[
+                                                                                                                                             "delivery"
+                                                                                                                                           ].acknowledgement.until
+                                                                                                                                         ),
+                                                                                                                                       else:
+                                                                                                                                         "Case ends"}
+          </p>
+          <.form
+            for={%{}}
+            as={:control}
+            id="case-control-form"
+            phx-change="control_change"
+            phx-submit="control_review"
+          >
+            <div class="pf-v6-c-form">
+              <label for="case-control-action">Control</label>
+              <select id="case-control-action" name="control[action]"><option
+                :for={a <- ~w(acknowledge end enable disable)}
+                value={a}
+                selected={@control_draft["action"] == a}
+              >
+                {String.capitalize(a)}
+              </option></select>
+              <label for="case-control-note">Note</label><textarea
+                id="case-control-note"
+                name="control[note]"
+                required
+                maxlength="2000"
+              >{@control_draft["note"]}</textarea>
+              <label for="case-control-seconds">Acknowledgement seconds (blank means until case ends)</label><input
+                id="case-control-seconds"
+                name="control[seconds]"
+                value={@control_draft["seconds"]}
+              />
+              <button type="submit" class="pf-v6-c-button pf-m-secondary">Review control</button>
+            </div>
+          </.form>
+          <section :if={@control_review} id="case-control-review">
+            <h3>Review case control</h3><p>
+              {@control_review["case_id"]}: {@control_review["proposal"]["action"]} · {@control_review[
+                "proposal"
+              ]["note"]}
+            </p>
+            <p>
+              Ceiling: {@control_review["scope"].ceiling}; scope: {@control_review["scope"].scope}. Duration: {@control_review[
+                "proposal"
+              ]["seconds"] || "Until case ends"}
+            </p>
+            <ul>
+              <li :for={m <- @control_review["scope"].members}>
+                {m.label} · {m.episode["id"]} · {m.health} · impacts {Enum.join(m.impacts, ", ")}
+              </li>
+            </ul>
+            <button type="button" phx-click="control_apply">Save case control</button>
+          </section>
+          <h3>Exact batches</h3>
+          <p>
+            {@detail["delivery"].batch_page.total} batches. Unfinished work first; terminal scope survives membership moves.
+          </p>
+          <nav aria-label="Batch pages">
+            <.link
+              :if={@detail["delivery"].batch_page.page > 1}
+              patch={path(@current_path, "batch_page", @detail["delivery"].batch_page.page - 1)}
+            >Previous batches</.link><.link
+              :if={@detail["delivery"].batch_page.page * 25 < @detail["delivery"].batch_page.total}
+              patch={path(@current_path, "batch_page", @detail["delivery"].batch_page.page + 1)}
+            >More batches</.link>
+          </nav>
+          <ul>
+            <li :for={b <- @detail["delivery"].batches}>
+              {b.id}: {b.status}, terminal {b.terminal_status}
+              <ul>
+                <li :for={m <- b.members}>{m.occurrence_id}: {m.status}</li>
+              </ul>
+            </li>
+          </ul>
+        </PreviewDetail.card>
+
         <PreviewDetail.card
           :if={!@detail || @detail["case"]["status"] == "open"}
           id="grouping-controls"
@@ -381,7 +522,9 @@ defmodule MondekWeb.CorrelationLive do
               )} selected episodes
             </p>
             <p>{@review["proposal"]["reason"]}</p>
-            <p>Notifications and existing controls stay unchanged.</p>
+            <p>
+              Case acknowledgement ends. Pending reservations are released; already admitted I/O may finish. Native controls stay unchanged.
+            </p>
             <button type="button" phx-click="apply" class="pf-v6-c-button pf-m-primary">Save reviewed change</button>
           </section>
         </PreviewDetail.card>

@@ -513,6 +513,11 @@ defmodule Mondek.Conditions do
       })
     end
 
+    Mondek.CorrelationDelivery.epoch!(
+      id,
+      Application.get_env(:mondek, :notification_max_attempts, 100)
+    )
+
     %{
       "occurrence_id" => id,
       "delivery_channel" => Mondek.NotificationDelivery.channel(destination)

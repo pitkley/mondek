@@ -107,4 +107,8 @@ When changing a mutation, identify its entry transaction, all explicit and impli
 
 ## Correlation topology
 
-Manual correlation preview/apply takes advisory gate `774021` exclusively, before sorted assignments, sorted condition stripes and detail writes. It acquires the complete ownership set before review or apply and rechecks openness. Native ingestion/delivery never takes this gate because cases grant no authority over those paths. Retention takes the gate shared after maintenance and before existing ownership locks, prunes eligible cases and excludes every retained member reference. No external I/O occurs in these transactions. Case reads use repeatable-read investigation snapshots.
+Manual correlation preview/apply takes advisory gate `774021` exclusively, before sorted assignments, sorted condition stripes and detail writes. It acquires the complete ownership set before review or apply and rechecks openness. Native ingestion does not take this gate. Native dispatch and completion take it shared before complete case and frozen batch ownership; case policy can inhibit or aggregate exact work. Retention takes the gate shared after maintenance and before existing ownership locks, prunes eligible cases and excludes every retained member reference. No external I/O occurs in these transactions. Case reads use repeatable-read investigation snapshots.
+
+## Exact delivery handover
+
+Dispatch and completion acquire topology shared before the complete native owner set, then case/batch/detail and occurrences. Native reducers update only their acknowledgement witness and enqueue durable reconciliation; they never acquire case or sibling owners. Case controls and topology mutations own all members. In-flight batches use the immutable reservation set after moves. See [exact delivery](EXACT-BATCH-DELIVERY.md) for credit and terminal state rules.

@@ -4,6 +4,12 @@ defmodule MondekWeb.API.V1.CorrelationController do
   use MondekWeb.API.Controller
   def open_api_operation(action), do: MondekWeb.API.Contract.operation(action)
 
+  def case_control_preview(conn, %{"id" => id} = p),
+    do: respond(conn, Mondek.CaseControls.preview(id, Map.delete(p, "id")))
+
+  def case_control_apply(conn, %{"review_token" => token}),
+    do: respond(conn, Mondek.CaseControls.apply(token))
+
   def correlation_candidates(conn, params),
     do: MondekWeb.API.Read.run(conn, &Mondek.Correlations.candidates(params, &1))
 

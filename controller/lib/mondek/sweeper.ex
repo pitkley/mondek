@@ -20,6 +20,7 @@ defmodule Mondek.Sweeper do
     Monitoring.notify()
     wake_held_notifications(Monitoring.now())
     Mondek.ConsumerState.cleanup()
+    Repo.transaction(fn -> Mondek.CorrelationDelivery.repair!() end)
 
     next_count =
       if rem(count, 60) == 0 do

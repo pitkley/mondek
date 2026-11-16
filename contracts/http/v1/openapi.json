@@ -185,7 +185,8 @@
           },
           "notification_effect": {
             "enum": [
-              "unchanged"
+              "unchanged",
+              "case_policy"
             ],
             "type": "string"
           },
@@ -816,7 +817,8 @@
           },
           "notification_effect": {
             "enum": [
-              "unchanged"
+              "unchanged",
+              "case_policy"
             ],
             "type": "string"
           },
@@ -1469,6 +1471,54 @@
             "nullable": true
           }
         },
+        "type": "object"
+      },
+      "CaseAcknowledgement": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "ceiling": {
+            "type": "string"
+          },
+          "end_reason": {
+            "nullable": true,
+            "type": "string"
+          },
+          "ended_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inserted_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "until": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "active",
+          "revision"
+        ],
         "type": "object"
       },
       "CorrelationMember": {
@@ -2978,7 +3028,11 @@
               "detach",
               "merge",
               "split",
-              "anchor"
+              "anchor",
+              "enable",
+              "disable",
+              "acknowledge",
+              "end"
             ],
             "type": "string"
           },
@@ -4125,6 +4179,137 @@
           "source_revision",
           "complete",
           "checks"
+        ],
+        "type": "object"
+      },
+      "CaseBatch": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "attempts": {
+            "type": "integer"
+          },
+          "deadline": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inserted_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "occurrence_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "reserved",
+                    "released",
+                    "accepted"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "occurrence_id",
+                "status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "delivering",
+              "released",
+              "accepted"
+            ],
+            "type": "string"
+          },
+          "terminal_attempts": {
+            "type": "integer"
+          },
+          "terminal_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "terminal_status": {
+            "enum": [
+              "none",
+              "waiting",
+              "pending",
+              "delivering",
+              "exhausted",
+              "accepted"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "attempts",
+          "terminal_status",
+          "members"
+        ],
+        "type": "object"
+      },
+      "CaseDelivery": {
+        "additionalProperties": false,
+        "properties": {
+          "acknowledgement": {
+            "$ref": "#/components/schemas/CaseAcknowledgement"
+          },
+          "batch_page": {
+            "additionalProperties": false,
+            "properties": {
+              "page": {
+                "type": "integer"
+              },
+              "page_size": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "page",
+              "page_size",
+              "total"
+            ],
+            "type": "object"
+          },
+          "batches": {
+            "items": {
+              "$ref": "#/components/schemas/CaseBatch"
+            },
+            "type": "array"
+          },
+          "batching_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "batching_enabled",
+          "acknowledgement",
+          "batch_page",
+          "batches"
         ],
         "type": "object"
       },
@@ -5689,7 +5874,8 @@
                     },
                     "notification_effect": {
                       "enum": [
-                        "unchanged"
+                        "unchanged",
+                        "case_policy"
                       ],
                       "type": "string"
                     },
@@ -9698,6 +9884,157 @@
         ]
       }
     },
+    "/api/v1/incidents/cases/control/apply": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Experimental same-release contract. Review tokens and revisions retain their domain scope; source and definition revisions are not Git revisions.",
+        "operationId": "case_control_apply",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "review_token": {
+                    "maxLength": 65536,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "review_token"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Operation input. Reviewed and runner semantics are enforced by the domain context.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "case_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "case_id",
+                    "replayed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Case control apply",
+        "tags": [
+          "Correlation"
+        ]
+      }
+    },
     "/api/v1/coverage/{id}/observers": {
       "get": {
         "callbacks": {},
@@ -10802,6 +11139,229 @@
         "summary": "Coverage",
         "tags": [
           "Coverage"
+        ]
+      }
+    },
+    "/api/v1/incidents/cases/{id}/control/preview": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Experimental same-release contract. Review tokens and revisions retain their domain scope; source and definition revisions are not Git revisions.",
+        "operationId": "case_control_preview",
+        "parameters": [
+          {
+            "description": "Opaque id; preserve the exact supplied identity.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 240,
+              "minLength": 1,
+              "pattern": "^[^\u0000-\u001F]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "enum": [
+                      "enable",
+                      "disable",
+                      "acknowledge",
+                      "end"
+                    ],
+                    "type": "string"
+                  },
+                  "note": {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "request_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "seconds": {
+                    "maximum": 31536000,
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "action",
+                  "request_id",
+                  "note"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Operation input. Reviewed and runner semantics are enforced by the domain context.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "case_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "proposal": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "action": {
+                          "enum": [
+                            "enable",
+                            "disable",
+                            "acknowledge",
+                            "end"
+                          ],
+                          "type": "string"
+                        },
+                        "note": {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "request_id": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "seconds": {
+                          "maximum": 31536000,
+                          "minimum": 1,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "request_id",
+                        "note"
+                      ],
+                      "type": "object"
+                    },
+                    "review_token": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "case_id",
+                    "proposal",
+                    "review_token"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Case control preview",
+        "tags": [
+          "Correlation"
         ]
       }
     },
@@ -13485,6 +14045,16 @@
               "minimum": 1,
               "type": "integer"
             }
+          },
+          {
+            "description": "Filter: batch_page.",
+            "in": "query",
+            "name": "batch_page",
+            "schema": {
+              "maximum": 1000000,
+              "minimum": 1,
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -13526,6 +14096,9 @@
                             "total"
                           ],
                           "type": "object"
+                        },
+                        "delivery": {
+                          "$ref": "#/components/schemas/CaseDelivery"
                         },
                         "members": {
                           "additionalProperties": false,

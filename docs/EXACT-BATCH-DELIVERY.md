@@ -1,0 +1,27 @@
+# Exact correlation batch delivery
+
+Implementation contract for the second correlation increment. Batching is opt-in per case, at dispatch. Only currently eligible, never-attempted, new-budget work with compatible destination snapshots can be reserved. Legacy work is native-only. No late-member or ongoing automatic inhibition is introduced. A pending batch is immutable; losing eligibility releases its work instead of sending a misleading payload. Thirty seconds is a persisted, nonrenewable handover bound. Each child retains at least one native attempt credit; all native and batch admissions debit the same ledger before I/O. Manual retry starts a new explicit epoch and cannot rewrite in-flight ownership.
+
+Case acknowledgement covers a reviewed membership snapshot and global severity ceiling plus member-qualified impact keys. Topology change ends it. Native-owned witnesses invalidate irreversibly on new impact, above-ceiling severity, including transient changes; they never lock sibling owners. Reads expose effective state without writing. Durable reconciliation records ending and wakes original work. Acknowledgements do not alter child controls or maintenance.
+
+Batch terminal obligation is created at first attempted failure, including ambiguous I/O. Its immutable episode/destination scope survives moves and waits until all exact episodes end. The payload says all episodes in this batch ended, with each closure reason; it never says the case recovered. A source case may close while this obligation remains open. Early recovered members wait for the batch's last episode, and independent failure batches may have separate terminal receipts. Native independently attempted work retains its own terminal behavior. Accepted aggregate delivery is distinct from native acceptance and cannot cover later facts.
+
+Lock order is maintenance gate (when needed), topology shared gate, complete sorted native owners, then case/batch/detail rows, then occurrences. Completion uses the frozen reservation set, including moved members; no external I/O occurs under locks. Topology writers end acknowledgement and release unstarted reservations. In-flight admission cannot be recalled; completion fences original identity and epoch. Retention protects active work and exact evidence.
+
+## Current policy
+
+Enable exact batching explicitly for a case. At native dispatch, Mondek considers at most 100 pending, credited, never-attempted notifications. At least two must have compatible frozen transports and be independently eligible. One aggregate attempt spends one original credit from each, always retaining a native fallback credit. Old queued notifications remain native-only; explicit manual retry creates a new credit epoch. Failed or unrenderable batching never grants a fresh budget. The maximum handover is thirty seconds; an admitted external attempt has a sixty-second abandonment fence. Case acknowledgement holds and maintenance remain independently effective after fallback.
+
+The batch's accepted record is exact coverage, not a fake native attempt. Its original work becomes superseded with retained batch history. Late accepted results remain evidence even after ambiguous timeout; they do not recharge credits or reclaim ownership. Terminal delivery has three automatic attempts, uses a separate immutable identity and original destination, and remains visible if exhausted. A reconstruction pass replaces lost/discarded batch jobs using persisted state and unchanged attempt counts.
+
+Native acknowledgement witnesses use only native ownership. Topology and case controls serialize under gate 774021; policy toggles preserve the original acknowledgement's topology revision. Membership changes advance topology revision and end acknowledgement; parent/child controls remain independent. Recovered members do not end acknowledgement while a reviewed peer remains unresolved. Above-ceiling severity and new member-qualified impacts invalidate it irreversibly. Case acknowledgement ends at its exact deadline or when no reviewed failure remains.
+
+## Operator and integration
+
+The case page previews controls and shows batching state, acknowledgement and bounded batch history (unfinished work first). Use `POST /api/v1/incidents/cases/:id/control/preview` with action `enable`, `disable`, `acknowledge` or `end`, a request_id and note. Acknowledge accepts optional seconds (1–31536000); omit for until case ends. Apply the returned token through `/api/v1/incidents/cases/control/apply`. Reads and MCP get_case expose the same typed delivery projection. `batch_page` pages exact batch history independently from memberships and decisions.
+
+After enabling, only eligible facts already present at dispatch can coalesce; no delay or dependency hint is added to runner scheduling. Later facts need new batches. Ongoing automatic attention suppression, SDK hints and the OpenAI Decisions API integration remain future work.
+
+## Verification scope
+
+The native PostgreSQL suite covers exact acceptance/credit accounting, failed handover, acknowledgement preservation and invalidation, competing topology work, late receipt recovery, orphan repair and scoped terminal receipts. The local HTTP receiver test verifies both failure and terminal bodies, rather than equating a test callback with receiver delivery. Existing native standalone/condition suites remain regression gates. The packaged grouped browser journey uses installed runners and desktop/390/320px layout/accessibility checks. No external recipient or deployment is used.

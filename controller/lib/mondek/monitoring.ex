@@ -54,7 +54,13 @@ defmodule Mondek.Monitoring do
     do: Mondek.BulkConfiguration.status(receipts, page)
 
   def now, do: DateTime.utc_now()
-  def change(record, attrs), do: record |> Ecto.Changeset.change(attrs) |> Repo.update!()
+
+  def change(record, attrs) do
+    updated = record |> Ecto.Changeset.change(attrs) |> Repo.update!()
+    Mondek.CaseControls.native_changed!(record, updated)
+    updated
+  end
+
   @active_job_states ~w(available scheduled executing retryable)
 
   def notify do
@@ -272,6 +278,16 @@ defmodule Mondek.Monitoring do
       result =
         Repo.transaction(fn ->
           existing = Repo.get(Occurrence, id) || Repo.rollback(:not_found)
+          Mondek.CorrelationDelivery.lock_native!(existing)
+
+          reserved? =
+            Repo.exists?(
+              from r in Mondek.CorrelationReservation,
+                where: r.occurrence_id == ^id and r.status == "reserved"
+            )
+
+          if reserved?, do: Repo.rollback(:delivery_in_progress)
+
           context = lock_delivery_context!(existing, at)
           occurrence = Repo.one!(from o in Occurrence, where: o.id == ^id, lock: "FOR UPDATE")
 
@@ -1158,6 +1174,11 @@ defmodule Mondek.Monitoring do
 
   @doc false
   def enqueue_notification!(id, destination) do
+    Mondek.CorrelationDelivery.epoch!(
+      id,
+      Application.get_env(:mondek, :notification_max_attempts, 100)
+    )
+
     %{
       "occurrence_id" => id,
       "delivery_channel" => Mondek.NotificationDelivery.channel(destination)
@@ -1940,6 +1961,11 @@ defmodule Mondek.Monitoring do
               Map.fetch!(condition_contexts, incident.id)
             )
         end
+
+      eligibility =
+        if eligibility == :eligible,
+          do: Mondek.CorrelationDelivery.inspect_gate(occurrence, at),
+          else: eligibility
 
       {gates, gated_until} =
         case eligibility do
