@@ -24,6 +24,7 @@ from typing import Annotated, Any, Literal, get_args, get_origin, get_type_hints
 
 from .api import validate_invocation_scope
 from .catalogs import DiscoveryCatalog as DiscoveryCatalog
+from .consumer_state import CheckContext, _StateClient
 
 MAX_CHECKS = 512
 INTEGER_LIMIT = 10**4096
@@ -1046,7 +1047,12 @@ class App:
         return self._instances[kind]
 
     def arguments(
-        self, key: str, params: dict[str, Any], *, instantiate: bool = True
+        self,
+        key: str,
+        params: dict[str, Any],
+        *,
+        instantiate: bool = True,
+        context: CheckContext | None = None,
     ) -> dict[str, Any]:
         binding = self.bindings[key]
         if reason := self._placement_exclusion(key, binding):
@@ -1067,6 +1073,8 @@ class App:
                 kwargs[name] = binding.environment or self.environment
                 if kwargs[name] is None:
                     raise ValueError(f"{key}: declare the monitored environment")
+            elif annotation is CheckContext:
+                kwargs[name] = context or CheckContext(_StateClient())
             elif annotation is RunnerContext:
                 kwargs[name] = self.runner
             elif get_origin(annotation) is Annotated:

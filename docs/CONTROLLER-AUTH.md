@@ -27,7 +27,7 @@ Runner controller requests stagger TCP connection attempts by 250 milliseconds a
 
 For a hosted installation, protect all operator HTTP routes and `/live` WebSocket connections, including their upgrade requests. Restrict direct origin access to the gateway, for example by binding to loopback behind a local proxy or using firewall rules, so clients cannot bypass those access checks. Protecting only the initial page load is insufficient.
 
-Configure machine access for the three runner endpoints: `/api/v1/runner/inventory`, `/api/v1/runner/control` and `/api/v1/runner/observations`. Keep browser login and machine authentication separate. Gateways may match more specific path policies independently of the root policy; verify the complete gateway-to-origin route, including credential audience checks where applicable. Keep credentials outside source control and runner journals.
+Configure machine access for the four runner endpoints: `/api/v1/runner/inventory`, `/api/v1/runner/control`, `/api/v1/runner/observations` and `/api/v1/runner/state`. Keep browser login and machine authentication separate. Gateways may match more specific path policies independently of the root policy; verify the complete gateway-to-origin route, including credential audience checks where applicable. Keep credentials outside source control and runner journals.
 
 `mondek-policy` uses the same private file format, but operator access to `/api/v1/configuration/*` needs an explicit gateway policy and appropriate credentials. Runner endpoint access alone does not grant configuration access. See [runner deployment](RUNNER-DEPLOYMENT.md) for installed-consumer and state handling.
 
@@ -40,9 +40,9 @@ mondek-runner doctor --controller https://monitoring.example.test \
   --headers-file /var/lib/mondek/controller-auth.json
 ```
 
-The defaults are `MONDEK_CONTROLLER_URL` and `MONDEK_CONTROLLER_HEADERS_FILE`. This performs GET requests to the three existing POST-only runner routes. It neither registers a runner nor writes inventory, observations or journal state. Each request has an eight-second total deadline including DNS and body reads (`--timeout` accepts 1–30 seconds). Redirects are refused. Output includes only safe error categories, HTTP status, supported gateway request identifiers and bounded error codes when available; it never prints authentication headers, file contents, response bodies or redirect locations.
+The defaults are `MONDEK_CONTROLLER_URL` and `MONDEK_CONTROLLER_HEADERS_FILE`. This performs GET requests to the four existing POST-only runner routes. It neither registers a runner nor writes inventory, observations or journal state. Each request has an eight-second total deadline including DNS and body reads (`--timeout` accepts 1–30 seconds). Redirects are refused. Output includes only safe error categories, HTTP status, supported gateway request identifiers and bounded error codes when available; it never prints authentication headers, file contents, response bodies or redirect locations.
 
-A 404/405 is reported as `reachable_unverified`: a server responded to the GET probe, but neither controller identity nor successful POST registration is established. Even an intermediary can generate that response. Exit 0 means all three probes reached this limited result; exit 1 means at least one endpoint needs investigation; exit 2 means the command/settings could not be used. Confirm actual `controller_ready` events and visible runner coverage afterwards.
+A 404/405 is reported as `reachable_unverified`: a server responded to the GET probe, but neither controller identity nor successful POST registration is established. Even an intermediary can generate that response. Exit 0 means all four probes reached this limited result; exit 1 means at least one endpoint needs investigation; exit 2 means the command/settings could not be used. Confirm actual `controller_ready` events and visible runner coverage afterwards.
 
 | Evidence | Next step |
 | --- | --- |

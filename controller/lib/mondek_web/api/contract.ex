@@ -79,7 +79,10 @@ defmodule MondekWeb.API.Contract do
           monitoring_incident: "getMonitoringLossIncident",
           inventory: "publishRunnerInventory",
           control: "exchangeRunnerControl",
-          observations: "submitRunnerObservations"
+          observations: "submitRunnerObservations",
+          runner_state: "exchangeRunnerState",
+          consumer_state: "listConsumerState",
+          consumer_state_entry: "getConsumerState"
         },
         action,
         Atom.to_string(action)
@@ -121,6 +124,7 @@ defmodule MondekWeb.API.Contract do
       if name in ~w(observation_id) or
            (name == "id" and
               action in [
+                :consumer_state_entry,
                 :check,
                 :result_inspection,
                 :evidence,
@@ -150,6 +154,9 @@ defmodule MondekWeb.API.Contract do
 
   def query_fields(action) do
     case action do
+      :consumer_state ->
+        ~w(source_id scope key page)
+
       :result_inspection ->
         []
 
@@ -292,6 +299,9 @@ defmodule MondekWeb.API.Contract do
 
   def request_schema(action) do
     case action do
+      :runner_state ->
+        S.ref("ConsumerStateRequest")
+
       :control ->
         S.ref("ControlRequest")
 

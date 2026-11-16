@@ -2,6 +2,8 @@
 
 The controller keeps ordinary receipts for seven days and trims unprotected receipts beyond the newest 100,000. Terminal incident, maintenance and abandoned configuration history becomes eligible after thirty days. These are eligibility boundaries, not strict storage caps: current/confirmed measurements, unresolved incidents, unfinished or exhausted delivery, retained evidence references and configuration authority remain protected. Policy apply receipts have a separate lifetime and are not changed here.
 
+Consumer state has [separate quotas and TTL/lifecycle cleanup](CONSUMER-STATE.md). It is not observation history and is not exported into configuration Git. Assignment-local values become inaccessible at retirement; source-wide values survive publication retirement.
+
 ## Configure the policy
 
 Set MONDEK_RETENTION_RECEIPT_DAYS (default 7), MONDEK_RETENTION_HISTORY_DAYS (default 30), and MONDEK_RETENTION_MAX_OBSERVATIONS (default 100000) in the controller environment. Environment settings are read at startup; restart the controller to apply changes. Days accept integers from 1 to 36500; the count accepts 1 to 1000000000. Empty, zero, negative, malformed or out-of-range values stop startup with the setting name. There is no unbounded mode.

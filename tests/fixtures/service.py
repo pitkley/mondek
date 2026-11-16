@@ -312,6 +312,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/v1/runner/control",
                 "/api/v1/runner/observations",
                 "/api/v1/runner/inventory",
+                "/api/v1/runner/state",
             }:
                 self.proxy(body)
             elif self.path == "/webhook":

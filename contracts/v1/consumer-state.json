@@ -1,0 +1,20 @@
+{
+  "values": [
+    {"value": null, "bytes": 4},
+    {"value": true, "bytes": 4},
+    {"value": false, "bytes": 5},
+    {"value": 0, "bytes": 1},
+    {"value": -12, "bytes": 3},
+    {"value": 1.25, "bytes": 24},
+    {"value": 1.0, "bytes": 1},
+    {"value": -0.0, "bytes": 1},
+    {"value": 100000000000000000000, "bytes": 21},
+    {"value": 99999999999999991611392, "bytes": 23},
+    {"value": "\u007f", "bytes": 8},
+    {"value": {"\u007f": "\u007f"}, "bytes": 19},
+    {"value": "é", "bytes": 8},
+    {"value": "😀", "bytes": 14},
+    {"value": "a\nb", "bytes": 6},
+    {"value": {"a": [1.5, null]}, "bytes": 37}
+  ]
+}

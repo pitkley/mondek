@@ -166,7 +166,7 @@ class ControllerAuthenticationTests(unittest.TestCase):
             hole.close()
 
     def test_all_runner_endpoints_and_policy_use_headers_and_rotation(self):
-        for endpoint in ("inventory", "control", "observations"):
+        for endpoint in ("inventory", "control", "observations", "state"):
             self.assertEqual(
                 post_json(self.origin + "/api/v1/runner/" + endpoint, {}, 5)["version"],
                 1,
@@ -300,13 +300,13 @@ class ControllerAuthenticationTests(unittest.TestCase):
             [item["endpoint"] for item in report["results"]],
             [
                 "/api/v1/runner/" + name
-                for name in ("inventory", "control", "observations")
+                for name in ("inventory", "control", "observations", "state")
             ],
         )
         self.assertTrue(
             all(item["outcome"] == "reachable_unverified" for item in report["results"])
         )
-        self.assertEqual(self.methods, ["GET"] * 3)
+        self.assertEqual(self.methods, ["GET"] * 4)
         self.assertNotIn(self.expected, completed.stdout + completed.stderr)
 
     def test_doctor_gateway_evidence_redirects_and_private_file_errors(self):

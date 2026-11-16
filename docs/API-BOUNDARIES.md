@@ -48,7 +48,7 @@ Result, execution and incident routes have distinct identities. Fly-overs opened
 
 ## Python public SDK inventory
 
-The authoritative package surface is `runner/mondek_runner/__init__.py::__all__`, with lazy loading tested by `runner/tests/test_public_api.py`. All 28 exports are listed below. Supported authoring declarations do not make every non-underscore method of their implementation classes a consumer contract.
+The authoritative package surface is `runner/mondek_runner/__init__.py::__all__`, with lazy loading tested by `runner/tests/test_public_api.py`. The authoring exports are listed below; the consumer-state extension is described at the end. Supported authoring declarations do not make every non-underscore method of their implementation classes a consumer contract.
 
 | Export | Class / owner | Actual caller or verification anchor |
 | --- | --- | --- |
@@ -107,7 +107,7 @@ Runner transport preserves HTTP status and safe gateway diagnostics without bran
 
 ## Rechecking completeness
 
-Use the source lists rather than trusting a manually maintained count: compare every `get`/`post`/`put` and `live` declaration in `controller/lib/mondek_web/router.ex` with the tables, include `controller/lib/mondek_web/endpoint.ex` mounts, and compare every literal in `mondek_runner.__all__` with the SDK table. Search both literal URLs and constructed paths: policy adds `/api/v1/configuration/`, browser bulk appends its action, and runtime appends the three protocol endpoints. Search imports in `runner/tests`, `examples`, `tests`, generated starter source and any specifically authorized consumers. No hosted traffic inventory or universal third-party compatibility claim is implied.
+Use the source lists rather than trusting a manually maintained count: compare every `get`/`post`/`put` and `live` declaration in `controller/lib/mondek_web/router.ex` with the tables, include `controller/lib/mondek_web/endpoint.ex` mounts, and compare every literal in `mondek_runner.__all__` with the SDK table. Search both literal URLs and constructed paths: policy adds `/api/v1/configuration/`, browser bulk appends its action, and runtime appends its three protocol endpoints and the consumer-state client adds `/api/v1/runner/state`. Search imports in `runner/tests`, `examples`, `tests`, generated starter source and any specifically authorized consumers. No hosted traffic inventory or universal third-party compatibility claim is implied.
 
 The static consistency check used devenv Python to extract method/path pairs and LiveView routes from the router and AST literals from `__all__`: **64 API routes, 30 browser routes and 25 public exports, zero missing table entries**. This is static completeness verification, not a new execution test of all endpoints. Behavioral evidence remains in the existing native/API, CLI and real acceptance suites.
 
@@ -116,3 +116,7 @@ Source anchors: [router](../controller/lib/mondek_web/router.ex), [endpoint](../
 ## Optional pack API
 
 `mondek_runner.packs.linux` supports `LinuxHost`, `Interface`, `Selection` and `linux_checks` as an opt-in consumer authoring surface. It returns ordinary bindings and uses the existing inventory/execution contracts; no new HTTP endpoint is introduced. The v1 memory/load/filesystem parameter contracts retain meaning across compatible pack updates. The discovery contract delegates selection policy; accepted catalogues are frozen separately from persisted disappearance bookkeeping. Membership changes use normal source publication/retirement. Kernel parsers, catalogue materialization machinery and fixture helpers are internal. See [check packs](CHECK-PACKS.md) for semantics and deployment limits.
+
+## Consumer state extension
+
+The supported execution-only SDK adds `CheckContext`, `StateStore`, `StateEntry`, `StateError`, `StateConflict` and `StateWriteIndeterminate`; [consumer state](CONSUMER-STATE.md) owns their behavior. `consumer_state` client internals are not additional public exports. `POST /api/v1/runner/state` uses existing gateway transport with independent live admission and no observation replay. Operator reads are `GET /api/v1/consumer-state` (metadata) and `/api/v1/consumer-state/:id` (selected current value); browser inspection lives at `/consumer-state`. No value data is added to ordinary snapshots, configuration Git or MCP.

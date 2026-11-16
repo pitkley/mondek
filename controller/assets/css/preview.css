@@ -745,3 +745,16 @@ button,input { font: inherit; }
   :is(.preview-overview-incidents-table, .preview-incident-table) td:nth-child(5) { grid-column: 1 / -1; }
   :is(.preview-overview-incidents-table, .preview-incident-table) td[data-label="Opened"]::before { content: "Opened "; color: var(--preview-muted-ink); }
 }
+
+/* Consumer data is text, including hostile or very long topology identifiers. */
+.consumer-state { overflow-wrap: anywhere; }
+.state-entry-list { list-style: none; padding: 0; }
+.state-entry-list li { display: grid; gap: .25rem; padding: .75rem; border-bottom: 1px solid var(--pf-t--global--border--color--default); }
+.state-json { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 32rem; overflow: auto; }
+.consumer-state td { overflow-wrap: anywhere; }
+
+.consumer-state .preview-incident-fact-table { table-layout: fixed; }
+.consumer-state .preview-incident-fact-table th { width: 36%; }
+@media (max-width: 480px) {
+  .consumer-state .preview-incident-fact-table :is(th, td) { padding: 8px; }
+}

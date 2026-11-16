@@ -68,6 +68,7 @@ async def execute(
     prepare: bool = False,
     lock_path: Path | None = None,
     bundle_dir: Path | None = None,
+    execution_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One bounded process; timeout/capture failure preserves partial emitted facts."""
     encoded_assignment = json.dumps(assignment, allow_nan=False).encode()
@@ -79,15 +80,25 @@ async def execute(
     if lock_path:
         args.extend(["--lock", str(lock_path)])
     args.extend(["--parent-pid", str(os.getpid())])
+    worker_env = {
+        k: v for k, v in os.environ.items() if k != "MONDEK_EXECUTION_CONTEXT"
+    }
+    if bundle_dir:
+        worker_env["MONDEK_BUNDLE_DIR"] = str(bundle_dir)
+    if execution_context and not prepare:
+        worker_env["MONDEK_EXECUTION_CONTEXT"] = json.dumps(
+            {
+                **execution_context,
+                "deadline": time.monotonic() + assignment["timeout_seconds"],
+            }
+        )
     process = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
-        env={**os.environ, "MONDEK_BUNDLE_DIR": str(bundle_dir)}
-        if bundle_dir
-        else None,
+        env=worker_env,
     )
     output = bytearray()
     captured = 0
@@ -306,7 +317,20 @@ class Runner:
             self.running_revisions[id_] = assignment["source_revision"]
         try:
             options = (
-                {"bundle_dir": self.bundle_dir}
+                {
+                    "bundle_dir": self.bundle_dir,
+                    "execution_context": {
+                        "url": self.controller_url,
+                        "identity": {
+                            "installation_id": self.state.installation_id,
+                            "session_id": self.state.session_id,
+                            "boot": self.state.boot,
+                            "assignment_id": assignment["id"],
+                            "generation": assignment["generation"],
+                            "source_id": assignment["source_id"],
+                        },
+                    },
+                }
                 if assignment["kind"] == "python"
                 else {}
             )

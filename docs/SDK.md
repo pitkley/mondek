@@ -130,6 +130,10 @@ app = App(source_id="queue-monitoring", environment=Environment("local"), checks
 
 A check can be synchronous, a coroutine, a generator or an async generator. Annotate these as `Result`, `Result`, `Iterator[Result]` and `AsyncIterator[Result]` respectively; call or await them normally in policy tests. The runner awaits/iterates them under the same per-assignment execution boundary. One multi-result check has one schedule and shared parameter set, while each result retains independent health/history. Declare `outputs` or `expected_keys`, not both; a missing declared result is missing evidence, not automatic removal.
 
+## Share data between executions
+
+Use the typed `CheckContext` and its `state` client for bounded controller-backed baselines and shared input. See [consumer state](CONSUMER-STATE.md) for CAS, TTL, assignment-local scope, outage/error behavior and original acquisition age. State does not provide executor election or failure sustain.
+
 ## Public API map
 
 Prefer these root imports. These are the current experimental authoring surface, not a stable version promise; keep controller and SDK on the same reviewed revision initially. The [detailed runner reference](../runner/README.md) covers advanced behavior and bounds.

@@ -28,6 +28,8 @@ Runner communication and operator workflows use the same experimental same-relea
 | POST | `/api/v1/configuration/rules/apply` | Retained; explicit DTO | `ConfigurationController.rule_apply` |
 | POST | `/api/v1/configuration/rules/preview` | Retained; explicit DTO | `ConfigurationController.rule_preview` |
 | GET | `/api/v1/configuration/rules/seed/:assignment_id` | Retained; explicit DTO | `ConfigurationController.rule_seed` |
+| GET | `/api/v1/consumer-state` | Retained; explicit DTO | `ConsumerStateController.consumer_state` |
+| GET | `/api/v1/consumer-state/:id` | Retained; explicit DTO | `ConsumerStateController.consumer_state_entry` |
 | GET | `/api/v1/coverage` | Retained; explicit DTO | `CoverageController.coverage` |
 | GET | `/api/v1/coverage/:id` | Retained; explicit DTO | `CoverageController.coverage_scope` |
 | GET | `/api/v1/coverage/:id/observers` | Retained; explicit DTO | `CoverageController.coverage_observers` |
@@ -67,6 +69,7 @@ Runner communication and operator workflows use the same experimental same-relea
 | POST | `/api/v1/runner/control` | `/api/v1/control` | `RunnerController.control` |
 | POST | `/api/v1/runner/inventory` | `/api/v1/inventory` | `RunnerController.inventory` |
 | POST | `/api/v1/runner/observations` | `/api/v1/observations` | `RunnerController.observations` |
+| POST | `/api/v1/runner/state` | Retained; explicit DTO | `ConsumerStateController.runner_state` |
 | GET | `/api/v1/runners` | Retained; explicit DTO | `RunnersController.runners` |
 | GET | `/api/v1/runners/:id` | Retained; explicit DTO | `RunnersController.runner` |
 | GET | `/api/v1/snapshot` | Retained; explicit DTO | `SystemController.snapshot` |

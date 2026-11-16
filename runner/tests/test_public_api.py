@@ -44,6 +44,8 @@ class PublicApiTests(unittest.TestCase):
             import mondek_runner
             from mondek_runner import *
             expected = {
+                'CheckContext', 'StateStore', 'StateEntry', 'StateError',
+                'StateConflict', 'StateWriteIndeterminate',
                 'App', 'Binding', 'Capability', 'CheckGroup', 'Condition', 'Consumer',
                 'Datasource', 'DatasourceFactory', 'Environment', 'FromFactory',
                 'Discovery', 'DiscoveryCandidate', 'DiscoveryChoice',

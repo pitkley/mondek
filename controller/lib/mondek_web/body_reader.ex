@@ -20,6 +20,22 @@ defmodule MondekWeb.BodyReader do
           262_144
       end
 
-    Plug.Conn.read_body(conn, Keyword.put(options, :length, limit))
+    case Plug.Conn.read_body(conn, Keyword.put(options, :length, limit)) do
+      {status, body, updated} when status in [:ok, :more] ->
+        updated =
+          if conn.request_path == "/api/v1/runner/state",
+            do:
+              Plug.Conn.put_private(
+                updated,
+                :consumer_state_body,
+                (conn.private[:consumer_state_body] || "") <> body
+              ),
+            else: updated
+
+        {status, body, updated}
+
+      other ->
+        other
+    end
   end
 end
