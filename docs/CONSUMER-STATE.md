@@ -78,3 +78,7 @@ Operator reads are `GET /api/v1/consumer-state` (`source_id`, `scope`, `key`, `p
 State requests must match an already registered installation, exact session/boot, active source publication, nonretired owned assignment and controller `authorized_generation`. They never register a session, refresh contact or reactivate monitoring. Source names and lifecycle identities provide cooperative admission, not authentication against a malicious client. The existing gateway model does not provide source-specific credentials or isolation between mutually untrusted runners. Such deployments need a separate authenticated principal/grant design first.
 
 Do not store secrets. Values are operator-visible persisted data and appear in database backups. Routine state route parameter logging and state payload SQL logging are disabled. Values are not added to configuration Git, snapshots, MCP, notification payloads or default error diagnostics. Expiry/deletion is not secure erasure of backups or database pages. Consumer code remains trusted code and can explicitly emit whatever it reads.
+
+## Packaged verification
+
+See [packaged state qualification](CONSUMER-STATE-PACKAGED-QUALIFICATION.md) for the focused upgrade/restart/HTTPS-gateway harness, exact tested artifacts, retained evidence and remaining deployment limits.
