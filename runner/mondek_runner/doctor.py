@@ -21,7 +21,7 @@ from .connection_diagnostics import BODY_LIMIT, failure_details, http_details
 from .controller_auth import ENVIRONMENT_VARIABLE, NoRedirect, controller_headers
 from .policy import PolicyError, controller_url
 
-ENDPOINTS = ("inventory", "control", "observations")
+ENDPOINTS = ("inventory", "control", "observations", "state")
 SERVICE_ENV = (
     "MONDEK_CONTROLLER_URL",
     ENVIRONMENT_VARIABLE,

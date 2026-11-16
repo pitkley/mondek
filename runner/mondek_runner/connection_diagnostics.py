@@ -17,6 +17,16 @@ from typing import Any
 from .controller_auth import ControllerAuthError, http_failure
 
 BODY_LIMIT = 16384
+STATE_REJECTION_CODES = frozenset(
+    (
+        "state_not_authorized",
+        "state_quota_exceeded",
+        "state_rate_limited",
+        "invalid_state_json",
+        "invalid_request",
+        "request_rejected",
+    )
+)
 
 
 def http_details(
@@ -29,6 +39,12 @@ def http_details(
     match = re.search(rb"\berror code:\s*(1[0-9]{3})\b", body[:BODY_LIMIT], re.I)
     if match and 400 <= status < 600:
         details["cf_error_code"] = int(match[1])
+    try:
+        code = json.loads(body[:BODY_LIMIT]).get("error", {}).get("code")
+        if code in STATE_REJECTION_CODES:
+            details["controller_code"] = code
+    except (ValueError, AttributeError, TypeError):
+        pass
     return details
 
 
@@ -42,6 +58,8 @@ class ControllerHTTPError(urllib.error.HTTPError):
             r"[a-fA-F0-9]{16}(?:-[A-Z]{3,5})?", ray
         ):
             self.details["cf_ray"] = ray
+        if details.get("controller_code") in STATE_REJECTION_CODES:
+            self.details["controller_code"] = details["controller_code"]
         code = details.get("cf_error_code")
         if type(code) is int and 1000 <= code <= 1999:
             self.details["cf_error_code"] = code

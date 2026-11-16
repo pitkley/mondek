@@ -5,6 +5,8 @@ defmodule Mondek.Runner do
   @primary_key {:id, :binary_id, autogenerate: false}
   schema "runners" do
     field :session_id, Ecto.UUID
+    field :state_window_at, :utc_datetime_usec
+    field :state_requests, :integer, default: 0
     field :boot, :integer
     field :last_seen_at, :utc_datetime_usec
     field :status, :map, default: %{}

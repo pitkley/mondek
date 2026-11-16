@@ -33,6 +33,7 @@ from .api import (
 from .authoring import validate_params
 from .bundle import load_snapshot
 from .config import validate
+from .consumer_state import CheckContext, _StateClient
 from .worker_limits import PREPARATION_TIMEOUT_SECONDS, WATCHDOG_GRACE_SECONDS
 
 
@@ -57,6 +58,18 @@ def validate_source_at(source_at: str | None) -> None:
 async def run(assignment: dict[str, Any], prepare: bool = False) -> None:
     seen: set[str] = set()
     try:
+        context = None
+        if not prepare and (
+            raw_context := os.environ.pop("MONDEK_EXECUTION_CONTEXT", None)
+        ):
+            execution = json.loads(raw_context)
+            context = CheckContext(
+                _StateClient(
+                    execution["url"],
+                    execution["identity"],
+                    deadline=execution["deadline"],
+                )
+            )
         assignment = validate(assignment)
         with contextlib.redirect_stdout(sys.stderr):
             app, inventory = load_snapshot(
@@ -96,7 +109,9 @@ async def run(assignment: dict[str, Any], prepare: bool = False) -> None:
             if entry["params_owner"] == "source" and params != entry["params"]:
                 raise ValueError("parameters are owned by the consumer source")
             function = app.bindings[entry["key"]].function
-            kwargs = app.arguments(entry["key"], params, instantiate=not prepare)
+            kwargs = app.arguments(
+                entry["key"], params, instantiate=not prepare, context=context
+            )
         if prepare:
             emit({"prepared": True})
             return

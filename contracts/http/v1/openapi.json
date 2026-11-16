@@ -125,6 +125,70 @@
         },
         "type": "object"
       },
+      "ConsumerStateMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "installation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "version": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "scope",
+          "key",
+          "version",
+          "bytes",
+          "updated_at",
+          "expires_at",
+          "installation_id",
+          "session_id",
+          "assignment_id",
+          "generation"
+        ],
+        "type": "object"
+      },
       "MonitoringLossIncident": {
         "additionalProperties": false,
         "properties": {
@@ -2822,6 +2886,81 @@
         ],
         "type": "object"
       },
+      "ConsumerStateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "boot": {
+            "type": "integer"
+          },
+          "expected_version": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "installation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "get",
+              "put",
+              "compare_and_set",
+              "delete"
+            ],
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "source",
+              "check"
+            ],
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "maximum": 2592000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "value": {
+            "nullable": true
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "operation",
+          "installation_id",
+          "session_id",
+          "boot",
+          "assignment_id",
+          "generation",
+          "source_id",
+          "scope",
+          "key"
+        ],
+        "type": "object"
+      },
       "RunnerAssignment": {
         "additionalProperties": false,
         "properties": {
@@ -3460,6 +3599,74 @@
           "id",
           "status",
           "incident_type"
+        ],
+        "type": "object"
+      },
+      "ConsumerStateEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "installation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "value": {
+            "nullable": true
+          },
+          "version": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "scope",
+          "key",
+          "version",
+          "bytes",
+          "updated_at",
+          "expires_at",
+          "installation_id",
+          "session_id",
+          "assignment_id",
+          "generation",
+          "value"
         ],
         "type": "object"
       },
@@ -4463,6 +4670,40 @@
           "environment_label",
           "runner_label",
           "acknowledgement_active"
+        ],
+        "type": "object"
+      },
+      "ConsumerStateReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "entry": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConsumerStateEntry"
+              }
+            ],
+            "nullable": true
+          },
+          "status": {
+            "enum": [
+              "found",
+              "missing",
+              "stored",
+              "deleted",
+              "conflict"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "enum": [
+              1
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "status"
         ],
         "type": "object"
       },
@@ -12404,6 +12645,145 @@
         ]
       }
     },
+    "/api/v1/consumer-state/{id}": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Experimental same-release contract. Review tokens and revisions retain their domain scope; source and definition revisions are not Git revisions.",
+        "operationId": "getConsumerState",
+        "parameters": [
+          {
+            "description": "Opaque id; preserve the exact supplied identity.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/ConsumerStateEntry"
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Consumer state entry",
+        "tags": [
+          "ConsumerState"
+        ]
+      }
+    },
     "/api/v1/maintenance-series/{id}/cancel-preview": {
       "post": {
         "callbacks": {},
@@ -16949,6 +17329,132 @@
         ]
       }
     },
+    "/api/v1/runner/state": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Experimental same-release contract. Review tokens and revisions retain their domain scope; source and definition revisions are not Git revisions.",
+        "operationId": "exchangeRunnerState",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsumerStateRequest"
+              }
+            }
+          },
+          "description": "Operation input. Reviewed and runner semantics are enforced by the domain context.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsumerStateReceipt"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Runner state",
+        "tags": [
+          "ConsumerState"
+        ]
+      }
+    },
     "/api/v1/notifications/{id}/retry": {
       "post": {
         "callbacks": {},
@@ -17233,6 +17739,178 @@
         "summary": "Rule seed",
         "tags": [
           "Configuration"
+        ]
+      }
+    },
+    "/api/v1/consumer-state": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Experimental same-release contract. Review tokens and revisions retain their domain scope; source and definition revisions are not Git revisions.",
+        "operationId": "listConsumerState",
+        "parameters": [
+          {
+            "description": "Filter: source_id.",
+            "in": "query",
+            "name": "source_id",
+            "schema": {
+              "maxLength": 240,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter: scope.",
+            "in": "query",
+            "name": "scope",
+            "schema": {
+              "maxLength": 240,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter: key.",
+            "in": "query",
+            "name": "key",
+            "schema": {
+              "maxLength": 240,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Positive live page number. Investigation pages beyond the end are empty.",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "maximum": 1000000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/ConsumerStateMetadata"
+                      },
+                      "type": "array"
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/Meta"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Consumer state",
+        "tags": [
+          "ConsumerState"
         ]
       }
     },

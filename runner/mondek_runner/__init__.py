@@ -37,9 +37,34 @@ if TYPE_CHECKING:
         Target,
         discover_checks,
     )
+    from .consumer_state import (
+        CheckContext,
+        StateConflict,
+        StateEntry,
+        StateError,
+        StateStore,
+        StateWriteIndeterminate,
+    )
     from .discovery import Discovery, DiscoveryCandidate, DiscoveryChoice
 
+_STATE_EXPORTS = frozenset(
+    (
+        "CheckContext",
+        "StateStore",
+        "StateEntry",
+        "StateError",
+        "StateConflict",
+        "StateWriteIndeterminate",
+    )
+)
+
 __all__ = [
+    "CheckContext",
+    "StateStore",
+    "StateEntry",
+    "StateError",
+    "StateConflict",
+    "StateWriteIndeterminate",
     "App",
     "Binding",
     "Capability",
@@ -94,7 +119,9 @@ def __getattr__(name: str) -> Any:
     if name not in __all__:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     module = import_module(
-        ".discovery"
+        ".consumer_state"
+        if name in _STATE_EXPORTS
+        else ".discovery"
         if name in {"Discovery", "DiscoveryCandidate", "DiscoveryChoice"}
         else ".api"
         if name in _RESULT_EXPORTS

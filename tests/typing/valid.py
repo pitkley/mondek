@@ -6,7 +6,15 @@ import asyncio
 from collections.abc import AsyncIterator, Iterator
 from typing import assert_type
 
-from mondek_runner import Target
+from mondek_runner import (
+    CheckContext,
+    StateEntry,
+    StateStore,
+    StateError,
+    StateConflict,
+    StateWriteIndeterminate,
+    Target,
+)
 from mondek_runner.packs.linux import Interface, LinuxHost, Selection, linux_checks
 
 from mondek_runner import (
@@ -96,3 +104,18 @@ linux_bindings = linux_checks(
     )
 )
 assert_type(linux_bindings, list[Binding])
+
+
+@check(id="shared-state", expected_keys=("value",))
+def shared_state(ctx: CheckContext) -> Result:
+    assert_type(ctx.state, StateStore)
+    assert_type(ctx.state.get("production/peers/v1"), StateEntry | None)
+    try:
+        entry = ctx.state.compare_and_set(
+            "baseline", "missing", {"peers": []}, ttl_seconds=60
+        )
+        assert_type(entry, StateEntry)
+        ctx.state.for_check().delete("timer", expected_version=entry.version)
+    except (StateConflict, StateWriteIndeterminate, StateError):
+        pass
+    return ok("value", "Typed state access")

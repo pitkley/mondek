@@ -63,6 +63,7 @@ defmodule MondekWeb.PreviewLayouts do
             :for={
               {page, label, href, icon} <- [
                 {:configuration, "Configuration", "/configuration", "sliders"},
+                {:consumer_state, "Consumer state", "/consumer-state", "code"},
                 {:runners, "Runners", "/runners", "server"},
                 {:notifications, "Notifications", "/notifications", "send"},
                 {:coverage, "Coverage", "/coverage", "shield"}

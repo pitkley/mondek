@@ -22,6 +22,7 @@ Start with the [Python SDK guide](SDK.md) and [runner API reference](../runner/R
 | Delegate configuration to operators | [Configuration as code](CONFIGURATION-AS-CODE.md) and [durable rules](CONFIGURATION-RULES.md) |
 | Declare expected monitoring and placement | [Coverage](COVERAGE.md) |
 | Report discoverable resources | [Discovery SDK](DISCOVERY-SDK.md) and [review workflow](DISCOVERY-REVIEW.md) |
+| Share baselines or peer lists across runners | [Consumer state](CONSUMER-STATE.md) |
 | Use the optional Linux checks | [Check packs](CHECK-PACKS.md) |
 
 ## Operate an installation

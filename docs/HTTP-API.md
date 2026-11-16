@@ -38,6 +38,10 @@ Retained health, measurement freshness and latest execution are separate. Preser
 
 The bounded `/snapshot` operation is an operator diagnostic maintained for existing acceptance workflows. It includes configuration values and complete retained report envelopes; it is not the ordinary selected-output investigation projection or a complete inventory export. Its explicit limits must be checked before interpreting absence as nonexistence. Prefer the focused resource endpoints for integrations.
 
+## Consumer data
+
+[Consumer state](CONSUMER-STATE.md) adds bounded runtime JSON storage. `GET /consumer-state` lists metadata only; `GET /consumer-state/:id` reads one current value. `POST /runner/state` has an unwrapped versioned receipt and does not register sessions or submit evidence. Gateway policies must explicitly cover the new route.
+
 ## Commands and errors
 
 Runner exchanges live at `POST /runner/control`, `/runner/inventory` and `/runner/observations` beneath `/api/v1`. Their versioned, operation-specific receipts remain unwrapped: authoritative assignments, inventory acceptance and per-report dispositions have distinct meaning. Read the [runner protocol](../contracts/v1/protocol.md) for identity, session, generation, replay, timing and byte constraints. Control waits outside database transactions. A valid observation envelope may return HTTP success with individual rejected/conflicting reports; invalid report IDs are null and receipt order matches input order.

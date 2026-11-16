@@ -19,6 +19,7 @@ defmodule Mondek.Sweeper do
     MonitoringLoss.reconcile(Monitoring.now())
     Monitoring.notify()
     wake_held_notifications(Monitoring.now())
+    Mondek.ConsumerState.cleanup()
 
     next_count =
       if rem(count, 60) == 0 do

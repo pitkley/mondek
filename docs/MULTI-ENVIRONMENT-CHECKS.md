@@ -24,6 +24,8 @@ Unsupported `environment` and `environment_label` fields on output declarations 
 
 Environment expansion counts toward the existing 512-instance source limit, with at most sixteen declared outputs per instance. Expanded instances share the runner's bounded worker pool: independent scheduling does not guarantee simultaneous or immediately due execution. See [runner limits](../runner/README.md). Outputs must be declared; returning a previously unknown environment or target does not discover new monitoring. For a changing environment roster, publish a deliberate complete source update from authoritative deployment data. Do not infer membership from whichever environments happen to respond successfully during collection.
 
+For small shared raw inputs, [controller-backed consumer state](CONSUMER-STATE.md) is also available. Include environment/query identity in keys and preserve original acquisition time; reading state does not renew evidence age or coordinate which observer collects.
+
 ## Shared helpers are not shared acquisition
 
 Each supervised execution has its own worker process and datasource instances. Module globals, functools.cache and an App's in-memory datasource cache do not provide shared lifetime across scheduled executions. A consumer port must account for this when preserving amortized acquisition behavior.

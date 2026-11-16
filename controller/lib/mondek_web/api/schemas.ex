@@ -421,6 +421,7 @@ defmodule MondekWeb.API.Schemas do
       }
     })
     |> Map.merge(MondekWeb.API.RunnerSchemas.definitions())
+    |> Map.merge(MondekWeb.API.ConsumerStateSchemas.definitions())
   end
 
   # Inline nullable references are represented with allOf for OpenAPI 3.0 consumers.
@@ -429,6 +430,15 @@ defmodule MondekWeb.API.Schemas do
   def response(action) do
     data =
       case action do
+        :consumer_state ->
+          array(ref("ConsumerStateMetadata"))
+
+        :consumer_state_entry ->
+          ref("ConsumerStateEntry")
+
+        :runner_state ->
+          ref("ConsumerStateReceipt")
+
         :checks ->
           array(ref("Result"))
 
@@ -476,5 +486,5 @@ defmodule MondekWeb.API.Schemas do
 
   def reads,
     do:
-      ~w(snapshot overview coverage coverage_publishers coverage_diagnostics coverage_observers coverage_scope publisher publisher_successors publisher_event publisher_evidence maintenance_windows maintenance_seed maintenance_window maintenance_series rules configuration_revision policy_export policy_values rule_seed rule runners runner notifications notification assignment_configurations configuration assignment assignment_inspection checks check result_inspection evidence observation incidents incident monitoring_incidents monitoring_incident)a
+      ~w(consumer_state consumer_state_entry snapshot overview coverage coverage_publishers coverage_diagnostics coverage_observers coverage_scope publisher publisher_successors publisher_event publisher_evidence maintenance_windows maintenance_seed maintenance_window maintenance_series rules configuration_revision policy_export policy_values rule_seed rule runners runner notifications notification assignment_configurations configuration assignment assignment_inspection checks check result_inspection evidence observation incidents incident monitoring_incidents monitoring_incident)a
 end

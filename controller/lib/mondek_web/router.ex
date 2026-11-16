@@ -97,6 +97,7 @@ defmodule MondekWeb.Router do
       live "/configuration/discovery/:id", DiscoveryConfigurationLive, :edit
       live "/configuration", ConfigurationLive, :configuration
       live "/configuration/:id", ConfigurationLive, :configuration_detail
+      live "/consumer-state", ConsumerStateLive, :index
       live "/runners", RunnersLive, :index
       live "/runners/:id/full", RunnersLive, :show
       live "/runners/:id", RunnersLive, :show
@@ -106,6 +107,9 @@ defmodule MondekWeb.Router do
   scope "/api/v1", MondekWeb do
     pipe_through :api
     get "/openapi.json", API.SpecController, :show
+    get "/consumer-state", API.V1.ConsumerStateController, :consumer_state
+    get "/consumer-state/:id", API.V1.ConsumerStateController, :consumer_state_entry
+    post "/runner/state", API.V1.ConsumerStateController, :runner_state, log: false
     get "/snapshot", API.V1.SystemController, :snapshot
     get "/overview", API.V1.SystemController, :overview
     get "/coverage", API.V1.CoverageController, :coverage
