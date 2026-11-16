@@ -4,6 +4,8 @@ Mondek is experimental. Run the controller and runner SDK from the same reviewed
 
 Consumer state adds an additive startup migration for bounded runtime entries, source accounting and runner admission counters. Back up the database before upgrading. No existing observations, configuration generations, runner journals or source snapshot identities are rewritten. Use matching controller/SDK revisions when adopting the new state API; existing checks remain unchanged. See [consumer state](CONSUMER-STATE.md).
 
+The [packaged consumer-state qualification](CONSUMER-STATE-PACKAGED-QUALIFICATION.md) verifies upgrade from published 0.0.3 without resetting the database, exact retained evidence/configuration, restart persistence and authenticated state traffic through an owned HTTPS gateway.
+
 ## Fresh database baseline
 
 The initial database migration creates the current application schema and the pinned Oban schema. It requires a fresh database and refuses a database containing other migration versions. Historical pre-publication installations require a separately reviewed private transition; replacing migration records or pointing a fresh Compose project at an old volume is not an upgrade procedure. The baseline cannot be rolled back destructively through `ecto.rollback`.
