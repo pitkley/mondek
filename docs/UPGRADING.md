@@ -51,3 +51,7 @@ Version 0.0.4 updates Plug from 1.20.3 to 1.20.4 for [CVE-2026-120287](https://g
 Replace the controller with the published 0.0.4 artifact and use the matching SDK. Until upgraded, enforce an aggregate request-body size limit at the external gateway as described by the upstream advisory. Do not rebuild or overwrite the published 0.0.3 tag/image under its existing version.
 
 This patch adds no database migration, API or runner transport format change. Preserve PostgreSQL, runner state, buffered reports and configuration history through the normal upgrade procedure. Multipart requests exceeding their budget return an error while ordinary forms and JSON APIs retain their existing behavior.
+
+## Runtime cases
+
+The additive correlation migration runs at packaged startup. Existing evidence, controls, jobs and identities remain unchanged. Back up before upgrading. Correlation grants no delivery authority; rollback to older code requires a reviewed database rollback and must not discard case history silently.

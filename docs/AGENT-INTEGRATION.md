@@ -1,6 +1,6 @@
 # Read-only agent integration
 
-Mondek exposes four investigation tools through MCP at `/mcp`. An agent can find failures, inspect result-specific evidence and identify the consumer project without copying data from the UI. The controller does not run an agent or load consumer Python. Editing, testing and deploying checks remain work for the agent's own coding environment.
+Mondek exposes seven investigation tools through MCP at `/mcp`. An agent can find failures, inspect result-specific evidence and identify the consumer project without copying data from the UI. The controller does not run an agent or load consumer Python. Editing, testing and deploying checks remain work for the agent's own coding environment.
 
 ## Deployment boundary
 
@@ -75,8 +75,12 @@ Start with: “Look at Mondek's failing checks, investigate their evidence, and 
 
 ## Implementation and verification
 
-The implementation follows the stateless JSON-response subset of MCP `2025-11-25`, `2025-06-18` and `2025-03-26`. Initialization selects the requested supported version, otherwise offers `2025-11-25`; the client decides whether to continue. It advertises tools only, with no resource/prompt catalogs, background tasks, subscriptions, sampling or server-initiated requests. Newer protocol revisions are not claimed. No dependency or database migration was added.
+The implementation follows the stateless JSON-response subset of MCP `2025-11-25`, `2025-06-18` and `2025-03-26`. Initialization selects the requested supported version, otherwise offers `2025-11-25`; the client decides whether to continue. It advertises tools only, with no resource/prompt catalogs, background tasks, subscriptions, sampling or server-initiated requests. Newer protocol revisions are not claimed. The MCP transport adds no dependency. Correlation uses the migration described in the [upgrade guide](UPGRADING.md).
 
 The reviewed first milestone deliberately leaves authentication, operator mutations, source-code hosting, automatic deployment and client marketplace packaging outside scope. Existing inspection contexts supply semantics; explicit agent projections prevent internal schema fields from becoming accidental public contracts. The local bridge has no consumer-specific logic.
 
 `controller/test/mondek_web/mcp_test.exs` covers database evidence and real HTTP/stdio execution. `runner/tests/test_mcp.py` covers process boundaries and failed exchanges. Run the controller tests only against isolated test PostgreSQL; the normal DataCase fixture truncates test tables. Neither suite contacts real notification recipients or hosted AI accounts.
+
+## Correlation cases
+
+`list_cases`, `get_case` and `list_correlation_candidates` inspect runtime correlation hypotheses and audited membership. Grouping does not inhibit notifications in this release. Follow member incident references for independent evidence and controls. See [correlation](RUNTIME-INCIDENT-CORRELATION.md).

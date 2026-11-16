@@ -58,7 +58,8 @@ defmodule MondekWeb.API.Schemas do
                 attention_revision: integer(),
                 acknowledgement_revision: integer(),
                 acknowledgement_active: boolean(),
-                target: nullable(ref("Target"))
+                target: nullable(ref("Target")),
+                correlation: nullable(ref("CorrelationMembership"))
               }
             )
           )
@@ -422,6 +423,7 @@ defmodule MondekWeb.API.Schemas do
     })
     |> Map.merge(MondekWeb.API.RunnerSchemas.definitions())
     |> Map.merge(MondekWeb.API.ConsumerStateSchemas.definitions())
+    |> Map.merge(MondekWeb.API.CorrelationSchemas.definitions())
   end
 
   # Inline nullable references are represented with allOf for OpenAPI 3.0 consumers.
@@ -438,6 +440,16 @@ defmodule MondekWeb.API.Schemas do
 
         :runner_state ->
           ref("ConsumerStateReceipt")
+
+        a
+        when a in [
+               :correlation_candidates,
+               :correlation_cases,
+               :correlation_case,
+               :correlation_preview,
+               :correlation_apply
+             ] ->
+          MondekWeb.API.CorrelationSchemas.response(a)
 
         :checks ->
           array(ref("Result"))
@@ -486,5 +498,5 @@ defmodule MondekWeb.API.Schemas do
 
   def reads,
     do:
-      ~w(consumer_state consumer_state_entry snapshot overview coverage coverage_publishers coverage_diagnostics coverage_observers coverage_scope publisher publisher_successors publisher_event publisher_evidence maintenance_windows maintenance_seed maintenance_window maintenance_series rules configuration_revision policy_export policy_values rule_seed rule runners runner notifications notification assignment_configurations configuration assignment assignment_inspection checks check result_inspection evidence observation incidents incident monitoring_incidents monitoring_incident)a
+      ~w(consumer_state consumer_state_entry correlation_candidates correlation_cases correlation_case snapshot overview coverage coverage_publishers coverage_diagnostics coverage_observers coverage_scope publisher publisher_successors publisher_event publisher_evidence maintenance_windows maintenance_seed maintenance_window maintenance_series rules configuration_revision policy_export policy_values rule_seed rule runners runner notifications notification assignment_configurations configuration assignment assignment_inspection checks check result_inspection evidence observation incidents incident monitoring_incidents monitoring_incident)a
 end

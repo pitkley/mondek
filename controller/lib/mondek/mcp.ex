@@ -16,6 +16,24 @@ defmodule Mondek.MCP do
 
     [
       tool(
+        "list_correlation_candidates",
+        "List open health episodes for manual correlation. Relationships annotate existing membership, not causal confidence. No automated ranking in this phase.",
+        %{"page" => page, "search" => text},
+        []
+      ),
+      tool(
+        "list_cases",
+        "List correlation hypotheses. Grouping does not inhibit notifications. Inspect member incidents for evidence and controls.",
+        %{"page" => page, "status" => %{"type" => "string", "enum" => ~w(open closed all)}},
+        []
+      ),
+      tool(
+        "get_case",
+        "Inspect a correlation case, paginated membership and provenance. Removed members are not recovered. No mutation authority.",
+        %{"case_id" => uuid, "page" => page, "history_page" => page},
+        ["case_id"]
+      ),
+      tool(
         "list_attention",
         "List results needing attention, open health incidents (including groups), or monitoring-loss incidents. Query all three categories for a complete incident investigation. Results include pre-incident gaps; absent expected coverage appears in monitoring-loss incidents after its grace period.",
         %{

@@ -19,6 +19,11 @@ defmodule Mondek.AgentInspection do
     end
   end
 
+  defp dispatch("list_correlation_candidates", args, at),
+    do: Mondek.Correlations.candidates(args, at)
+
+  defp dispatch("list_cases", args, _at), do: Mondek.Correlations.list(args)
+  defp dispatch("get_case", args, _at), do: Mondek.Correlations.detail(args["case_id"], args)
   defp dispatch("list_attention", args, at), do: Investigation.attention(args, at)
   defp dispatch("get_check_context", args, at), do: Investigation.assignment(args, at)
   defp dispatch("get_evidence", args, at), do: Investigation.evidence(args, at)

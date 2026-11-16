@@ -69,3 +69,7 @@ JSON numbers preserve the existing wire/storage meaning, including large integer
 Named schema declarations in `MondekWeb.API.Schemas` and `WorkflowSchemas`, plus controller operation callbacks in `Contract`, are the contract source. The JSON renderer projects closed DTOs through those declared fields without casting values. Request validation consumes cast query/path values but leaves original decoded bodies untouched. Schema shape tests supplement real behavior tests; generating a fresh document alone cannot establish compatibility or correctness.
 
 During the experimental same-release policy, intentional breaking changes update all maintained callers together. Integration clients should tolerate new response properties; required-field removal, type/nullability changes and closed-enum expansion still require explicit review. Before a stable release, establish a separate supported-version/deprecation policy. The `v1` path alone makes no indefinite compatibility promise.
+
+## Correlation cases
+
+[Runtime correlation](RUNTIME-INCIDENT-CORRELATION.md) adds cases, candidates and read-only provenance; health detail includes its canonical episode's current correlation. Manual mutations use the reviewed preview/apply endpoints. Case membership changes neither notification delivery nor individual controls in this release.

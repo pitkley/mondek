@@ -35,6 +35,11 @@ Runner communication and operator workflows use the same experimental same-relea
 | GET | `/api/v1/coverage/:id/observers` | Retained; explicit DTO | `CoverageController.coverage_observers` |
 | GET | `/api/v1/coverage/diagnostics` | Retained; explicit DTO | `CoverageController.coverage_diagnostics` |
 | GET | `/api/v1/coverage/publishers` | Retained; explicit DTO | `CoverageController.coverage_publishers` |
+| GET | `/api/v1/incidents/candidates` | Retained; explicit DTO | `CorrelationController.correlation_candidates` |
+| GET | `/api/v1/incidents/cases` | Retained; explicit DTO | `CorrelationController.correlation_cases` |
+| GET | `/api/v1/incidents/cases/:id` | Retained; explicit DTO | `CorrelationController.correlation_case` |
+| POST | `/api/v1/incidents/correlation/apply` | Retained; explicit DTO | `CorrelationController.correlation_apply` |
+| POST | `/api/v1/incidents/correlation/preview` | Retained; explicit DTO | `CorrelationController.correlation_preview` |
 | GET | `/api/v1/incidents/health` | `/api/v1/incidents` | `IncidentsController.incidents` |
 | GET | `/api/v1/incidents/health/:id` | `/api/v1/incidents/:id` | `IncidentsController.incident` |
 | POST | `/api/v1/incidents/health/:id/acknowledge` | `/api/v1/incidents/:id/acknowledge` | `IncidentsController.acknowledge` |
