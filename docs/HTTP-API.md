@@ -72,4 +72,4 @@ During the experimental same-release policy, intentional breaking changes update
 
 ## Correlation cases
 
-[Runtime correlation](RUNTIME-INCIDENT-CORRELATION.md) adds cases, candidates and read-only provenance; health detail includes its canonical episode's current correlation. Manual mutations use the reviewed preview/apply endpoints. Case membership changes neither notification delivery nor individual controls in this release.
+[Runtime correlation](RUNTIME-INCIDENT-CORRELATION.md) adds cases, candidates and read-only provenance; health detail includes its canonical episode's current correlation. Manual mutations use the reviewed preview/apply endpoints. Individual controls remain independent. Membership changes can end case acknowledgements and release unstarted batch reservations; see [opt-in exact batch delivery](EXACT-BATCH-DELIVERY.md).

@@ -52,6 +52,16 @@ Replace the controller with the published 0.0.4 artifact and use the matching SD
 
 This patch adds no database migration, API or runner transport format change. Preserve PostgreSQL, runner state, buffered reports and configuration history through the normal upgrade procedure. Multipart requests exceeding their budget return an error while ordinary forms and JSON APIs retain their existing behavior.
 
+## 0.0.5: consumer state and correlation delivery
+
+Upgrade controller and SDK together after backing up PostgreSQL and each runner's complete state directory. From 0.0.4, packaged startup applies three additive migrations: `20261116120000_add_consumer_state`, `20261116120100_add_correlations` and `20261116160000_add_case_delivery`. Preserve the existing database, configuration history, installation identities, journals and buffered observations. Do not reset migration records or delete state to force startup.
+
+Before adopting consumer state, allow `POST /api/v1/runner/state` through the runner gateway policy and review the separate operator-read policy for `/api/v1/consumer-state`. State values are operator-visible persisted data, not secrets. Existing source/session admission does not isolate mutually untrusted runners. See [consumer state](CONSUMER-STATE.md).
+
+The updated runner checks saved snapshots against installed dependencies before scheduling. Compatible saved work may run during a controller outage; incompatible revisions wait for preparation and controller-authorized adoption, and prolonged gaps can cause monitoring-loss notifications. Keep the previous locked consumer environment available for recovery.
+
+Correlation batching defaults off and case acknowledgements require explicit reviewed actions. Existing queued work remains native-only with its original budget. Preserve new state, case history and pending exact-batch terminal obligations when planning recovery; older code is not an automatic database rollback. The packaged consumer-state qualification's historical one-migration result predates the full 0.0.5 migration set.
+
 ## Runtime cases
 
 The additive correlation migration runs at packaged startup. Existing evidence, controls, jobs and identities remain unchanged. Back up before upgrading. Correlation batching defaults off and case acknowledgements remain explicit; rollback to older code requires a reviewed database rollback and must not discard case history silently.
