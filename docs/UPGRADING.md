@@ -42,8 +42,8 @@ Health API details add a resolved `recorded_measurement` block; shared contribut
 
 ## 0.0.4: Plug multipart security fix
 
-Version 0.0.4 preparation updates Plug from 1.20.3 to 1.20.4 for [CVE-2026-120287](https://github.com/elixir-plug/plug/security/advisories/GHSA-qj4r-jh2r-rw3f). The multipart parser previously failed to count all framing/header bytes against the request length budget, allowing memory exhaustion. Mondek enables this parser. Published 0.0.3 and earlier controller images retain the affected dependency; a source lock update does not change those immutable images.
+Version 0.0.4 updates Plug from 1.20.3 to 1.20.4 for [CVE-2026-120287](https://github.com/elixir-plug/plug/security/advisories/GHSA-qj4r-jh2r-rw3f). The multipart parser previously failed to count all framing/header bytes against the request length budget, allowing memory exhaustion. Mondek enables this parser. Published 0.0.3 and earlier controller images retain the affected dependency; a source lock update does not change those immutable images.
 
-Until the patched release is published, use a reviewed patched source build or enforce an aggregate request-body size limit at the external gateway as described by the upstream advisory. After publication, replace the controller with the matching 0.0.4 artifact and use the matching SDK. Do not rebuild or overwrite the published 0.0.3 tag/image under its existing version.
+Replace the controller with the published 0.0.4 artifact and use the matching SDK. Until upgraded, enforce an aggregate request-body size limit at the external gateway as described by the upstream advisory. Do not rebuild or overwrite the published 0.0.3 tag/image under its existing version.
 
 This patch adds no database migration, API or runner transport format change. Preserve PostgreSQL, runner state, buffered reports and configuration history through the normal upgrade procedure. Multipart requests exceeding their budget return an error while ordinary forms and JSON APIs retain their existing behavior.
