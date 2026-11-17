@@ -1,7 +1,9 @@
 # Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 # SPDX-License-Identifier: Apache-2.0
 import hashlib
+import io
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -167,3 +169,111 @@ class ReleaseArtifactTest(unittest.TestCase):
                 release.load_image(directory, "arm64", self.root, self.contract),
                 "sha256:qualified",
             )
+
+    def test_publication_checks_distribution_bytes_and_both_image_identities(self):
+        files = [
+            {"filename": name, "url": f"https://files.pythonhosted.org/{name}"}
+            for name in self.hashes
+        ]
+
+        def public_file(url, **kwargs):
+            if url.endswith("/json"):
+                return io.BytesIO(json.dumps({"urls": files}).encode())
+            return io.BytesIO((self.root / url.rsplit("/", 1)[1]).read_bytes())
+
+        index = {
+            "manifests": [
+                {
+                    "platform": {"os": "linux", "architecture": arch},
+                    "digest": f"sha256:{arch}",
+                }
+                for arch in ("amd64", "arm64")
+            ]
+        }
+        for arch in ("amd64", "arm64"):
+            (self.root / f"controller-{arch}-image.json").write_text(
+                json.dumps(
+                    {
+                        **self.contract,
+                        "architecture": arch,
+                        "sdk_artifacts": self.hashes,
+                        "image_id": f"sha256:{arch}-config",
+                    }
+                )
+            )
+
+        def public_image(command):
+            ref = command[-2]
+            if "@" not in ref:
+                return json.dumps(index).encode()
+            arch = ref.rsplit(":", 1)[1]
+            return json.dumps({"config": {"digest": f"sha256:{arch}-config"}}).encode()
+
+        with (
+            patch.object(release.urllib.request, "urlopen", side_effect=public_file),
+            patch.object(release.subprocess, "check_output", side_effect=public_image),
+        ):
+            release.verify_publication(self.root, self.root, self.contract)
+            evidence = self.root / "controller-arm64-image.json"
+            evidence.write_text(evidence.read_text().replace("arm64-config", "wrong"))
+            with self.assertRaisesRegex(ValueError, "differs from qualified arm64"):
+                release.verify_publication(self.root, self.root, self.contract)
+            # The public package must match even if its filename is correct.
+            files[0]["url"] = files[1]["url"]
+            with self.assertRaisesRegex(ValueError, "Public PyPI checksum mismatch"):
+                release.verify_publication(self.root, self.root, self.contract)
+
+
+class InstallationDefaultsTest(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.files = [
+            "README.md",
+            "deploy/compose.yaml",
+            "deploy/README.md",
+            "docs/GETTING-STARTED.md",
+            "docs/DISTRIBUTION.md",
+        ]
+        for name in self.files:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text((release.ROOT / name).read_text())
+
+    def test_promotion_and_retry_preserve_source_examples(self):
+        source_example = re.search(
+            r"vendor/mondek-[^\s\"]+\.whl",
+            (self.root / "docs/DISTRIBUTION.md").read_text(),
+        )[0]
+        for version in ["0.0.5a1", "0.0.5"]:
+            with self.subTest(version=version):
+                contract = {"sdk": version}
+                release.promote_defaults(self.root, contract)
+                first = {name: (self.root / name).read_bytes() for name in self.files}
+                release.promote_defaults(self.root, contract)
+                self.assertEqual(
+                    first,
+                    {name: (self.root / name).read_bytes() for name in self.files},
+                )
+                self.assertIn(
+                    f"controller:{version}}}", first["deploy/compose.yaml"].decode()
+                )
+                self.assertIn(
+                    f"uv tool install mondek=={version}",
+                    first["docs/GETTING-STARTED.md"].decode(),
+                )
+                self.assertIn(source_example, first["docs/DISTRIBUTION.md"].decode())
+                self.assertIn(f"releases/tag/v{version}", first["README.md"].decode())
+
+    def test_reference_drift_leaves_every_file_unchanged(self):
+        path = self.root / "docs/DISTRIBUTION.md"
+        path.write_text(
+            re.sub(r"\[[^\]]+ release\]", "[current release]", path.read_text())
+        )
+        before = {name: (self.root / name).read_bytes() for name in self.files}
+        with self.assertRaisesRegex(ValueError, "Expected one installation reference"):
+            release.promote_defaults(self.root, {"sdk": "0.0.5"})
+        self.assertEqual(
+            before, {name: (self.root / name).read_bytes() for name in self.files}
+        )

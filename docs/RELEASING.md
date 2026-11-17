@@ -1,10 +1,10 @@
 # Release preparation
 
-Local commands in this guide only validate/build/export artifacts; they never create a tag, push, log in to a registry or upload anything. The separate release workflow can qualify and publish a release after the explicit gates below. Public release and registry configuration remain operator actions.
+Local commands in this guide validate/build/export artifacts or edit installation references; they never create a tag, push, log in to a registry or upload anything. The separate release workflow can qualify and publish a release after the explicit gates below. Public release and registry configuration remain operator actions.
 
 ## Artifact and version contract
 
-Version 0.0.4 is published and is the installation default for the controller image and SDK. It includes the Plug multipart security fix; see the [security upgrade guidance](UPGRADING.md#004-plug-multipart-security-fix). The release examples use Python SDK version 0.0.4, controller version 0.0.4, Git tag v0.0.4 and image tag 0.0.4. Python prerelease markers a/b/rc map to controller alpha/beta/rc identifiers; stable versions match directly. The SDK distribution is mondek. The source repository is pitkley/mondek and controller image is ghcr.io/pitkley/mondek/controller.
+The published installation default is recorded in deploy/compose.yaml and the installation guides. Keep release notes and upgrade guidance ready for publication before tagging; the pipeline updates only mechanical installation references. The release examples use Python SDK version 0.0.4, controller version 0.0.4, Git tag v0.0.4 and image tag 0.0.4. Python prerelease markers a/b/rc map to controller alpha/beta/rc identifiers; stable versions match directly. The SDK distribution is mondek. The source repository is pitkley/mondek and controller image is ghcr.io/pitkley/mondek/controller.
 
 ```sh
 devenv shell -- python scripts/release.py check --tag v0.0.4
@@ -66,7 +66,11 @@ The [0.0.4 publication run](https://github.com/pitkley/mondek/actions/runs/44155
 
 A fresh isolated post-publication image/installed-runner check also passed on 2026-11-17, covering generated-project tests, validation, local execution, real measurements, SMTP firing/recovery, controller recreation and retained runner identity/history/settings. On the heavily loaded local host, two attempts timed out on the initial five-second UI request; the successful functional check used a temporary wrapper allowing 60 seconds for localhost HTTP reads instead of five. Product artifacts and runner deadlines were unchanged. This establishes functionality with the adjusted local read allowance, not a local latency pass. Native hosted qualification for both architectures passed the unmodified acceptance harness before publication.
 
-For future releases, after these checks pass, update the published installation pins and release links together in README.md, deploy/compose.yaml, deploy/README.md, docs/GETTING-STARTED.md and docs/DISTRIBUTION.md. Update this guide to identify the promoted installation default. Keep those pins on an available published release until then.
+After the GitHub Release is published, the final workflow job checks public PyPI wheel/sdist bytes against the qualified SDK hashes and anonymously checks the GHCR index and both platform image identities against the release evidence. It updates installation pins and release links together in README.md, deploy/compose.yaml, deploy/README.md, docs/GETTING-STARTED.md and docs/DISTRIBUTION.md, then commits directly to the latest main. This normal push triggers CI and edge qualification; it does not publish another versioned release or loop back into installation promotion. The job does not repeat the full consumer suite after publication. The detailed 0.0.4 record above is historical evidence, not a checklist to rewrite for every release.
+
+The release-defaults environment holds RELEASE_DEFAULTS_KEY, a repository-specific write deploy key. Its deployment policy permits only version tags. The main required-status-check ruleset permits deploy-key pushes; this is the repository’s only write deploy key. GitHub applies that exception to deploy keys as a class, so reconsider it before adding other write deploy keys. Force-push, deletion and linear-history rules remain enforced. No personal access token or general Actions bypass is needed. To rotate it, replace the deploy key and environment secret.
+
+If public verification or reference matching fails, the release remains published and installation defaults remain unchanged. Fix the cause and rerun the failed job in the same release run; matching defaults produce no commit. If main moved during the job, the ordinary push fails safely; rerun to start from its latest contents. The helper also refuses promotion if main has already advanced to a different source version. Never force-push or republish artifacts to repair this step.
 
 ## Local image export rehearsal
 
