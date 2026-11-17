@@ -17,6 +17,8 @@ Use the [documentation index](docs/README.md) to find guides for getting started
 
 For the image-based server installation, use [the controller/PostgreSQL Compose recipe](deploy/README.md). For the installed SDK workflow, follow [your first monitoring project](docs/GETTING-STARTED.md). Release `0.0.3` is available from GHCR and PyPI. The source/contributor workflow below remains available for local development.
 
+The published 0.0.3 controller predates the Plug multipart security fix being prepared for 0.0.4. See the [security upgrade guidance](docs/UPGRADING.md#004-plug-multipart-security-fix) for patched source builds and gateway mitigation until the fixed release is published.
+
 For agent-assisted installation before any server is running, copy [the repository setup prompt](docs/AGENT-WORKFLOWS.md#before-the-ui-is-running) into your coding agent.
 
 Reusable [agent skills](skills/README.md) cover server setup, runner setup/deployment and check authoring.

@@ -39,3 +39,11 @@ Upgrade the matching controller and SDK after backing up PostgreSQL and runner s
 New failure measurements advance the reference transactionally, including failures with unchanged severity. Recovery preserves it; retention protects opening, latest-failure and closing evidence while their incident is retained. Older `latest_observation_id` values are not reinterpreted: closed grouped contributions can legitimately point at recovery there. The migration does not invent or reconstruct historical latest failures. Existing incidents show verified opening/notification evidence as explicit fallback, or unavailable evidence; the next admitted failure establishes the new latest-failure reference for an open incident.
 
 Health API details add a resolved `recorded_measurement` block; shared contributions replace the ambiguous `measured_result` field with the same block. This intentionally changes the experimental response contract. Update clients using the generated OpenAPI and the [incident evidence guide](HTTP-API.md#investigate-monitoring). Keep current results separate from historical findings and check fallback basis/gaps before describing evidence as latest.
+
+## 0.0.4: Plug multipart security fix
+
+Version 0.0.4 preparation updates Plug from 1.20.3 to 1.20.4 for [CVE-2026-120287](https://github.com/elixir-plug/plug/security/advisories/GHSA-qj4r-jh2r-rw3f). The multipart parser previously failed to count all framing/header bytes against the request length budget, allowing memory exhaustion. Mondek enables this parser. Published 0.0.3 and earlier controller images retain the affected dependency; a source lock update does not change those immutable images.
+
+Until the patched release is published, use a reviewed patched source build or enforce an aggregate request-body size limit at the external gateway as described by the upstream advisory. After publication, replace the controller with the matching 0.0.4 artifact and use the matching SDK. Do not rebuild or overwrite the published 0.0.3 tag/image under its existing version.
+
+This patch adds no database migration, API or runner transport format change. Preserve PostgreSQL, runner state, buffered reports and configuration history through the normal upgrade procedure. Multipart requests exceeding their budget return an error while ordinary forms and JSON APIs retain their existing behavior.
