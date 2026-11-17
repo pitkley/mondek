@@ -13,6 +13,7 @@ import re
 import subprocess
 import tomllib
 import zipfile
+import urllib.request
 from email.parser import Parser
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -183,11 +184,99 @@ def load_image(
     return manifest["image_id"]
 
 
+def verify_publication(sdk: Path, images: Path, contract: dict[str, str]) -> None:
+    """Check public distribution bytes and image identities without registry login."""
+    hashes = verify_sdk(sdk, contract)
+    with urllib.request.urlopen(
+        f"https://pypi.org/pypi/mondek/{contract['sdk']}/json", timeout=30
+    ) as response:
+        files = json.load(response)["urls"]
+    for name, digest in hashes.items():
+        artifact = next(item for item in files if item["filename"] == name)
+        with urllib.request.urlopen(artifact["url"], timeout=30) as response:
+            if hashlib.file_digest(response, "sha256").hexdigest() != digest:
+                raise ValueError(f"Public PyPI checksum mismatch: {name}")
+    image = f"ghcr.io/pitkley/mondek/controller:{contract['image_tag']}"
+
+    def manifest(reference: str) -> dict:
+        return json.loads(
+            subprocess.check_output(
+                ["docker", "buildx", "imagetools", "inspect", reference, "--raw"]
+            )
+        )
+
+    index = manifest(image)
+    platforms = {
+        (item["platform"]["os"], item["platform"]["architecture"]): item["digest"]
+        for item in index["manifests"]
+    }
+    for architecture in ("amd64", "arm64"):
+        digest = platforms[("linux", architecture)]
+        published = manifest(f"ghcr.io/pitkley/mondek/controller@{digest}")
+        qualified = json.loads(
+            (images / f"controller-{architecture}-image.json").read_text()
+        )
+        if (
+            any(qualified.get(key) != value for key, value in contract.items())
+            or qualified["sdk_artifacts"] != hashes
+            or qualified["architecture"] != architecture
+            or published["config"]["digest"] != qualified["image_id"]
+        ):
+            raise ValueError(
+                f"Public controller differs from qualified {architecture} image"
+            )
+
+
+def promote_defaults(root: Path, contract: dict[str, str]) -> None:
+    """Update only known installation references; reject drift before writing."""
+    compose = (root / "deploy/compose.yaml").read_text()
+    match = re.search(
+        r"MONDEK_IMAGE:-ghcr.io/pitkley/mondek/controller:([^}]+)}", compose
+    )
+    if match is None:
+        raise ValueError("Cannot locate the published Compose default")
+    previous = match[1]
+    references = {
+        "README.md": ["releases/tag/v{})", "Release `{}` is available"],
+        "deploy/compose.yaml": ["MONDEK_IMAGE:-ghcr.io/pitkley/mondek/controller:{}}}"],
+        "deploy/README.md": ["recipe uses the published {} image"],
+        "docs/GETTING-STARTED.md": ["uv tool install mondek=={}\n"],
+        "docs/DISTRIBUTION.md": [
+            "[{} release]",
+            "releases/tag/v{})",
+            "controller:{}`",
+            "/project/mondek/{}/",
+        ],
+    }
+    updates = {}
+    for name, templates in references.items():
+        path = root / name
+        text = path.read_text()
+        for template in templates:
+            old = template.format(previous)
+            if text.count(old) != 1:
+                raise ValueError(
+                    f"Expected one installation reference {old!r} in {name}"
+                )
+            text = text.replace(old, template.format(contract["sdk"]))
+        updates[path] = text
+    for path, text in updates.items():
+        path.write_text(text)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=["check", "build-sdk", "verify-sdk", "save-image", "load-image"],
+        choices=[
+            "check",
+            "build-sdk",
+            "verify-sdk",
+            "save-image",
+            "load-image",
+            "verify-publication",
+            "promote-defaults",
+        ],
     )
     parser.add_argument("--tag", help="require this exact Git release tag")
     parser.add_argument(
@@ -203,9 +292,23 @@ def main() -> None:
     )
     parser.add_argument("--image", help="locally built and tested image tag")
     parser.add_argument("--architecture", choices=["amd64", "arm64"])
+    parser.add_argument(
+        "--images-directory", type=Path, help="published image identity manifests"
+    )
     args = parser.parse_args()
     contract = version_contract(ROOT, args.tag)
-    if args.command == "build-sdk":
+    if args.command in {"verify-publication", "promote-defaults"}:
+        if args.tag is None:
+            parser.error("publication commands require --tag")
+        if args.command == "verify-publication":
+            if args.directory is None or args.images_directory is None:
+                parser.error(
+                    "verify-publication requires --directory and --images-directory"
+                )
+            verify_publication(args.directory, args.images_directory, contract)
+        else:
+            promote_defaults(ROOT, contract)
+    elif args.command == "build-sdk":
         if args.output is None:
             parser.error("build-sdk requires --output")
         build_sdk(args.output.resolve(), contract)

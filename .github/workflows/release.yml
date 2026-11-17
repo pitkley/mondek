@@ -279,3 +279,55 @@ jobs:
             flags+=(--prerelease)
           fi
           gh release create "$GITHUB_REF_NAME" release-assets/* "${flags[@]}"
+  installation-defaults:
+    name: Promote published installation defaults
+    needs: github-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release-defaults
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13.15'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-sdk
+          path: sdk
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Verify public artifacts and update installation references
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" --pattern '*-image.json' --dir evidence
+          mkdir "$RUNNER_TEMP/public-docker"
+          DOCKER_CONFIG="$RUNNER_TEMP/public-docker" python3 scripts/release.py verify-publication --tag "$GITHUB_REF_NAME" --directory sdk --images-directory evidence
+          python3 scripts/release.py promote-defaults --tag "$GITHUB_REF_NAME"
+      - name: Commit and push installation defaults
+        env:
+          RELEASE_DEFAULTS_KEY: ${{ secrets.RELEASE_DEFAULTS_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add README.md deploy/compose.yaml deploy/README.md docs/GETTING-STARTED.md docs/DISTRIBUTION.md
+          if git diff --cached --quiet; then
+            echo 'Installation defaults already match the release.'
+            exit 0
+          fi
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Promote published $GITHUB_REF_NAME installation defaults"
+          export RELEASE_PUSH_KEY="$RUNNER_TEMP/release-defaults-key"
+          export RELEASE_KNOWN_HOSTS="$RUNNER_TEMP/release-defaults-hosts"
+          trap 'rm -f "$RELEASE_PUSH_KEY" "$RELEASE_KNOWN_HOSTS"' EXIT
+          umask 077
+          printf '%s\n' "$RELEASE_DEFAULTS_KEY" > "$RELEASE_PUSH_KEY"
+          gh api meta --jq '.ssh_keys[] | "github.com " + .' > "$RELEASE_KNOWN_HOSTS"
+          # Expanded by Git's shell when it invokes SSH.
+          # shellcheck disable=SC2016
+          export GIT_SSH_COMMAND='ssh -i "$RELEASE_PUSH_KEY" -o IdentitiesOnly=yes -o UserKnownHostsFile="$RELEASE_KNOWN_HOSTS" -o StrictHostKeyChecking=yes'
+          git push "git@github.com:$GITHUB_REPOSITORY.git" HEAD:refs/heads/main
