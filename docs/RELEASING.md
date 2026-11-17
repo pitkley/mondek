@@ -4,12 +4,12 @@ Local commands in this guide only validate/build/export artifacts; they never cr
 
 ## Artifact and version contract
 
-Version 0.0.3 is published, and installation defaults use its matching controller image and SDK. The release examples use Python SDK version 0.0.3, controller version 0.0.3, Git tag v0.0.3 and image tag 0.0.3. Python prerelease markers a/b/rc map to controller alpha/beta/rc identifiers; stable versions match directly. The SDK distribution is mondek. The source repository is pitkley/mondek and controller image is ghcr.io/pitkley/mondek/controller.
+Version 0.0.4 is being prepared and has not been published. Installation defaults remain on the published 0.0.3 controller image and SDK until post-publication consumption checks pass. The published 0.0.3 image does not contain the Plug security fix; see the [security upgrade guidance](UPGRADING.md#004-plug-multipart-security-fix). The release examples use Python SDK version 0.0.4, controller version 0.0.4, Git tag v0.0.4 and image tag 0.0.4. Python prerelease markers a/b/rc map to controller alpha/beta/rc identifiers; stable versions match directly. The SDK distribution is mondek. The source repository is pitkley/mondek and controller image is ghcr.io/pitkley/mondek/controller.
 
 ```sh
-devenv shell -- python scripts/release.py check --tag v0.0.3
+devenv shell -- python scripts/release.py check --tag v0.0.4
 devenv shell -- python scripts/release.py build-sdk \
-  --tag v0.0.3 --output .local/release/0.0.3
+  --tag v0.0.4 --output .local/release/0.0.4
 ```
 
 The output directory must be new. The command builds wheel/sdist, rebuilds a wheel from that sdist, compares all wheel file contents, checks distribution metadata and records SHA256SUMS/sdk-build.json. The rebuilt wheel is verification evidence; the original qualified wheel/sdist are the distribution pair. This does not replace typing, notices, installed-project or controller qualification.
@@ -17,12 +17,12 @@ The output directory must be new. The command builds wheel/sdist, rebuilds a whe
 Build and test a controller image locally using the normal Dockerfile. Qualify the exact prepared SDK wheel with that image:
 
 ```sh
-docker build -f controller/Dockerfile -t mondek-controller:0.0.3 .
+docker build -f controller/Dockerfile -t mondek-controller:0.0.4 .
 devenv shell -- python scripts/image_licenses.py controller \
-  mondek-controller:0.0.3 --output .local/release/0.0.3/controller-licenses.json
+  mondek-controller:0.0.4 --output .local/release/0.0.4/controller-licenses.json
 devenv shell -- python tests/e2e/install.py \
-  --image mondek-controller:0.0.3 \
-  --sdk-wheel .local/release/0.0.3/mondek-0.0.3-py3-none-any.whl
+  --image mondek-controller:0.0.4 \
+  --sdk-wheel .local/release/0.0.4/mondek-0.0.4-py3-none-any.whl
 ```
 
 The image audit records the immutable image identity. Before promotion, retain an immutable image archive/digest and qualify every advertised architecture; a local machine's successful build does not qualify another architecture. The sample runner image is a demo/test fixture, not a promised generic runner distribution.
@@ -44,7 +44,7 @@ Versioned release publication requires all of the following:
 
 The sequence is original SDK pair to TestPyPI, loaded controller images to GHCR, the same SDK pair to PyPI, then GitHub Release assets/notes. Publishing permissions are limited to the jobs that need them. PyPI uses OIDC with attestations and no stored API token; GHCR uses GITHUB_TOKEN. Existing PyPI versions and existing GitHub Releases cause failure rather than silently skipping/replacing them. Registries cannot be updated atomically: if a later step fails, inspect what succeeded before deciding how to resume. Retry failed publishing jobs within the same run to retain the same artifacts; do not rebuild under an already published version.
 
-GHCR receives the versioned platform tags 0.0.3-amd64 and 0.0.3-arm64 and their combined 0.0.3 index. The same index is also published as `latest`, including alpha and other prerelease versions while Mondek is experimental; this policy may become stable-only in the future. `latest` tracks the most recently published version-tag pipeline, without semantic-version sorting. Main builds publish platform tags `sha-<commit>-amd64` and `sha-<commit>-arm64`, their combined `sha-<commit>` index and the mutable `edge` alias. Both mutable tags contain Linux/amd64 and Linux/arm64; use a version, commit or digest reference when pinning an installation. Each image carries source, license, version and final commit labels. The GitHub Release includes the original distributions, SDK checksums, per-platform image identities and scoped license inventories. Image tar files stay in short-lived private Actions artifacts, not GitHub Release assets. Versions with alpha, beta or rc suffixes are marked as GitHub prereleases. Version 0.0.3 has no prerelease suffix; Mondek still remains experimental.
+GHCR receives the versioned platform tags 0.0.4-amd64 and 0.0.4-arm64 and their combined 0.0.4 index. The same index is also published as `latest`, including alpha and other prerelease versions while Mondek is experimental; this policy may become stable-only in the future. `latest` tracks the most recently published version-tag pipeline, without semantic-version sorting. Main builds publish platform tags `sha-<commit>-amd64` and `sha-<commit>-arm64`, their combined `sha-<commit>` index and the mutable `edge` alias. Both mutable tags contain Linux/amd64 and Linux/arm64; use a version, commit or digest reference when pinning an installation. Each image carries source, license, version and final commit labels. The GitHub Release includes the original distributions, SDK checksums, per-platform image identities and scoped license inventories. Image tar files stay in short-lived private Actions artifacts, not GitHub Release assets. Versions with alpha, beta or rc suffixes are marked as GitHub prereleases. Version 0.0.4 has no prerelease suffix; Mondek still remains experimental.
 
 ## Account setup before enabling publication
 
@@ -60,7 +60,7 @@ PyPI's [pending-publisher guide](https://docs.pypi.org/trusted-publishers/creati
 
 ## Post-publication consumption
 
-Verify the GHCR index lists both architectures, set/check public package visibility, then pull anonymously using a clean Docker configuration and the agreed version tag. Verify a clean Python 3.13+ environment can install mondek==0.0.3 from production PyPI without maintainer credentials. Generate a project, run its tests/validate/local execution, and connect it to the image-based controller using deploy/README.md. Compare the downloaded Python files with the recorded SDK checksums and record the published image digest. These checks require actual publication and are not closed by local builds or workflow lint.
+Verify the GHCR index lists both architectures, set/check public package visibility, then pull anonymously using a clean Docker configuration and the agreed version tag. Verify a clean Python 3.13+ environment can install mondek==0.0.4 from production PyPI without maintainer credentials. Generate a project, run its tests/validate/local execution, and connect it to the image-based controller using deploy/README.md. Compare the downloaded Python files with the recorded SDK checksums and record the published image digest. These checks require actual publication and are not closed by local builds or workflow lint.
 
 The [0.0.3 publication run](https://github.com/pitkley/mondek/actions/runs/43763984059) passed full CI and native AMD64/ARM64 qualification before promotion. Public consumption verification completed on 2026-11-16: anonymous GHCR pull, a fresh Python 3.13 installation from production PyPI, package checksums against the release assets and a fresh isolated image/installed-runner acceptance run all passed. The pulled ARM64 image matches the immutable identity in the release evidence. The controller index digest is `sha256:75851677b80768d36b240a626b34b6cdee16e7e38c8d7ddd01ab533bfce72e80`.
 
@@ -72,11 +72,11 @@ After qualifying an image with the selected SDK pair, preserve and reload it wit
 
 ```sh
 devenv shell -- python scripts/release.py save-image \
-  --image mondek-controller:0.0.3 --architecture arm64 \
-  --sdk-directory .local/release/0.0.3 --output .local/release/controller-arm64
+  --image mondek-controller:0.0.4 --architecture arm64 \
+  --sdk-directory .local/release/0.0.4 --output .local/release/controller-arm64
 devenv shell -- python scripts/release.py load-image \
   --directory .local/release/controller-arm64 --architecture arm64 \
-  --sdk-directory .local/release/0.0.3 --tag v0.0.3
+  --sdk-directory .local/release/0.0.4 --tag v0.0.4
 ```
 
 Use the actual qualified architecture. Export requires a new output directory; loading verifies SDK/archive checksums and the restored image ID/platform. Export helpers establish artifact integrity, not that a skipped qualification test passed.
