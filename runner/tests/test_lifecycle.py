@@ -266,6 +266,132 @@ class IdentityTests(unittest.TestCase):
                 validate(config)
 
 
+class DependencyRolloutTests(unittest.IsolatedAsyncioTestCase):
+    async def test_mismatched_saved_snapshot_waits_for_authorized_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            consumer = root / "consumer"
+            consumer.mkdir()
+            (consumer / "dependency_rollout.py").write_text(
+                """from mondek_runner import App, Binding, Environment, Result, check
+
+@check(id="rollout", expected_keys=("ready",), interval_seconds=30,
+       timeout_seconds=5, freshness_seconds=60)
+def rollout(*, params):
+    return Result("ready", "OK", "collected after rollout")
+
+app = App(source_id="dependency-rollout", environment=Environment("local"),
+          checks=[Binding(rollout, key="rollout")])
+"""
+            )
+            entrypoint = "dependency_rollout:app"
+            state_path = root / "state"
+            bundle_dir = state_path / "bundles"
+            pythonpath = str(consumer) + os.pathsep + os.environ.get("PYTHONPATH", "")
+
+            def config(inventory, generation):
+                entry = inventory["checks"][0]
+                return {
+                    **entry,
+                    "id": "10000000-0000-4000-8000-000000000001",
+                    "kind": "python",
+                    "generation": generation,
+                    "source_id": inventory["source_id"],
+                    "source_key": entry["key"],
+                    "source_revision": inventory["source_revision"],
+                    "expected_keys": [output["key"] for output in entry["outputs"]],
+                }
+
+            with patch.dict(os.environ, {"PYTHONPATH": pythonpath}):
+                state = State(state_path)
+                try:
+                    original = await snapshot(entrypoint, bundle_dir)
+                    original_assignment = config(original, 1)
+                    state.adopt(original_assignment, 0)
+                    state.record_inventory(original)
+                finally:
+                    state.close()
+
+                # A new installed distribution changes the manifest runtime identity.
+                metadata = consumer / "rollout_dependency-1.0.dist-info"
+                metadata.mkdir()
+                (metadata / "METADATA").write_text(
+                    "Metadata-Version: 2.1\nName: rollout-dependency\nVersion: 1.0\n"
+                )
+                state = State(state_path)
+                accepted = None
+                prepared = threading.Event()
+                allow_activation = threading.Event()
+                uploaded = []
+
+                def transport(url, body, _timeout):
+                    nonlocal accepted
+                    if url.endswith("/inventory"):
+                        accepted = config(body, 2)
+                        return {"inventory_revision": body["inventory_revision"]}
+                    if url.endswith("/control"):
+                        self.assertIsNotNone(accepted)
+                        ready = body["prepared"].get(accepted["id"]) == 2
+                        if ready:
+                            prepared.set()
+                        authorized = (
+                            {accepted["id"]: 2}
+                            if ready and allow_activation.is_set()
+                            else {}
+                        )
+                        return baseline([accepted], authorized)
+                    uploaded.extend(body["reports"])
+                    return {
+                        "dispositions": [
+                            {"id": report["id"], "disposition": "current"}
+                            for report in body["reports"]
+                        ]
+                    }
+
+                runner = Runner(
+                    state, "http://unused", consumer=entrypoint, transport=transport
+                )
+                task = asyncio.create_task(runner.run())
+                try:
+                    async with asyncio.timeout(12):
+                        while not (
+                            prepared.is_set()
+                            and "installed Python dependencies changed"
+                            in (runner.status()["diagnostic"] or "")
+                        ):
+                            await asyncio.sleep(0.025)
+                    self.assertEqual(
+                        runner.active, {original_assignment["id"]: original_assignment}
+                    )
+                    self.assertNotEqual(
+                        accepted["source_revision"],
+                        original_assignment["source_revision"],
+                    )
+                    self.assertEqual(runner.scheduler_status()["due_waiting_checks"], 0)
+                    self.assertEqual(state.batch(), [])
+                    self.assertEqual(inspect(state_path)["inflight"], [])
+                    self.assertEqual(uploaded, [])
+
+                    allow_activation.set()
+                    async with asyncio.timeout(8):
+                        while not uploaded:
+                            await asyncio.sleep(0.025)
+                    self.assertEqual(len(uploaded), 1)
+                    self.assertEqual(uploaded[0]["sequence"], 1)
+                    self.assertEqual(uploaded[0]["generation"], 2)
+                    self.assertTrue(uploaded[0]["complete"])
+                    self.assertEqual(uploaded[0]["results"][0]["health"], "OK")
+                    self.assertNotIn(
+                        "blocked by saved snapshot", runner.status()["diagnostic"] or ""
+                    )
+                finally:
+                    runner.stopped.set()
+                    try:
+                        await task
+                    finally:
+                        state.close()
+
+
 class IndependentHttpTests(unittest.IsolatedAsyncioTestCase):
     async def test_real_two_instance_schedule_continues_during_control_failure(self):
         requests = []

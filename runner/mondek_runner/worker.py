@@ -31,7 +31,7 @@ from .api import (
     validate_summary,
 )
 from .authoring import validate_params
-from .bundle import load_snapshot
+from .bundle import load_snapshot, verify_snapshot
 from .config import validate
 from .worker_limits import PREPARATION_TIMEOUT_SECONDS, WATCHDOG_GRACE_SECONDS
 
@@ -138,7 +138,9 @@ async def run(assignment: dict[str, Any], prepare: bool = False) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--prepare", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--prepare", action="store_true")
+    mode.add_argument("--verify-snapshot", action="store_true")
     parser.add_argument("--lock")
     parser.add_argument("--parent-pid", type=int)
     args = parser.parse_args()
@@ -170,7 +172,7 @@ def main() -> None:
         deadline = time.monotonic() + (
             (
                 PREPARATION_TIMEOUT_SECONDS
-                if args.prepare
+                if args.prepare or args.verify_snapshot
                 else assignment["timeout_seconds"]
             )
             + WATCHDOG_GRACE_SECONDS
@@ -184,7 +186,17 @@ def main() -> None:
 
         threading.Thread(target=watchdog, daemon=True).start()
     try:
-        asyncio.run(run(assignment, args.prepare))
+        if args.verify_snapshot:
+            try:
+                verify_snapshot(
+                    Path(environment.require("MONDEK_BUNDLE_DIR")),
+                    assignment["source_revision"],
+                )
+                emit({"prepared": True})
+            except Exception as error:
+                emit({"prepared": False, "diagnostic": diagnostic_text(str(error))})
+        else:
+            asyncio.run(run(assignment, args.prepare))
     finally:
         if lock:
             lock.close()

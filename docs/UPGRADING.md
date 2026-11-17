@@ -14,7 +14,7 @@ Subsequent schema changes use normal Ecto migrations. Inspect the release's migr
 
 Keep the same PostgreSQL database, Compose volume bindings and complete runner state directories. Retain installation, source, check, environment, target and output identities. Buffered reports preserve their original IDs, payloads and execution times. Existing configuration Git objects are immutable history; do not rewrite their contents or commit IDs during an update.
 
-Prepared execution requires the current authenticated snapshot format and complete signed registration list. SDK and consumer updates change frozen runtime identity; normal discovery/preparation creates a matching snapshot. Do not edit manifests, recompute signatures or clear journals to bypass the runtime fence.
+Prepared execution requires the current authenticated snapshot format and complete signed registration list. SDK and consumer updates change frozen runtime identity; normal discovery/preparation creates a matching snapshot. On restart, the runner verifies saved snapshots before scheduling them. Compatible snapshots can collect while the controller is unavailable. If the installed dependencies differ, the runner reports the blocked checks in its status and resumes collection after it prepares and adopts the replacement authorized by the controller. A prolonged gap can still trigger monitoring-loss notifications. Do not edit manifests, recompute signatures or clear journals to bypass the runtime fence.
 
 ## Verification and recovery
 
