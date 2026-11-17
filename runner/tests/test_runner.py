@@ -496,7 +496,7 @@ class SchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.state.complete(buffered)
 
         async def worker(config, **kwargs):
-            if kwargs.get("prepare"):
+            if kwargs.get("prepare") or kwargs.get("verify_snapshot"):
                 return {"prepared": True}
             worker_started.set()
             await worker_release.wait()

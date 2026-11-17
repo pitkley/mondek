@@ -37,6 +37,7 @@ from .worker_limits import PREPARATION_TIMEOUT_SECONDS
 MAX_OUTPUT = 65536
 MAX_ASSIGNMENT = 4 * 1024 * 1024
 DISCOVERY_RETRY_SECONDS = 60
+SNAPSHOT_RETRY_SECONDS = 15
 
 
 class OutputLimit(Exception):
@@ -66,6 +67,7 @@ async def execute(
     assignment: dict[str, Any],
     *,
     prepare: bool = False,
+    verify_snapshot: bool = False,
     lock_path: Path | None = None,
     bundle_dir: Path | None = None,
     execution_context: dict[str, Any] | None = None,
@@ -75,8 +77,11 @@ async def execute(
     if len(encoded_assignment) > MAX_ASSIGNMENT:
         raise ValueError("assignment exceeds 4 MiB worker input cap")
     args = [sys.executable, "-m", "mondek_runner.worker"]
-    if prepare:
+    if verify_snapshot:
+        args.append("--verify-snapshot")
+    elif prepare:
         args.append("--prepare")
+    checking = prepare or verify_snapshot
     if lock_path:
         args.extend(["--lock", str(lock_path)])
     args.extend(["--parent-pid", str(os.getpid())])
@@ -127,18 +132,17 @@ async def execute(
         await asyncio.wait_for(
             communicate(),
             timeout=PREPARATION_TIMEOUT_SECONDS
-            if prepare
+            if checking
             else assignment["timeout_seconds"],
         )
         if process.returncode != 0:
-            diagnostic = (
-                f"worker crashed (exit {process.returncode}); collection incomplete"
-            )
+            detail = "no collection attempted" if checking else "collection incomplete"
+            diagnostic = f"worker crashed (exit {process.returncode}); {detail}"
     except TimeoutError:
         diagnostic = (
             f"worker preparation timed out after {PREPARATION_TIMEOUT_SECONDS}s; "
             "source loading or validation incomplete; no collection attempted"
-            if prepare
+            if checking
             else "worker execution timed out; collection incomplete"
         )
     except OutputLimit as error:
@@ -174,7 +178,7 @@ async def execute(
         )
     if terminal.get("diagnostic") is not None:
         terminal["diagnostic"] = diagnostic_text(str(terminal["diagnostic"]))
-    if prepare:
+    if checking:
         return {
             "prepared": bool(terminal.get("prepared")) and diagnostic is None,
             "diagnostic": diagnostic or terminal.get("diagnostic"),
@@ -210,6 +214,7 @@ class Runner:
         self.connection_events = ConnectionEvents(clock=monotonic)
         self.connection_diagnostics: dict[str, str] = {}
         self.active = state.assignments()
+        self.blocked_revisions: dict[str, str] = {}
         self.desired: dict[str, dict[str, Any]] = {}
         self.prepared: dict[str, dict[str, Any]] = {}
         self.running: dict[str, asyncio.Task] = {}
@@ -267,6 +272,20 @@ class Runner:
             status["diagnostic"] = diagnostic_text(self.inventory_error)
         elif self.inventory_publish_error:
             status["diagnostic"] = diagnostic_text(self.inventory_publish_error)
+        blocked = [
+            self.blocked_revisions[assignment["source_revision"]]
+            for assignment in self.active.values()
+            if assignment.get("source_revision") in self.blocked_revisions
+        ]
+        if blocked:
+            diagnostic = status.get("diagnostic")
+            message = (
+                f"{len(blocked)} checks blocked by saved snapshot verification: "
+                f"{blocked[0]}"
+            )
+            status["diagnostic"] = diagnostic_text(
+                f"{message}. {diagnostic}" if diagnostic else message
+            )
         return status
 
     def scheduler_status(self) -> dict[str, int | float]:
@@ -274,8 +293,10 @@ class Runner:
         now = self.monotonic()
         waiting = [
             self.due.get(id_, now)
-            for id_ in self.active
-            if id_ not in self.running and self.due.get(id_, now) <= now
+            for id_, assignment in self.active.items()
+            if assignment.get("source_revision") not in self.blocked_revisions
+            and id_ not in self.running
+            and self.due.get(id_, now) <= now
         ]
         return {
             "active_checks": len(self.active),
@@ -299,6 +320,8 @@ class Runner:
         for id_ in sorted(self.active, key=lambda key: self.due.get(key, 0)):
             assignment = self.active[id_]
             if id_ in self.running or len(self.running) >= self.max_concurrency:
+                continue
+            if assignment.get("source_revision") in self.blocked_revisions:
                 continue
             if self.due.get(id_, 0) > self.monotonic():
                 continue
@@ -357,6 +380,37 @@ class Runner:
         finally:
             self.running.pop(id_, None)
             self.running_revisions.pop(id_, None)
+
+    async def verify_saved_revisions(self) -> None:
+        """Allow compatible saved work to resume independently of control."""
+        while self.blocked_revisions and not self.stopped.is_set():
+            for revision in list(self.blocked_revisions):
+                if self.stopped.is_set():
+                    return
+                if not any(
+                    assignment.get("source_revision") == revision
+                    for assignment in self.active.values()
+                ):
+                    del self.blocked_revisions[revision]
+                    continue
+                try:
+                    outcome = await self.worker(
+                        {"source_revision": revision},
+                        verify_snapshot=True,
+                        bundle_dir=self.bundle_dir,
+                    )
+                    if not outcome["prepared"]:
+                        raise ValueError(
+                            outcome.get("diagnostic") or "verification failed"
+                        )
+                except Exception as error:
+                    self.blocked_revisions[revision] = diagnostic_text(str(error), 512)
+                else:
+                    del self.blocked_revisions[revision]
+                    self.preparation_needed.set()
+            if self.blocked_revisions:
+                await self.pause(SNAPSHOT_RETRY_SECONDS)
+        await self.stopped.wait()
 
     async def scheduler(self) -> None:
         while not self.stopped.is_set():
@@ -474,6 +528,7 @@ class Runner:
                 if (
                     self.desired.get(id_) != assignment
                     or self.prepared.get(id_) == assignment
+                    or assignment.get("source_revision") in self.blocked_revisions
                 ):
                     continue
                 try:
@@ -776,11 +831,25 @@ class Runner:
             pass
 
     async def run(self) -> None:
+        # Startup discovery already proposes the installed consumer immediately.
+        # Verify saved revisions separately so neither discovery nor control can
+        # delay compatible offline collection or release an incompatible revision.
+        self.blocked_revisions = {
+            assignment["source_revision"]: "verification pending"
+            for assignment in self.active.values()
+            if assignment["kind"] == "python"
+        }
         tasks = [
             asyncio.create_task(loop())
-            for loop in (self.scheduler, self.prepare, self.control, self.upload)
+            for loop in (
+                self.scheduler,
+                self.verify_saved_revisions,
+                self.prepare,
+                self.control,
+                self.upload,
+                self.discover,
+            )
         ]
-        tasks.append(asyncio.create_task(self.discover()))
         shutdown = asyncio.create_task(self.stopped.wait())
         try:
             done, _ = await asyncio.wait(

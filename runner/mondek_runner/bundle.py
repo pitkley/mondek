@@ -303,9 +303,10 @@ def prepare_snapshot(
         return {"inventory": inventory, "discovery": discovery}
 
 
-def load_snapshot(
-    directory: Path, revision: str, *, check_key: str | None = None
-) -> tuple[Any, dict[str, Any]]:
+def verify_snapshot(
+    directory: Path, revision: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Check saved snapshot and runtime integrity without importing the consumer."""
     if len(revision) != 64 or any(c not in "0123456789abcdef" for c in revision):
         raise ValueError("invalid code revision")
     root = directory / revision
@@ -358,10 +359,17 @@ def load_snapshot(
     private_format = settings.pop(PRIVATE_FORMAT_KEY, None)
     if private_format != SNAPSHOT_FORMAT:
         raise ValueError("prepared private snapshot format does not match manifest")
+    return manifest, settings
+
+
+def load_snapshot(
+    directory: Path, revision: str, *, check_key: str | None = None
+) -> tuple[Any, dict[str, Any]]:
+    manifest, settings = verify_snapshot(directory, revision)
     construction = validate_construction_environment(
         settings.get("construction_environment")
     )
-    sys.path.insert(0, str(root))
+    sys.path.insert(0, str(directory / revision))
     sys.dont_write_bytecode = True
     with restored_construction_environment(construction):
         app = load_app(manifest["entrypoint"])
