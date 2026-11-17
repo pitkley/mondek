@@ -28,6 +28,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = "packaged-state-qualification"
 STATE_MIGRATION = 20261116120000
+UPGRADE_MIGRATIONS = (STATE_MIGRATION, 20261116120100, 20261116160000)
 RUNNER_PATHS = frozenset(
     f"/api/v1/runner/{name}"
     for name in ("inventory", "control", "observations", "state")
@@ -603,11 +604,11 @@ class Qualification:
         )
         after_schema = self.schema()
         assert after_schema == {
-            "versions": [1, 20261115150000, STATE_MIGRATION],
+            "versions": [1, 20261115150000, *UPGRADE_MIGRATIONS],
             "state_table": "consumer_state_entries",
         }, after_schema
         assert (
-            "Database migrations complete: 1 applied"
+            f"Database migrations complete: {len(UPGRADE_MIGRATIONS)} applied"
             in self.output.joinpath("upgrade-startup.log").read_text()
         )
         after = self.preserved()
@@ -800,7 +801,7 @@ def main():
     )
     parser.add_argument(
         "--baseline-image",
-        default="ghcr.io/pitkley/mondek/controller:0.0.3",
+        default="ghcr.io/pitkley/mondek/controller:0.0.4",
         help="local pre-state release image; never pulled",
     )
     parser.add_argument(
