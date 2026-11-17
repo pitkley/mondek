@@ -3009,11 +3009,11 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-## hex:plug 1.20.3
+## hex:plug 1.20.4
 
 License: (Apache-2.0). Scope: controller.
 
-Source: https://repo.hex.pm/tarballs/plug-1.20.3.tar (sha256:be266aee1b8536ef6409d58cf39a3121319f0ec47cfa1b24024485aa0e76ad76)
+Source: https://repo.hex.pm/tarballs/plug-1.20.4.tar (sha256:96ee42c0b8b35bcb14e3e65afb85abe9bb7745a8576e8c602802bbb01e5acf72)
 
 ### LICENSE
 

@@ -394,11 +394,11 @@
       "scope": "controller",
       "sources": [
         {
-          "integrity": "sha256:be266aee1b8536ef6409d58cf39a3121319f0ec47cfa1b24024485aa0e76ad76",
-          "url": "https://repo.hex.pm/tarballs/plug-1.20.3.tar"
+          "integrity": "sha256:96ee42c0b8b35bcb14e3e65afb85abe9bb7745a8576e8c602802bbb01e5acf72",
+          "url": "https://repo.hex.pm/tarballs/plug-1.20.4.tar"
         }
       ],
-      "version": "1.20.3"
+      "version": "1.20.4"
     },
     {
       "ecosystem": "hex",
