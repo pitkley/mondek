@@ -41,9 +41,17 @@ All reads go to the primary database and observe a committed value at the read s
 
 `StateWriteIndeterminate` means a dispatched mutation may have committed but its response was lost, malformed or otherwise unverified. It is never retried automatically. HTTP failure alone does not prove rollback: only bounded, allowlisted controller rejection codes are treated as definite domain failures. Reread and reconcile intent, or report UNKNOWN. Retrying a concrete old CAS version cannot overwrite a later value, but a conflict cannot prove who wrote it. Expected-missing can succeed again after an intervening creation and deletion/expiry, so it cannot prove the original outcome either.
 
-Controller outages do not stop the scheduler. Checks still execute, state calls fail promptly, and stateless checks continue normally. No state mutations are placed into the observation spool or replayed later. There is no stale-read fallback.
+Controller outages do not stop the scheduler. Checks still execute, state calls fail promptly, and stateless checks continue normally. No state mutations are placed into the observation spool or replayed later.
 
 Discovery, signature validation and preparation perform no state I/O. Standalone `mondek-runner run` has no admitted controller session: injected state is explicitly unavailable even if controller environment variables exist. Tests can directly call checks with a `CheckContext` wrapping a fake that implements the public `StateStore` protocol. There is no silent local persistent substitute. The initial client is synchronous; calls in async checks block that worker's event loop within its execution deadline.
+
+## Opt in to a stale read
+
+Set `MONDEK_CONSUMER_STATE_CACHE=true` on the runner to allow a private local read cache. Call `read_state(ctx.state, key, max_age_seconds=60)` in a check that explicitly accepts cached data. It calls the controller first. `FreshState.entry` is the confirmed entry or `None` for a confirmed miss. `StaleState` exposes the earlier value, its original update and expiry timestamps, and the cache age in seconds. It carries no version for a compare-and-set. `StateUnavailable` means a qualifying transport failure occurred and no eligible copy was available. Use the original acquisition time stored in your value when evaluating its freshness as evidence.
+
+Fallback is available for a refused connection, DNS or socket timeout reported by the wire request, or a remote disconnect. Authentication failures, HTTP rejection, malformed replies and exhausted execution budgets still raise `StateError`. The age limit must be positive and at most one day. Expiring entries also use the controller's database-clock sample from their read receipt. An older controller that omits the sample can still serve fresh reads.
+
+The cache holds up to 48 entries in the runner's state directory during one runner session. It is shared by disposable workers and starts empty on restart. An assignment or generation change cannot reuse a previous execution identity's cached entry. A confirmed miss or local mutation invalidates the cached address. An indeterminate mutation or a worker that dies during a write disables fallback for the rest of that runner session. Successful controller requests remain available. Treat the cache directory as persisted consumer data with the same access expectations as the state being read.
 
 ## Bounds and expiry
 

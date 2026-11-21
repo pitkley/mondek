@@ -40,32 +40,47 @@ if TYPE_CHECKING:
     )
     from .consumer_state import (
         CheckContext,
+        FreshState,
+        StaleState,
         StateConflict,
         StateEntry,
         StateError,
+        StateRead,
         StateStore,
+        StateUnavailable,
         StateWriteIndeterminate,
+        read_state,
     )
     from .discovery import Discovery, DiscoveryCandidate, DiscoveryChoice
 
 _STATE_EXPORTS = frozenset(
     (
         "CheckContext",
+        "FreshState",
+        "StaleState",
         "StateStore",
         "StateEntry",
         "StateError",
         "StateConflict",
         "StateWriteIndeterminate",
+        "StateRead",
+        "StateUnavailable",
+        "read_state",
     )
 )
 
 __all__ = [
     "CheckContext",
+    "FreshState",
+    "StaleState",
     "StateStore",
     "StateEntry",
     "StateError",
     "StateConflict",
     "StateWriteIndeterminate",
+    "StateRead",
+    "StateUnavailable",
+    "read_state",
     "App",
     "Binding",
     "Capability",

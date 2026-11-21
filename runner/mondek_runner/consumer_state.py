@@ -1,19 +1,23 @@
 # Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 # SPDX-License-Identifier: Apache-2.0
-"""Execution-scoped controller state access; never an offline cache."""
+"""Execution-scoped controller state and explicit stale-read access."""
 
 from __future__ import annotations
 
 import json
 import math
+import socket
 import time
 import urllib.error
 from dataclasses import dataclass
+from datetime import datetime
+from http.client import RemoteDisconnected
 from typing import Any, Protocol
 from uuid import UUID
 
 from .connection_diagnostics import STATE_REJECTION_CODES, ControllerHTTPError
-from .transport import post_json
+from .consumer_state_cache import StateCache, cache_identity
+from .transport import WireTimeout, post_json
 
 
 class StateError(Exception):
@@ -36,6 +40,37 @@ class StateEntry:
     expires_at: str | None
 
 
+@dataclass(frozen=True)
+class FreshState:
+    """A controller-verified entry or authoritative miss."""
+
+    entry: StateEntry | None
+
+
+@dataclass(frozen=True)
+class StaleState:
+    """A prior read, with original timestamps and no write version."""
+
+    value: Any
+    updated_at: str
+    expires_at: str | None
+    age_seconds: float
+
+
+@dataclass(frozen=True)
+class StateUnavailable:
+    """The transport failed and no eligible cached value is available."""
+
+
+type StateRead = FreshState | StaleState | StateUnavailable
+
+
+class _ReadTransportFailure(StateError):
+    def __init__(self, result: StaleState | StateUnavailable):
+        super().__init__("Controller state is unavailable")
+        self.result = result
+
+
 class StateStore(Protocol):
     def get(self, key: str) -> StateEntry | None: ...
     def put(
@@ -56,6 +91,53 @@ class StateStore(Protocol):
 @dataclass(frozen=True)
 class CheckContext:
     state: StateStore
+
+
+def read_state(store: StateStore, key: str, *, max_age_seconds: float) -> StateRead:
+    """Read authoritatively first, allowing an explicitly bounded stale value."""
+    if type(max_age_seconds) not in (float, int) or not 0 < max_age_seconds <= 86_400:
+        raise StateError(
+            "State cache age must be greater than zero and at most one day"
+        )
+    if isinstance(store, _StateClient):
+        try:
+            return FreshState(store._request("get", key, max_age=max_age_seconds))
+        except _ReadTransportFailure as error:
+            return error.result
+    return FreshState(store.get(key))
+
+
+def _transport_failure(error: Exception) -> bool:
+    if isinstance(error, urllib.error.HTTPError):
+        return False
+    if isinstance(error, urllib.error.URLError):
+        return isinstance(
+            error.reason, (socket.gaierror, ConnectionRefusedError, TimeoutError)
+        )
+    return isinstance(error, (ConnectionRefusedError, RemoteDisconnected, WireTimeout))
+
+
+def _aware_time(value: Any) -> datetime | None:
+    try:
+        if isinstance(value, str) and len(value) <= 40:
+            time_value = datetime.fromisoformat(value)
+            if time_value.tzinfo is not None:
+                return time_value
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return None
+
+
+def _cache_expiry(
+    expires_at: str | None, observed_at: Any, started: float
+) -> float | None:
+    if expires_at is None:
+        return None
+    expiry = _aware_time(expires_at)
+    observed = _aware_time(observed_at)
+    if expiry is not None and observed is not None:
+        return started + (expiry - observed).total_seconds()
+    return started
 
 
 def value_bytes(value: Any, depth: int = 0) -> int:
@@ -123,14 +205,18 @@ class _StateClient:
         deadline: float = 0,
         scope: str = "source",
         budget: _Budget | None = None,
+        cache: StateCache | None = None,
     ):
         self.url = url
         self.identity = identity or {}
         self.scope = scope
         self.budget = budget or _Budget(deadline)
+        self.cache = cache
 
     def for_check(self) -> StateStore:
-        return _StateClient(self.url, self.identity, scope="check", budget=self.budget)
+        return _StateClient(
+            self.url, self.identity, scope="check", budget=self.budget, cache=self.cache
+        )
 
     def get(self, key: str) -> StateEntry | None:
         return self._request("get", key)
@@ -174,7 +260,9 @@ class _StateClient:
             raise StateError("State TTL must be 1–2592000 seconds")
         return {"ttl_seconds": ttl}
 
-    def _request(self, operation: str, key: str, **fields: Any) -> StateEntry | None:
+    def _request(
+        self, operation: str, key: str, *, max_age: float | None = None, **fields: Any
+    ) -> StateEntry | None:
         if not self.url:
             raise StateError(
                 "Controller state is unavailable in local execution or preparation"
@@ -197,8 +285,37 @@ class _StateClient:
         remaining = self.budget.deadline - time.monotonic()
         if remaining <= 0 or self.budget.calls >= 64:
             raise StateError("State execution deadline or 64-call budget exceeded")
-        self.budget.calls += 1
         mutation = operation != "get"
+        deadline = self.budget.deadline
+        cache = self.cache
+        cache_key, address = (
+            cache_identity(self.url, self.identity, self.scope, key)
+            if cache
+            else ("", "")
+        )
+        epoch = cache.snapshot(deadline) if cache and not mutation else None
+        pending = False
+        if cache and mutation:
+            try:
+                pending = cache.begin_mutation(address, deadline)
+            except OSError:
+                raise StateError(
+                    "Local state cache could not invalidate the address"
+                ) from None
+
+        started = time.monotonic()
+        remaining = deadline - started
+        if remaining <= 0:
+            if cache and pending:
+                cache.finish_mutation()
+            raise StateError("State execution deadline or 64-call budget exceeded")
+
+        self.budget.calls += 1
+        verified_mutation = False
+        invalidate_read = False
+        remembered: dict[str, Any] | None = None
+        observed_version = None
+        expiry = None
         try:
             response = post_json(
                 self.url + "/api/v1/runner/state",
@@ -214,6 +331,7 @@ class _StateClient:
             )
             status = response.get("status")
             if status == "conflict":
+                verified_mutation = mutation and response.get("version") == 1
                 raise StateConflict("State version changed; reread before updating")
             expected = {
                 "get": ("found", "missing"),
@@ -224,6 +342,8 @@ class _StateClient:
             if response.get("version") != 1 or status not in expected:
                 raise ValueError("Invalid state receipt")
             if status in ("deleted", "missing"):
+                invalidate_read = status == "missing"
+                verified_mutation = status == "deleted"
                 return None
             e = response["entry"]
             UUID(e["version"])
@@ -233,6 +353,22 @@ class _StateClient:
                 or value_bytes(e["value"]) > 65_536
             ):
                 raise ValueError("Invalid state entry")
+            verified_mutation = mutation
+            if not mutation:
+                observed_version = e["version"]
+            if (
+                epoch is not None
+                and max_age is not None
+                and _aware_time(e["updated_at"]) is not None
+            ):
+                expiry = _cache_expiry(
+                    e["expires_at"], response.get("observed_at"), started
+                )
+                if expiry is None or expiry > time.monotonic():
+                    remembered = {
+                        field: e[field]
+                        for field in ("value", "version", "updated_at", "expires_at")
+                    }
             return StateEntry(
                 e["value"], e["version"], e["updated_at"], e["expires_at"]
             )
@@ -244,15 +380,67 @@ class _StateClient:
                 and error.code in (400, 409, 422)
                 and error.details.get("controller_code") in STATE_REJECTION_CODES
             ):
+                verified_mutation = mutation
+                invalidate_read = not mutation
                 raise StateError(
                     f"Controller state request rejected (HTTP {error.code})"
                 ) from None
             raise StateWriteIndeterminate("State write outcome is unknown") from None
-        except Exception:
+        except Exception as error:
             if mutation:
                 raise StateWriteIndeterminate(
                     "State write outcome is unknown"
                 ) from None
+            if max_age is not None and _transport_failure(error):
+                if time.monotonic() >= deadline:
+                    raise StateError("State execution deadline exceeded") from None
+                cached = (
+                    cache.load(cache_key, epoch, max_age, deadline)
+                    if cache and epoch is not None
+                    else None
+                )
+                if time.monotonic() >= deadline:
+                    raise StateError("State execution deadline exceeded") from None
+                if cached is not None:
+                    payload, age = cached
+                    raise _ReadTransportFailure(
+                        StaleState(
+                            payload["value"],
+                            payload["updated_at"],
+                            payload["expires_at"],
+                            age,
+                        )
+                    ) from None
+                raise _ReadTransportFailure(StateUnavailable()) from None
             raise StateError(
                 "Controller state is unavailable or returned an invalid response"
             ) from None
+        finally:
+            if cache:
+                if pending and verified_mutation:
+                    cache.finish_mutation()
+                elif invalidate_read or (
+                    observed_version is not None and epoch is None
+                ):
+                    try:
+                        cache.invalidate(address, deadline)
+                    except OSError:
+                        raise StateError(
+                            "Local state cache could not invalidate the address"
+                        ) from None
+                elif observed_version is not None and epoch is not None:
+                    try:
+                        cache.observe_entry(
+                            cache_key,
+                            address,
+                            observed_version,
+                            epoch,
+                            started,
+                            expiry,
+                            remembered,
+                            deadline,
+                        )
+                    except OSError:
+                        raise StateError(
+                            "Local state cache could not record the read"
+                        ) from None

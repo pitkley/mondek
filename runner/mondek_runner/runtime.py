@@ -32,6 +32,7 @@ from .authoring import label
 from .bundle import snapshot
 from .config import MAX_ASSIGNMENTS, assignment_id, validate
 from .connection_diagnostics import ConnectionEvents
+from .consumer_state_cache import prepare_cache
 from .discovery import validate_discovery
 from .state import State, inventory_summary
 from .transport import post_json
@@ -380,6 +381,7 @@ class Runner:
         transport=post_json,
         consumer: str,
         worker_backend: str = "exec",
+        consumer_state_cache: bool = False,
     ):
         self.state = state
         self.controller_url = controller_url.rstrip("/")
@@ -389,6 +391,9 @@ class Runner:
         if worker_backend not in {"exec", "warm"}:
             raise ValueError("MONDEK_WORKER_BACKEND must be exec or warm")
         self.worker_backend = worker_backend
+        self.consumer_state_cache = prepare_cache(
+            state.directory, state.session_id, consumer_state_cache
+        )
         self.warm_pool: WarmPool | None = None
         if worker_backend == "warm" and sys.platform == "linux":
             from .warm_pool import WarmPool
@@ -534,6 +539,11 @@ class Runner:
                     "bundle_dir": self.bundle_dir,
                     "execution_context": {
                         "url": self.controller_url,
+                        "state_cache": (
+                            str(self.consumer_state_cache)
+                            if self.consumer_state_cache
+                            else None
+                        ),
                         "identity": {
                             "installation_id": self.state.installation_id,
                             "session_id": self.state.session_id,

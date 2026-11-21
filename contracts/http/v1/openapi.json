@@ -5460,6 +5460,11 @@
             ],
             "nullable": true
           },
+          "observed_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
           "status": {
             "enum": [
               "found",

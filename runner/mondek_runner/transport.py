@@ -34,6 +34,10 @@ from .controller_auth import (
 MAX_BODY = 262144
 
 
+class WireTimeout(TimeoutError):
+    """A socket timeout reported by the HTTP exchange."""
+
+
 def body_limit(url: str) -> int:
     return (
         4 * 1024 * 1024
@@ -86,7 +90,7 @@ def post_json(url: str, payload: dict[str, Any], timeout: float) -> dict[str, An
         if error["type"] == "ValueError":
             raise ValueError(detail)
         if error["type"] == "TimeoutError":
-            raise TimeoutError(detail)
+            raise WireTimeout(detail)
         raise OSError(f"{error['type']}: {detail}")
     return message["response"]
 
