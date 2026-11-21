@@ -32,6 +32,7 @@ from .authoring import (
     normalize_json_numbers,
     validate_check_group,
     validate_construction_environment,
+    validate_sustain_seconds,
 )
 from .catalogs import materialize as materialize_catalogs
 from .catalogs import prepare as prepare_catalogs
@@ -50,6 +51,26 @@ def validate_output_scopes(checks: list[dict[str, Any]]) -> None:
             validate_invocation_scope(output)
             if "group" in output:
                 validate_check_group(output["group"])
+            if "sustain_seconds" in output:
+                validate_sustain_seconds(output["sustain_seconds"])
+
+
+def canonical_check_metadata(
+    checks: list[dict[str, Any]], revision: str
+) -> list[dict[str, Any]]:
+    # Inspect original wire types before normalizing other numeric values.
+    validate_output_scopes(checks)
+    canonical_checks: list[dict[str, Any]] = normalize_json_numbers(checks)
+    for index, check in enumerate(canonical_checks):
+        declared = False
+        for output in check["outputs"]:
+            if "sustain_seconds" in output:
+                declared = True
+                if output["sustain_seconds"] == 0:
+                    del output["sustain_seconds"]
+        if declared:
+            canonical_checks[index] = metadata_at_revision([check], revision)[0]
+    return canonical_checks
 
 
 def metadata_at_revision(
@@ -246,7 +267,7 @@ def prepare_snapshot(
             base = sha256(
                 canonical([entrypoint, files, runtime, private_digest])
             ).hexdigest()
-            checks = normalize_json_numbers(app.metadata(base))
+            checks = canonical_check_metadata(app.metadata(base), base)
             coverage = coverage_inventory(app, checks, entrypoint, files, runtime)
             revision = sha256(
                 canonical([base, app.source_id, checks, coverage])
@@ -422,8 +443,7 @@ def validated_snapshot(
             ]
         )
     ).hexdigest()
-    checks = normalize_json_numbers(app.metadata(base))
-    validate_output_scopes(checks)
+    checks = canonical_check_metadata(app.metadata(base), base)
     revision_parts = [base, app.source_id, checks]
     if "coverage" in manifest["inventory"]:
         coverage = coverage_inventory(
@@ -464,8 +484,9 @@ def validated_check(
         raise ValueError("check is not present in the prepared consumer")
     # The source revision is already authenticated. The definition hash uses
     # exactly the same selected metadata construction as complete discovery.
-    checks = app._metadata_for_check(revision, check_key)
-    validate_output_scopes(checks)
+    checks = canonical_check_metadata(
+        app._metadata_for_check(revision, check_key), revision
+    )
     if len(checks) != 1 or checks[0] != expected:
         raise ValueError("selected check differs from the prepared consumer revision")
     return app, manifest["inventory"]

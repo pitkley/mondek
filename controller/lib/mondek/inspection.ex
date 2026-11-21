@@ -391,7 +391,7 @@ defmodule Mondek.Inspection do
       )
 
     %{
-      items: public_streams(rows),
+      items: public_streams(rows, at),
       total: total,
       page: page,
       page_size: size,
@@ -461,7 +461,7 @@ defmodule Mondek.Inspection do
           limit: ^size,
           select: {s, a, r, knowledge(s, a, r, ^at)}
       )
-      |> public_streams()
+      |> public_streams(at)
       |> with_runner_display()
 
     %{items: items, total: total, page: page, page_size: size}
@@ -640,7 +640,7 @@ defmodule Mondek.Inspection do
           where: s.id in ^ids,
           select: {s, a, r, knowledge(s, a, r, ^at)}
       )
-      |> public_streams()
+      |> public_streams(at)
 
     rows = Map.new(with_runner_display(rows), &{&1["id"], &1})
     %{items: Enum.map(ids, &Map.fetch!(rows, &1)), total: total, page: page, page_size: size}
@@ -710,7 +710,7 @@ defmodule Mondek.Inspection do
             limit: 25,
             select: {s, a, r, knowledge(s, a, r, ^at)}
         )
-        |> public_streams()
+        |> public_streams(at)
 
       items = if stream["retired"], do: [stream | items], else: items
       total = Repo.aggregate(query, :count) + if(stream["retired"], do: 1, else: 0)
@@ -725,7 +725,7 @@ defmodule Mondek.Inspection do
     {page, size, total} = page(query, f)
     ranked = ranked_streams(query, at, true)
     summaries = target_summaries(ranked, f, at, true)
-    {items, groups} = grouped_page(ranked, summaries, page, size)
+    {items, groups} = grouped_page(ranked, summaries, page, size, at)
 
     %{
       items: items,
@@ -790,7 +790,7 @@ defmodule Mondek.Inspection do
 
     {items, groups} =
       if selected,
-        do: grouped_page(ranked, summaries, page, size, selected.id),
+        do: grouped_page(ranked, summaries, page, size, at, selected.id),
         else: {[], []}
 
     %{
@@ -888,7 +888,7 @@ defmodule Mondek.Inspection do
       }
   end
 
-  defp grouped_page(ranked, summaries, page, size, target_id \\ nil) do
+  defp grouped_page(ranked, summaries, page, size, at, target_id \\ nil) do
     positioned =
       from c in subquery(ranked),
         select_merge: %{
@@ -931,7 +931,7 @@ defmodule Mondek.Inspection do
         else: query
 
     rows = Repo.all(query)
-    items = public_streams(Enum.map(rows, fn {s, a, r, k, _, _} -> {s, a, r, k} end))
+    items = public_streams(Enum.map(rows, fn {s, a, r, k, _, _} -> {s, a, r, k} end), at)
 
     groups =
       Enum.zip(rows, items)
@@ -1723,7 +1723,7 @@ defmodule Mondek.Inspection do
                where: s.id == ^id,
                select: {s, a, r, knowledge(s, a, r, ^at)}
            ) do
-        {s, a, r, k} -> hd(public_streams([{s, a, r, k}]))
+        {s, a, r, k} -> hd(public_streams([{s, a, r, k}], at))
         nil -> nil
       end
     end
@@ -1738,7 +1738,7 @@ defmodule Mondek.Inspection do
         where: s.id in ^ids,
         select: {s, a, r, knowledge(s, a, r, ^at)}
     )
-    |> public_streams()
+    |> public_streams(at)
   end
 
   def streams_for(assignment_id, at) do
@@ -1749,7 +1749,7 @@ defmodule Mondek.Inspection do
         limit: 16,
         select: {s, a, r, knowledge(s, a, r, ^at)}
     )
-    |> Enum.map(fn {s, a, r, k} -> hd(public_streams([{s, a, r, k}])) end)
+    |> Enum.map(fn {s, a, r, k} -> hd(public_streams([{s, a, r, k}], at)) end)
   end
 
   def execution_detail(id, at) do
@@ -1811,7 +1811,8 @@ defmodule Mondek.Inspection do
       references =
         [
           stream["current"]["observation_id"],
-          stream["current"]["confirmed_observation_id"]
+          stream["current"]["confirmed_observation_id"],
+          get_in(stream, ["qualification", "effective_observation_id"])
           | Enum.map(incidents, & &1.closing_observation_id)
         ]
         |> Enum.reject(&is_nil/1)
@@ -2014,7 +2015,7 @@ defmodule Mondek.Inspection do
     end
   end
 
-  defp public_streams(rows) do
+  defp public_streams(rows, at) do
     predicate =
       Enum.reduce(rows, dynamic(false), fn {s, a, _r, _k}, pred ->
         case s.current["confirmed_generation"] do
@@ -2035,7 +2036,7 @@ defmodule Mondek.Inspection do
       |> Map.new()
 
     Enum.map(rows, fn {s, a, r, k} ->
-      stream_public(s, a, r, k)
+      stream_public(s, a, r, k, at)
       |> Map.update!(
         "current",
         &Map.put(
@@ -2047,10 +2048,11 @@ defmodule Mondek.Inspection do
     end)
   end
 
-  defp stream_public(s, a, r, k) do
+  defp stream_public(s, a, r, k, at) do
     Monitoring.public(s)
     |> Map.merge(%{
       "current" => Map.put(s.current, "knowledge", k),
+      "qualification" => Mondek.OutputSustain.public(s, a, r, at),
       "retired" => not is_nil(s.retired_at),
       "check_label" => a.label,
       "runner_id" => a.runner_id,

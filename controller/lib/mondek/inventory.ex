@@ -16,6 +16,8 @@ defmodule Mondek.Inventory do
 
   def reconcile(p, at) do
     with :ok <- validate(p) do
+      p = canonical_sustain_inventory(p)
+
       result =
         Mondek.ConfigurationRepository.transaction("inventory", fn ->
           Mondek.ConfigurationRules.lock_source!(p["source_id"])
@@ -48,7 +50,7 @@ defmodule Mondek.Inventory do
                 Repo.rollback(:stale_inventory)
 
               source && source.revision == p["inventory_revision"] &&
-                  not Parameters.same_json?(source.payload, semantic) ->
+                  not Parameters.same_json?(canonical_sustain_inventory(source.payload), semantic) ->
                 Repo.rollback(:inventory_conflict)
 
               source && source.revision == p["inventory_revision"] ->
@@ -285,8 +287,11 @@ defmodule Mondek.Inventory do
       if old do
         changed? =
           Enum.any?(attrs, fn {key, value} ->
-            not Parameters.same_json?(Map.get(old, key), value)
-          end)
+            previous = Map.get(old, key)
+            previous = if key == :outputs, do: canonical_output_sustain(previous), else: previous
+            not Parameters.same_json?(previous, value)
+          end) or
+            (sustaining?(attrs.outputs) and not sustain_enabled?(old))
 
         if changed?,
           do:
@@ -307,7 +312,7 @@ defmodule Mondek.Inventory do
         assignment_id: assignment.id,
         generation: assignment.desired_generation,
         params: params,
-        definition: definition(assignment),
+        definition: definition(assignment, true),
         saved_at: at
       })
     end
@@ -416,17 +421,54 @@ defmodule Mondek.Inventory do
 
   defp source_defaults(_, check), do: Parameters.normalized_json(check["params"])
 
-  def definition(a),
-    do:
+  def definition(a, sustain_allowed? \\ false) do
+    definition =
       Map.take(
         Monitoring.public(a),
         ~w(source_revision definition_revision parameter_contract parameter_schema outputs environment environment_label configuration_origin)
       )
-      |> then(fn definition ->
-        if a.parameter_contract,
-          do: definition,
-          else: Map.delete(definition, "parameter_contract")
-      end)
+
+    definition =
+      if a.parameter_contract, do: definition, else: Map.delete(definition, "parameter_contract")
+
+    if sustain_allowed? and sustaining?(a.outputs),
+      do: Map.put(definition, "sustain_freshness_seconds", a.freshness_seconds),
+      else: definition
+  end
+
+  def sustain_enabled?(assignment) do
+    sustaining?(assignment.outputs) and
+      Repo.exists?(
+        from c in Configuration,
+          where:
+            c.assignment_id == ^assignment.id and c.generation == ^assignment.desired_generation,
+          where: fragment("(?->>'sustain_freshness_seconds') IS NOT NULL", c.definition)
+      )
+  end
+
+  def output_sustain_seconds(output) do
+    value = (output || %{})["sustain_seconds"]
+    if sustain_seconds?(value), do: value, else: 0
+  end
+
+  defp sustaining?(outputs), do: Enum.any?(outputs || [], &(output_sustain_seconds(&1) > 0))
+
+  defp canonical_sustain_inventory(payload) do
+    update_in(payload["checks"], fn checks ->
+      Enum.map(
+        checks || [],
+        &Map.update!(&1, "outputs", fn outputs -> canonical_output_sustain(outputs) end)
+      )
+    end)
+  end
+
+  def canonical_output_sustain(outputs) when is_list(outputs) do
+    Enum.map(outputs, fn output ->
+      if output["sustain_seconds"] === 0, do: Map.delete(output, "sustain_seconds"), else: output
+    end)
+  end
+
+  def canonical_output_sustain(outputs), do: outputs
 
   def validate(p) when is_map(p) do
     bounded = Mondek.Protocol.json_text?(p) and byte_size(Jason.encode!(p)) <= 4_194_304
@@ -521,9 +563,11 @@ defmodule Mondek.Inventory do
            Parameters.text?(target, 200) and Parameters.text?(kind, 64) and
            Parameters.text?(target_label, 200) and
            Mondek.Protocol.condition?(output["condition"]) and
+           sustain_seconds?(Map.get(output, "sustain_seconds", 0)) and
            (not Map.has_key?(output, "group") or Mondek.Protocol.check_group?(output["group"]))
 
   defp output?(_), do: false
+  defp sustain_seconds?(value), do: is_integer(value) and value in 0..86_400
   defp condition_identity(nil), do: nil
   defp condition_identity(value), do: Map.take(value, ~w(namespace key))
   defp bounded?(value, maximum), do: is_number(value) and value >= 0.1 and value <= maximum

@@ -110,7 +110,18 @@ defmodule Mondek.Sweeper do
             order_by: i.assignment_id
         )
 
-      Enum.each(assignment_ids, &Monitoring.lock_assignment/1)
+      expired_sustain =
+        Repo.all(
+          from [s, a, r] in expired_sustain(at),
+            order_by: [asc: a.id, asc: s.id],
+            limit: ^limit,
+            select: {s.id, a.id}
+        )
+
+      (assignment_ids ++ Enum.map(expired_sustain, &elem(&1, 1)))
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.each(&Monitoring.lock_assignment/1)
 
       condition_ids =
         Repo.all(
@@ -241,6 +252,22 @@ defmodule Mondek.Sweeper do
 
       monitoring_count = MonitoringLoss.prune!(history_cutoff, limit)
 
+      expired_stream_ids = Enum.map(expired_sustain, &elem(&1, 0))
+
+      expired_streams =
+        from [s, a, r] in expired_sustain(at),
+          where: s.id in ^expired_stream_ids,
+          select: s.id
+
+      {cleared_sustain, _} =
+        Repo.update_all(
+          from(s in Mondek.ResultStream,
+            where: s.id in subquery(expired_streams),
+            update: [set: [sustain: fragment("? - ARRAY['warn','crit','previous']", s.sustain)]]
+          ),
+          []
+        )
+
       # Remove evidence only after terminal parents and their immutable references
       # have expired. Still-retained contributions/facts protect their exact rows.
       aged_observations =
@@ -249,7 +276,9 @@ defmodule Mondek.Sweeper do
           DELETE FROM observations WHERE id IN (SELECT observations.id FROM observations WHERE received_at < $1
           AND NOT EXISTS (SELECT 1 FROM assignments a WHERE (a.retired_at IS NULL OR a.retired_at >= $2) AND observations.id::text IN
             (a.current->>'observation_id', a.current->>'confirmed_observation_id'))
-          AND NOT EXISTS (SELECT 1 FROM result_streams s JOIN assignments a ON a.id=s.assignment_id WHERE (s.retired_at IS NULL OR s.retired_at >= $2) AND observations.id::text IN (s.current->>'observation_id',s.current->>'confirmed_observation_id'))
+          AND NOT EXISTS (SELECT 1 FROM result_streams s JOIN assignments a ON a.id=s.assignment_id WHERE (s.retired_at IS NULL OR s.retired_at >= $2) AND observations.id::text IN (s.current->>'observation_id',s.current->>'confirmed_observation_id',
+            s.sustain->>'effective_observation_id', s.sustain#>>'{warn,observation_id}',
+            s.sustain#>>'{crit,observation_id}', s.sustain#>>'{previous,observation_id}'))
           #{protect_unresolved}
           ORDER BY received_at,id LIMIT $3)
           """,
@@ -265,7 +294,9 @@ defmodule Mondek.Sweeper do
             SELECT id FROM observations ORDER BY received_at DESC,id DESC OFFSET $3
           ) AND NOT EXISTS (SELECT 1 FROM assignments a WHERE (a.retired_at IS NULL OR a.retired_at >= $1) AND observations.id::text IN
             (a.current->>'observation_id', a.current->>'confirmed_observation_id'))
-          AND NOT EXISTS (SELECT 1 FROM result_streams s JOIN assignments a ON a.id=s.assignment_id WHERE (s.retired_at IS NULL OR s.retired_at >= $1) AND observations.id::text IN (s.current->>'observation_id',s.current->>'confirmed_observation_id'))
+          AND NOT EXISTS (SELECT 1 FROM result_streams s JOIN assignments a ON a.id=s.assignment_id WHERE (s.retired_at IS NULL OR s.retired_at >= $1) AND observations.id::text IN (s.current->>'observation_id',s.current->>'confirmed_observation_id',
+            s.sustain->>'effective_observation_id', s.sustain#>>'{warn,observation_id}',
+            s.sustain#>>'{crit,observation_id}', s.sustain#>>'{previous,observation_id}'))
           #{protect_unresolved}
           ORDER BY received_at,id LIMIT $2)
           """,
@@ -374,7 +405,33 @@ defmodule Mondek.Sweeper do
         configurations: configurations.num_rows
       }
 
-      %{deleted: counts, more?: Enum.any?(counts, fn {_kind, count} -> count == limit end)}
+      %{
+        deleted: counts,
+        more?:
+          cleared_sustain == limit or Enum.any?(counts, fn {_kind, count} -> count == limit end)
+      }
     end)
+  end
+
+  defp expired_sustain(at) do
+    from s in Mondek.ResultStream,
+      join: a in Mondek.Assignment,
+      on: a.id == s.assignment_id,
+      left_join: r in Mondek.Runner,
+      on: r.id == a.runner_id,
+      where: fragment("(?->'previous') IS NOT NULL", s.sustain),
+      where:
+        not is_nil(s.retired_at) or not is_nil(a.retired_at) or
+          fragment("?->>'session_id' IS DISTINCT FROM ?::text", s.sustain, r.session_id) or
+          fragment(
+            "?->>'generation' IS DISTINCT FROM ?::text",
+            s.sustain,
+            a.authorized_generation
+          ) or
+          fragment(
+            "(? #>> '{previous,expires_at}')::timestamp <= ?",
+            s.sustain,
+            type(^at, :utc_datetime_usec)
+          )
   end
 end

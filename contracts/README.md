@@ -1,6 +1,6 @@
 # Protocol contracts
 
-[The v1 specification](v1/protocol.md) describes the current runner/server protocol and operator endpoints: payloads, identities, timestamps, admission, retries and bounds. Its specification and five JSON fixture files live together in v1/. The JSON files are shared test vectors, not JSON Schema documents. They generate no application code, serializers or validators, and production processes do not load them. Validation is implemented independently in Elixir and Python; tests load the same examples to check agreement on specific cases.
+[The v1 specification](v1/protocol.md) describes the current runner/server protocol and operator endpoints: payloads, identities, timestamps, admission, retries and bounds. Its specification and shared JSON fixture files live together in v1/. The JSON files are shared test vectors, not JSON Schema documents. They generate no application code, serializers or validators, and production processes do not load them. Validation is implemented independently in Elixir and Python; tests load the same examples to check agreement on specific cases.
 
 ## Versioning
 
@@ -17,6 +17,7 @@ Paths below identify the actual fixture consumers; linked test modules contain a
 | [discovery.json](v1/discovery.json) | [test_discovery.py](../runner/tests/test_discovery.py), `DiscoveryTests.test_shared_contract` | [discovery_test.exs](../controller/test/mondek/discovery_test.exs) | Discovery payload acceptance/rejection agrees between Python validation and both server discovery validation and report admission. |
 | [consumer-state.json](v1/consumer-state.json) | [test_consumer_state.py](../runner/tests/test_consumer_state.py) | [consumer_state_test.exs](../controller/test/mondek/consumer_state_test.exs) | Recursive state byte accounting, including scalar/null, integral/fractional numbers, control characters and non-BMP Unicode. Native and real HTTP tests separately exercise state admission, CAS, quota, expiry and transport failures. |
 | [check-groups.json](v1/check-groups.json) | [test_check_groups.py](../runner/tests/test_check_groups.py), `CheckGroupTests.test_wire_contract_and_hostile_metadata` | [inventory_test.exs](../controller/test/mondek/inventory_test.exs) | Optional output-group metadata is accepted/rejected by Python snapshot validation and server inventory validation. The Python test also checks malformed groups against the authoring validator. |
+| [output-sustain.json](v1/output-sustain.json) | [test_output_sustain.py](../runner/tests/test_output_sustain.py) | [output_sustain_test.exs](../controller/test/mondek/output_sustain_test.exs) | Both runtimes validate the source-owned duration and canonical default. Controller ingestion also exercises the timing and impact vectors. |
 
 Both language suites run in `devenv shell -- mondek test` and CI's **Unit tests and checks** job. See [development commands](../DEVELOPMENT.md) and the [coverage map](../docs/ACCEPTANCE-COVERAGE.md) for isolated database and service-suite requirements. Changing prose alone does not enforce behavior; a protocol change needs implementation and tests as well as updated examples/specification.
 

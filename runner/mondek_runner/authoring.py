@@ -358,6 +358,11 @@ def validate_check_group(value: Any) -> dict[str, str]:
     }
 
 
+def validate_sustain_seconds(value: Any) -> None:
+    if type(value) is not int or not 0 <= value <= 86_400:
+        raise ValueError("output sustain_seconds must be an integer from 0 to 86400")
+
+
 @dataclass(frozen=True)
 class Output:
     key: str
@@ -365,8 +370,10 @@ class Output:
     target: Target | None = None
     condition: Condition | None = None
     group: CheckGroup | None = None
+    sustain_seconds: int = 0
 
     def __post_init__(self) -> None:
+        validate_sustain_seconds(self.sustain_seconds)
         if self.condition is not None and not isinstance(self.condition, Condition):
             raise ValueError("output condition requires a Condition declaration")
         if self.group is not None and not isinstance(self.group, CheckGroup):
@@ -1250,6 +1257,11 @@ class App:
                         **(
                             {"group": (output.group or binding.group).to_dict()}
                             if output.group or binding.group
+                            else {}
+                        ),
+                        **(
+                            {"sustain_seconds": output.sustain_seconds}
+                            if output.sustain_seconds
                             else {}
                         ),
                     }
