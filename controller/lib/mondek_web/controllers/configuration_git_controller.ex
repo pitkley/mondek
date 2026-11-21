@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.ConfigurationGitController do
   use MondekWeb, :controller
-  alias Mondek.{ConfigurationGit, ConfigurationRepository}
+  alias Mondek.{ConfigurationGit, ConfigurationGitAccess, ConfigurationRepository}
   @limit 8_388_608
 
-  plug :authenticate
   plug :no_cache
+  plug :authenticate
 
   def info(conn, %{"service" => service})
       when service in ["git-upload-pack", "git-receive-pack"] do
@@ -80,18 +80,23 @@ defmodule MondekWeb.ConfigurationGitController do
       "Configuration rejected; fetch current configuration and review the supported format and parameter contracts"
 
   defp authenticate(conn, _) do
-    token = Application.get_env(:mondek, :configuration_git_token)
+    case ConfigurationGitAccess.token() do
+      {:ok, token} ->
+        case Plug.BasicAuth.parse_basic_auth(conn) do
+          {"mondek", password} ->
+            if ConfigurationGitAccess.valid_token?(token, password),
+              do: conn,
+              else: unauthorized(conn)
 
-    if is_binary(token) and byte_size(token) >= 32 do
-      case Plug.BasicAuth.parse_basic_auth(conn) do
-        {"mondek", password} ->
-          if Plug.Crypto.secure_compare(token, password), do: conn, else: unauthorized(conn)
+          _ ->
+            unauthorized(conn)
+        end
 
-        _ ->
-          unauthorized(conn)
-      end
-    else
-      conn |> send_resp(404, "Not found") |> halt()
+      :disabled ->
+        conn |> send_resp(404, "Not found") |> halt()
+
+      :unavailable ->
+        conn |> send_resp(503, "Git credentials unavailable") |> halt()
     end
   end
 
