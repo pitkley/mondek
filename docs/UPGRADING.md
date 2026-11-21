@@ -70,13 +70,11 @@ Notification delivery still defaults to SMTP in deployment mode. If you opt into
 
 Existing Configuration Git token settings continue to work. When adopting file-based rotation, mount the containing directory and preserve access from the controller UID. If enabling the separate Git token header behind a gateway, update gateway rules and client credentials together. See [Configuration Git](CONFIGURATION-GIT.md).
 
-## Per-output failure sustain
+## 0.0.7: output sustain and measurement lineage
 
-Packaged startup adds the sustain projection column to result streams. Existing declarations default to immediate incident handling and retain their measurements and open incidents. Upgrade both controller and runner before publishing positive sustain settings. A downgrade cannot apply positive sustain policies, so restore matching consumer declarations and artifacts together when rolling back. See [per-output sustain](OUTPUT-SUSTAIN-DESIGN.md).
+After backing up PostgreSQL and complete runner state directories, upgrade the controller and SDK together. Packaged startup applies `20261121110000_add_output_sustain` and `20261121120000_link_condition_measurement_history`. The first adds the per-stream sustain projection. The second backfills unambiguous predecessor links with a retained Condition-change audit record. Existing measurements, stream identities and open incidents keep their original data.
 
-## Condition measurement history
-
-Packaged startup adds result-stream predecessor links. It backfills unambiguous Condition changes that still have their corresponding audit record. The migration leaves original measurements and stream identities in place.
+Existing output declarations use immediate incident handling. Upgrade both components before publishing positive `sustain_seconds` values. For rollback, use matching consumer declarations and artifacts together. The warm-worker prototype requires an explicit consumer declaration and a runner setting. See [per-output sustain](OUTPUT-SUSTAIN-DESIGN.md), [measurement lineage](RESULT-MEASUREMENT-LINEAGE.md) and [warm workers](WARM-WORKER-PROTOTYPE.md).
 
 ## Runtime cases
 
