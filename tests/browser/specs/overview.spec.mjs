@@ -27,6 +27,13 @@ test('LiveView overview preserves independent evidence and missing declarations 
   await page.goto('/');
   await connected(page);
   await expect(page.locator('#preview-attention')).toContainText('Critical');
+  const favicon = page.locator('#mondek-favicon');
+  await expect(favicon).toHaveAttribute('data-open-alerts', /^[1-9]\d*$/);
+  await expect(favicon).toHaveAttribute('href', /^data:image\/png/);
+  await expect.poll(async () => {
+    const total = (await page.locator('#overview-open-alert-count').textContent()).trim();
+    return total === `${await favicon.getAttribute('data-open-alerts')} open`;
+  }).toBe(true);
   await expect(page.locator('#preview-healthy-results')).toContainText('Healthy');
   await expect(page.locator('#preview-unobserved')).toContainText('No selected runner');
   await expect(page.locator('link[href*="app.css"]')).toHaveCount(0);
@@ -218,6 +225,7 @@ test('LiveView overview preserves independent evidence and missing declarations 
   await connected(page);
   await expect(page).toHaveURL(selectedURL);
   await expect(page.locator('#overview-panel')).toContainText('Critical');
+  await expect(favicon).toHaveAttribute('href', /^data:image\/png/);
   await page.keyboard.press('Escape');
   await expect(page.locator('#overview-panel')).toHaveCount(0);
   await expect(page.locator(`#${openerId}`)).toBeFocused();
@@ -301,7 +309,7 @@ test('thirty real alerts remain compact and page without dropping evidence', asy
         target: {key: name, label: name, kind: 'host'}}]};
   });
   const post = async (path, data) => {
-    const response = await request.post(`/api/v1/${path}`, {data});
+    const response = await request.post(`/api/v1/runner/${path}`, {data});
     expect(response.ok(), await response.text()).toBeTruthy();
     return response.json().then(unpackAPI);
   };

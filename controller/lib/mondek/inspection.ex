@@ -209,9 +209,11 @@ defmodule Mondek.Inspection do
 
     open_count = elem(standalone, 0) + elem(grouped, 0)
     acknowledged_count = elem(standalone, 1) + elem(grouped, 1)
+    monitoring_loss = Mondek.MonitoringLoss.counts(at)
 
     %{
-      "monitoring_loss" => Mondek.MonitoringLoss.counts(at),
+      "monitoring_loss" => monitoring_loss,
+      "open_alert_count" => open_count + monitoring_loss["open_count"],
       "open_incident_count" => open_count,
       "unacknowledged_incident_count" => open_count - acknowledged_count,
       "acknowledged_incident_count" => acknowledged_count
@@ -226,6 +228,7 @@ defmodule Mondek.Inspection do
       "now" => Monitoring.iso(at),
       "coverage" => coverage(at),
       "monitoring_loss" => counts["monitoring_loss"],
+      "open_alert_count" => counts["open_alert_count"],
       "open_incident_count" => counts["open_incident_count"],
       "unacknowledged_incident_count" => counts["unacknowledged_incident_count"],
       "acknowledged_incident_count" => counts["acknowledged_incident_count"],

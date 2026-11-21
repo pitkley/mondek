@@ -18597,6 +18597,10 @@
                           ],
                           "nullable": true
                         },
+                        "open_alert_count": {
+                          "nullable": true,
+                          "type": "integer"
+                        },
                         "open_incident_count": {
                           "allOf": [
                             {

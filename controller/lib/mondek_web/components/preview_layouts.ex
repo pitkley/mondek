@@ -12,6 +12,12 @@ defmodule MondekWeb.PreviewLayouts do
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={Plug.CSRFProtection.get_csrf_token()} />
         <.live_title suffix=" · Mondek">{assigns[:page_title] || "Mondek"}</.live_title>
+        <link
+          id="mondek-favicon"
+          rel="icon"
+          type="image/png"
+          href={MondekWeb.Endpoint.static_path("/images/mondek-favicon.png")}
+        />
         <link rel="stylesheet" href={MondekWeb.Endpoint.static_path("/assets/preview.css")} />
         <script defer type="module" src={MondekWeb.Endpoint.static_path("/assets/preview.js")}>
         </script>
