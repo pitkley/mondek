@@ -6,7 +6,7 @@ defmodule Mondek.MixProject do
   def project,
     do: [
       app: :mondek,
-      version: "0.0.5",
+      version: "0.0.6",
       package: [licenses: ["Apache-2.0"]],
       elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
