@@ -267,16 +267,22 @@ for {setting, name, default} <- [
   config :mondek, setting, value
 end
 
-# Git access is opt-in and requires a deployment-local token for reads and writes.
-configuration_git_token =
-  case env.("MONDEK_CONFIGURATION_GIT_TOKEN", nil) do
-    nil -> nil
-    "" -> nil
-    token when byte_size(token) >= 32 -> token
-    _ -> raise "MONDEK_CONFIGURATION_GIT_TOKEN must contain at least 32 bytes"
-  end
+# File mode is authoritative, including when the credential is unavailable.
+case env.("MONDEK_CONFIGURATION_GIT_TOKEN_FILE", nil) do
+  nil ->
+    token =
+      case env.("MONDEK_CONFIGURATION_GIT_TOKEN", nil) do
+        nil -> nil
+        "" -> nil
+        token when byte_size(token) >= 32 -> token
+        _ -> raise "MONDEK_CONFIGURATION_GIT_TOKEN must contain at least 32 bytes"
+      end
 
-config :mondek, :configuration_git_token, configuration_git_token
+    config :mondek, configuration_git_token: token, configuration_git_token_file: nil
+
+  path ->
+    config :mondek, configuration_git_token: nil, configuration_git_token_file: path
+end
 
 retention =
   for {key, name, default, maximum} <- [

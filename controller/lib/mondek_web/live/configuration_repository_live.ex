@@ -177,9 +177,7 @@ defmodule MondekWeb.ConfigurationRepositoryLive do
       state: state,
       error: error,
       history: if(state, do: ConfigurationHistory.recent(), else: []),
-      git_enabled:
-        is_binary(Application.get_env(:mondek, :configuration_git_token)) and
-          byte_size(Application.get_env(:mondek, :configuration_git_token, "") || "") >= 32
+      git_status: Mondek.ConfigurationGitAccess.status()
     )
     |> filter_history()
   end
@@ -395,9 +393,13 @@ defmodule MondekWeb.ConfigurationRepositoryLive do
         <PreviewDetail.facts label="Git access">
           <tr>
             <th scope="row">Access</th><td>
-              <span class={["badge", @git_enabled && "good"]}>{if @git_enabled,
-                do: "Enabled",
-                else: "Disabled"}</span>
+              <span class={["badge", @git_status == :available && "good"]}>
+                {case @git_status do
+                  :available -> "Enabled"
+                  :disabled -> "Disabled"
+                  :unavailable -> "Credential unavailable"
+                end}
+              </span>
             </td>
           </tr><tr>
             <th scope="row">Repository</th><td>
@@ -411,8 +413,11 @@ defmodule MondekWeb.ConfigurationRepositoryLive do
           </tr>
         </PreviewDetail.facts>
         <div class="configuration-card-body">
-          <p :if={!@git_enabled} id="configuration-git-disabled">
-            Configure MONDEK_CONFIGURATION_GIT_TOKEN with at least 32 characters to enable Git access. UI saves are still automatically versioned.
+          <p :if={@git_status == :disabled} id="configuration-git-disabled">
+            Set MONDEK_CONFIGURATION_GIT_TOKEN_FILE or MONDEK_CONFIGURATION_GIT_TOKEN to enable Git access. UI saves are still automatically versioned.
+          </p>
+          <p :if={@git_status == :unavailable} id="configuration-git-unavailable">
+            Check that the configured credential file is readable and contains a valid token. UI saves are still automatically versioned.
           </p>
           <details class="configuration-disclosure">
             <summary>Clone, edit and push</summary><div class="configuration-disclosure-body">

@@ -39,6 +39,19 @@ defmodule MondekWeb.ConfigurationRepositoryLiveTest do
     refute html =~ token
   end
 
+  test "an unavailable token file is distinguished from disabled Git access" do
+    previous = Application.get_env(:mondek, :configuration_git_token_file)
+    on_exit(fn -> Application.put_env(:mondek, :configuration_git_token_file, previous) end)
+    path = Path.join(System.tmp_dir!(), "private-token-location-" <> Ecto.UUID.generate())
+    Application.put_env(:mondek, :configuration_git_token_file, path)
+
+    {:ok, view, html} = live(build_conn(), "/configuration/history")
+    assert has_element?(view, "#configuration-repository-git .badge", "Credential unavailable")
+    assert has_element?(view, "#configuration-git-unavailable")
+    refute has_element?(view, "#configuration-git-disabled")
+    refute html =~ path
+  end
+
   test "configuration inventory and rules link to history" do
     {:ok, inventory, _} = live(build_conn(), "/configuration")
     assert has_element?(inventory, "a[href='/configuration/history']")
