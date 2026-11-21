@@ -12,7 +12,9 @@ defmodule Mondek.OverviewFilters do
   def params(values) do
     params =
       values
-      |> Map.take(~w(search environment target_kind target_key page healthy_page expected_page))
+      |> Map.take(
+        ~w(search environment target_kind target_key page healthy_page expected_page acknowledged_incident_page unacknowledged_incident_page)
+      )
       |> Map.filter(fn {_key, value} ->
         is_binary(value) and String.valid?(value) and not String.contains?(value, <<0>>)
       end)
