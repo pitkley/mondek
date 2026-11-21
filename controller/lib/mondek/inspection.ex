@@ -1807,6 +1807,7 @@ defmodule Mondek.Inspection do
 
     %{
       "occurrences" => Monitoring.inspect_occurrences(occurrences, at),
+      "delivery_enabled" => Mondek.NotificationDelivery.enabled?(),
       "notification_page" => %{
         "status" => status,
         "page" => page,

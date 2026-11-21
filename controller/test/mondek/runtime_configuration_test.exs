@@ -381,6 +381,21 @@ defmodule Mondek.RuntimeConfigurationTest do
     assert config[:smtp][:timeout_ms] == 10_000
   end
 
+  test "delivery off accepts a deployment without transport settings or readable secrets" do
+    deployment()
+    System.put_env("MONDEK_NOTIFICATION_ADAPTER", "off")
+    Enum.each(~w(MONDEK_SMTP_HOST MONDEK_SMTP_FROM MONDEK_SMTP_TO), &System.delete_env/1)
+    assert configuration()[:notification_adapter] == :off
+
+    System.put_env("MONDEK_WEBHOOK_CONFIG_FILE", "/nonexistent/unused-webhook-secret")
+    System.put_env("MONDEK_SMTP_HOST", "unused")
+    System.put_env("MONDEK_SMTP_TRANSPORT", "invalid")
+    config = configuration()
+    assert config[:notification_adapter] == :off
+    refute Keyword.has_key?(config, :smtp)
+    refute Keyword.has_key?(config, :webhook)
+  end
+
   test "inactive transports stay configured so their frozen queues can drain" do
     path =
       Path.join(
@@ -453,7 +468,7 @@ defmodule Mondek.RuntimeConfigurationTest do
     System.put_env("MONDEK_NOTIFICATION_ADAPTER", "private-value")
 
     assert_raise RuntimeError,
-                 "MONDEK_NOTIFICATION_ADAPTER must be smtp or webhook",
+                 "MONDEK_NOTIFICATION_ADAPTER must be smtp, webhook or off",
                  &configuration/0
   end
 end

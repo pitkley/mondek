@@ -362,7 +362,9 @@ defmodule Mondek.Conditions do
           where: o.condition_incident_id == ^group.id and o.kind != "resolved"
       )
 
-    if attempted?, do: create_occurrence!(group, nil, closing_member, nil, at)
+    if attempted? and Mondek.NotificationDelivery.enabled?(),
+      do: create_occurrence!(group, nil, closing_member, nil, at)
+
     request_gate_wake!(group.id)
     group
   end
@@ -398,6 +400,10 @@ defmodule Mondek.Conditions do
           create_fact!(group, kind, key, label, Enum.find(members, &supports?(&1, kind, key)), at)
       end)
 
+    if Mondek.NotificationDelivery.enabled?(), do: request_facts!(group, members, facts, at)
+  end
+
+  defp request_facts!(group, members, facts, at) do
     warn = Enum.find(facts, &(&1.kind == "severity" and &1.key == "WARN"))
 
     requested =
@@ -513,19 +519,7 @@ defmodule Mondek.Conditions do
       })
     end
 
-    Mondek.CorrelationDelivery.epoch!(
-      id,
-      Application.get_env(:mondek, :notification_max_attempts, 100)
-    )
-
-    %{
-      "occurrence_id" => id,
-      "delivery_channel" => Mondek.NotificationDelivery.channel(destination)
-    }
-    |> Mondek.NotificationWorker.new(
-      max_attempts: Application.get_env(:mondek, :notification_max_attempts, 100)
-    )
-    |> Oban.insert!()
+    Monitoring.enqueue_notification!(id, destination)
 
     occurrence
   end

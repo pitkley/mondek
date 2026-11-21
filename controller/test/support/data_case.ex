@@ -242,6 +242,17 @@ defmodule Mondek.Fixtures do
     |> Map.merge(overrides)
   end
 
+  def set_notification_adapter(adapter) do
+    previous = Application.get_env(:mondek, :notification_adapter)
+    Application.put_env(:mondek, :notification_adapter, adapter)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      if previous,
+        do: Application.put_env(:mondek, :notification_adapter, previous),
+        else: Application.delete_env(:mondek, :notification_adapter)
+    end)
+  end
+
   def control(overrides \\ %{}) do
     r = report()
 

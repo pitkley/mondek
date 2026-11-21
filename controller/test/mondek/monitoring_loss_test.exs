@@ -189,6 +189,20 @@ defmodule Mondek.MonitoringLossTest do
     assert episode().opened_at == gap.ready_at
   end
 
+  test "delivery off retains loss and restoration without new notification work" do
+    set_notification_adapter(:off)
+    single()
+    sample("UNKNOWN", 2, 2)
+    tick(7)
+    loss = episode()
+    refute Repo.exists?(Occurrence)
+
+    sample("OK", 3, 9)
+    assert Repo.get!(MonitoringIncident, loss.id).closure_reason == "monitoring_restored"
+    refute Repo.exists?(Occurrence)
+    refute Repo.exists?(Mondek.CorrelationCredit)
+  end
+
   test "retirement ends monitoring administratively and does not claim restoration" do
     single()
     sample("UNKNOWN", 2, 2)

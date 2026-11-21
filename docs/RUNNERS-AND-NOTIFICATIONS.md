@@ -20,6 +20,14 @@ Open a notification to inspect its original receiver, incident or result, contro
 
 Manual retry requires a reason and reuses the original immutable notification and destination through the existing delivery policy. Failure delivery still respects acknowledgement and maintenance. Receiver acceptance is transport evidence: SMTP acceptance does not prove inbox delivery or that a person read the message; webhook HTTP acceptance does not establish that a downstream workflow posted a card. Configure [email](EMAIL-NOTIFICATIONS.md) or [webhooks and Teams](WEBHOOK-NOTIFICATIONS.md) on the controller. Lost replies can cause duplicate delivery. These views change inspection, not notification ownership, retry budgets or execution semantics.
 
+## Turn delivery off
+
+Set `MONDEK_NOTIFICATION_ADAPTER=off` in the controller environment and recreate or restart it. For the packaged Compose recipe, set it in the environment Compose uses to interpolate `compose.yaml` (normally the installation's `.env`). The controller can start with delivery off without SMTP settings or a webhook secret. Measurements, incident tracking and delivery history remain available.
+
+While off, the controller suppresses new native notifications, including recovery events, and blocks manual retry. Existing eligible native work and outstanding case terminal work can resume when a delivery adapter is enabled again, subject to their original destinations, retry budgets and eligibility. A frozen case failure batch keeps its original handover deadline. If it expires, eligible native work resumes independently when delivery is enabled. An already admitted attempt can finish if its worker is still running. Pausing work does not spend a delivery attempt or extend its deadline.
+
+A shared condition still active after re-enabling delivery can request notification when its supporting membership, severity or impacts change. The notification uses the evidence available at that reconciliation.
+
 ## URLs and verification
 
 The inventories are `/runners` and `/notifications`. A row opens its typed investigation over the current host; direct details also have `/runners/:id` and `/notifications/:id` with `/full` for dedicated pages. Their canonical bodies and controls are shared. Browser URLs may change during this experimental phase; obsolete fragment or query redirects are not retained.

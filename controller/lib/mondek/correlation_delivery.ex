@@ -424,37 +424,44 @@ defmodule Mondek.CorrelationDelivery do
                 r.status == "reserved" and r.epoch == cr.epoch and cr.spent < cr.limit - 1
               end)
 
-          if valid do
-            Enum.each(rs, fn r ->
-              cr = Repo.get!(CorrelationCredit, r.occurrence_id)
-              CaseControls.change_row(cr, %{spent: cr.spent + 1})
-            end)
+          cond do
+            not valid ->
+              release!(b)
+              :wait
 
-            attempt =
-              Repo.insert!(%CorrelationAttempt{
-                batch_id: b.id,
-                kind: "failure",
-                status: "started",
-                started_at: at
+            not Mondek.NotificationDelivery.enabled?() ->
+              :delivery_disabled
+
+            true ->
+              Enum.each(rs, fn r ->
+                cr = Repo.get!(CorrelationCredit, r.occurrence_id)
+                CaseControls.change_row(cr, %{spent: cr.spent + 1})
+              end)
+
+              attempt =
+                Repo.insert!(%CorrelationAttempt{
+                  batch_id: b.id,
+                  kind: "failure",
+                  status: "started",
+                  started_at: at
+                })
+
+              CaseControls.change_row(b, %{
+                status: "delivering",
+                attempts: b.attempts + 1,
+                terminal_status: "waiting"
               })
 
-            CaseControls.change_row(b, %{
-              status: "delivering",
-              attempts: b.attempts + 1,
-              terminal_status: "waiting"
-            })
-
-            {:send, b, attempt, b.payload}
-          else
-            release!(b)
-            :wait
+              {:send, b, attempt, b.payload}
           end
 
         b.terminal_status == "delivering" ->
           recover_attempt!(b, at)
 
         b.terminal_status in ["waiting", "pending"] ->
-          terminal!(b, refs, at)
+          if Mondek.NotificationDelivery.enabled?(),
+            do: terminal!(b, refs, at),
+            else: :delivery_disabled
 
         true ->
           :done
@@ -698,6 +705,7 @@ defmodule Mondek.CorrelationDelivery do
 
     %{
       acknowledgement: CaseControls.data(id, Monitoring.now()),
+      delivery_enabled: Mondek.NotificationDelivery.enabled?(),
       batching_enabled: Repo.get!(CorrelationCase, id).batching_enabled,
       batch_page: %{
         page: page,
@@ -747,6 +755,9 @@ defmodule Mondek.CorrelationDeliveryWorker do
 
         Mondek.CorrelationDelivery.finish(id, a.id, result)
         {:snooze, 2}
+
+      {:ok, :delivery_disabled} ->
+        {:snooze, 30}
 
       {:ok, :wait} ->
         {:snooze, 2}

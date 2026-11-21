@@ -278,6 +278,7 @@ defmodule Mondek.Monitoring do
       result =
         Repo.transaction(fn ->
           existing = Repo.get(Occurrence, id) || Repo.rollback(:not_found)
+          unless Mondek.NotificationDelivery.enabled?(), do: Repo.rollback(:delivery_disabled)
           Mondek.CorrelationDelivery.lock_native!(existing)
 
           reserved? =
@@ -997,7 +998,7 @@ defmodule Mondek.Monitoring do
             latest_failure_observation_id: o.id
           })
 
-        occurrence(incident, "firing", o, at)
+        if Mondek.NotificationDelivery.enabled?(), do: occurrence(incident, "firing", o, at)
 
       health in ["WARN", "CRIT"] and
           (incident.health != health or
@@ -1035,7 +1036,7 @@ defmodule Mondek.Monitoring do
 
         incident = change(incident, attrs)
         supersede_firing(incident)
-        occurrence(incident, "update", o, at)
+        if Mondek.NotificationDelivery.enabled?(), do: occurrence(incident, "update", o, at)
 
       health == "OK" and not is_nil(incident) ->
         reason =
@@ -1073,7 +1074,8 @@ defmodule Mondek.Monitoring do
 
         supersede_firing(incident)
 
-        if attempted?, do: occurrence(incident, "resolved", o, at)
+        if attempted? and Mondek.NotificationDelivery.enabled?(),
+          do: occurrence(incident, "resolved", o, at)
 
       health in ["WARN", "CRIT"] ->
         change(incident, %{impacts: impacts, latest_failure_observation_id: o.id})
@@ -1923,6 +1925,8 @@ defmodule Mondek.Monitoring do
       )
       |> MapSet.new()
 
+    delivery_enabled = Mondek.NotificationDelivery.enabled?()
+
     # Ordinary history may expire between the bounded reads. Current and open
     # work is protected; omit a concurrently expired historical parent.
     occurrences
@@ -1974,7 +1978,7 @@ defmodule Mondek.Monitoring do
         end
 
       next_retry =
-        if eligibility not in [:delivered, :superseded] and
+        if delivery_enabled and eligibility not in [:delivered, :superseded] and
              occurrence.status not in ["exhausted", "delivering"] and
              not (gates != [] and is_nil(gated_until)) do
           case Map.get(scheduled, occurrence.id) do
@@ -2003,8 +2007,10 @@ defmodule Mondek.Monitoring do
         "next_retry_at" => iso(next_retry),
         "latest_attempt" => Map.get(latest_attempts, occurrence.id),
         "attempt_count" => Map.get(attempt_counts, occurrence.id, 0),
+        "delivery_enabled" => delivery_enabled,
         "can_retry" =>
-          occurrence.status == "exhausted" and eligibility not in [:delivered, :superseded] and
+          delivery_enabled and occurrence.status == "exhausted" and
+            eligibility not in [:delivered, :superseded] and
             not MapSet.member?(active_jobs, occurrence.id)
       })
     end)

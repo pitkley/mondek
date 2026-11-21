@@ -67,6 +67,85 @@ defmodule Mondek.CorrelationDeliveryTest do
 
   defp occurrence(i), do: Repo.get_by!(Occurrence, incident_id: i.id, kind: "firing")
 
+  test "off prevents batch reservation and lets frozen handover expire without spending credit" do
+    a = incident("A")
+    b = incident("B")
+    id = create_case([a, b])
+    control(id, "enable")
+    x = occurrence(a)
+    y = occurrence(b)
+    set_notification_adapter(:off)
+
+    assert {:ok, :delivery_disabled} = NotificationWorker.begin_attempt(x.id, at())
+    refute Repo.exists?(CorrelationBatch)
+
+    Application.put_env(:mondek, :notification_adapter, :webhook)
+    assert {:ok, {:gated, _}} = NotificationWorker.begin_attempt(x.id, at())
+    batch = Repo.one!(CorrelationBatch)
+    Application.put_env(:mondek, :notification_adapter, :off)
+
+    assert {:ok, :delivery_disabled} = CorrelationDelivery.begin_attempt(batch.id, at())
+    assert Repo.get!(CorrelationBatch, batch.id).deadline == batch.deadline
+    assert {:ok, :wait} = CorrelationDelivery.begin_attempt(batch.id, batch.deadline)
+    assert Repo.get!(CorrelationBatch, batch.id).status == "released"
+    refute Repo.exists?(Mondek.CorrelationAttempt)
+
+    for original <- [x, y] do
+      assert Repo.get!(CorrelationCredit, original.id).spent == 0
+      assert Repo.get!(Occurrence, original.id).payload == original.payload
+    end
+
+    Application.put_env(:mondek, :notification_adapter, :webhook)
+
+    assert {:ok, {%Occurrence{id: id}, _}} =
+             NotificationWorker.begin_attempt(x.id, batch.deadline)
+
+    assert id == x.id
+  end
+
+  test "off preserves admitted completion and pauses case terminal delivery and retry" do
+    a = incident("A")
+    b = incident("B")
+    id = create_case([a, b])
+    control(id, "enable")
+    assert {:ok, {:gated, _}} = NotificationWorker.begin_attempt(occurrence(a).id, at())
+    batch = Repo.one!(CorrelationBatch)
+    assert {:ok, {:send, _, attempt, _}} = CorrelationDelivery.begin_attempt(batch.id, at())
+    set_notification_adapter(:off)
+
+    assert {:ok, _} = CorrelationDelivery.finish(batch.id, attempt.id, {:ok, :smtp}, at())
+    sample(a, "OK", 2)
+    sample(b, "OK", 2)
+
+    assert {:ok, :delivery_disabled} = CorrelationDelivery.begin_attempt(batch.id, at())
+
+    assert Mondek.CorrelationDeliveryWorker.perform(%Oban.Job{args: %{"batch_id" => batch.id}}) ==
+             {:snooze, 30}
+
+    held = Repo.get!(CorrelationBatch, batch.id)
+    assert held.status == "accepted"
+    assert held.terminal_status == "waiting"
+    assert held.terminal_attempts == 0
+    assert Repo.aggregate(Mondek.CorrelationAttempt, :count) == 1
+
+    Application.put_env(:mondek, :notification_adapter, :webhook)
+
+    assert {:ok, {:send, _, terminal, payload}} =
+             CorrelationDelivery.begin_attempt(batch.id, at())
+
+    assert {:ok, _} = CorrelationDelivery.finish(batch.id, terminal.id, {:error, :timeout}, at())
+    Application.put_env(:mondek, :notification_adapter, :off)
+
+    assert {:ok, :delivery_disabled} = CorrelationDelivery.begin_attempt(batch.id, at())
+    assert Repo.get!(CorrelationBatch, batch.id).terminal_attempts == 1
+    assert Repo.aggregate(Mondek.CorrelationAttempt, :count) == 2
+
+    Application.put_env(:mondek, :notification_adapter, :webhook)
+    assert {:ok, {:send, _, retry, ^payload}} = CorrelationDelivery.begin_attempt(batch.id, at())
+    assert {:ok, _} = CorrelationDelivery.finish(batch.id, retry.id, {:ok, :smtp}, at())
+    assert Repo.get!(CorrelationBatch, batch.id).terminal_status == "accepted"
+  end
+
   test "exact batching preserves evidence and separate accepted coverage" do
     a = incident("Network")
     b = incident("App")

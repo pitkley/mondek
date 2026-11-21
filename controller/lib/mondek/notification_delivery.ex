@@ -5,6 +5,8 @@ defmodule Mondek.NotificationDelivery do
 
   @mailbox ~r/\A[A-Za-z0-9.!#$%&'*+\/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\z/
 
+  def enabled?, do: Application.get_env(:mondek, :notification_adapter, :webhook) != :off
+
   def channel("mailto:" <> _), do: "smtp"
   def channel("webhook:" <> _), do: "webhook_http"
   def channel(_), do: "webhook"

@@ -332,6 +332,9 @@ defmodule MondekWeb.MonitoringUI do
   def error_message(:not_exhausted),
     do: "This notification is no longer exhausted. Review its current delivery status."
 
+  def error_message(:delivery_disabled),
+    do: "Notification delivery is off for this installation."
+
   def error_message(:delivery_in_progress),
     do:
       "The previous delivery job is still finishing. Wait briefly and review its status before retrying."

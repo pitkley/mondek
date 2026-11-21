@@ -79,6 +79,10 @@ defmodule MondekWeb.API.Response do
   def respond(conn, {:error, {:conflict, reason}}),
     do: conn |> put_status(409) |> reply(%{code: "configuration_conflict", error: reason})
 
+  def respond(conn, {:error, :delivery_disabled}),
+    do:
+      error(conn, 409, "delivery_disabled", "Notification delivery is off for this installation.")
+
   def respond(conn, {:error, :unavailable}),
     do: error(conn, 503, "unavailable", "Investigation temporarily unavailable.")
 

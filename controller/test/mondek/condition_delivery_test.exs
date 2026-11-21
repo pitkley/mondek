@@ -48,6 +48,23 @@ defmodule Mondek.ConditionDeliveryTest do
     Control
   }
 
+  test "shared facts remain available and changed support can request delivery after off" do
+    set_notification_adapter(:off)
+    {[_warning, critical], group} = fire_pair()
+    assert Repo.get!(ConditionIncident, group.id).status == "open"
+    assert Repo.exists?(from f in ConditionFact, where: f.condition_incident_id == ^group.id)
+    refute Repo.exists?(Occurrence)
+    refute Repo.exists?(Mondek.CorrelationCredit)
+    refute Repo.exists?(from j in Oban.Job, where: j.worker == "Mondek.NotificationWorker")
+
+    Application.put_env(:mondek, :notification_adapter, :webhook)
+    send_sample(critical, "CRIT", 2, at())
+    refute Repo.exists?(Occurrence)
+
+    send_sample(critical, "WARN", 3, at())
+    assert Repo.one!(Occurrence).payload["requested_fact"]["key"] == "WARN"
+  end
+
   test "the API lists one operator incident and applies reviewed shared acknowledgement to every contribution" do
     {_checks, group} = fire_pair()
     listed = build_conn() |> get("/api/v1/incidents/health") |> json_response(200)

@@ -295,6 +295,9 @@ defmodule MondekWeb.CorrelationLive do
           title="Case delivery and acknowledgement"
           level={2}
         >
+          <p :if={!@detail["delivery"].delivery_enabled} id="case-delivery-off">
+            Notification delivery is off for this installation.
+          </p>
           <p>
             Batching is {if @detail["delivery"].batching_enabled, do: "enabled", else: "disabled"}. Exact batches never cover later facts.
           </p>
