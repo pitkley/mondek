@@ -31,6 +31,25 @@ Configure machine access for the four runner endpoints: `/api/v1/runner/inventor
 
 `mondek-policy` uses the same private file format, but operator access to `/api/v1/configuration/*` needs an explicit gateway policy and appropriate credentials. Runner endpoint access alone does not grant configuration access. See [runner deployment](RUNNER-DEPLOYMENT.md) for installed-consumer and state handling.
 
+## Configuration Git trust boundary
+
+Configuration Git operates on one complete repository per installation. A Git client with read access can inspect its complete current tree and retained Git history. A Git client with write access can propose an update to the whole main tree. The controller validates the resulting tree and treats omission as removal. Configure access only for people or services trusted with that scope. A gateway policy for one source or environment cannot turn the repository into a scoped view. Filtered history and partial-tree pushes require their own protocol and repository design.
+
+| Git operation | Repository grant |
+| --- | --- |
+| Upload-pack advertisement, clone or fetch | Read |
+| Receive-pack advertisement or push | Write |
+
+Read and write are distinct grants in the access model. Operators who push normally need both so they can fetch and reconcile concurrent changes. The current shared configuration Git credential grants both, preserving existing clients during file rotation and gateway compatibility work. Separate enforcement by grant belongs to the controller authorization rollout. The shared credential identifies the Git access channel. Attribute a write to an individual only when a future verified principal is bound to the request. Commit author and committer fields are client-supplied metadata.
+
+Authorize each `info/refs` advertisement according to its validated `service` query. Each RPC independently enforces its grant, even if the client already received a successful advertisement. Mondek verifies the repository credential on every smart HTTP request. Direct clients use Basic authentication with username `mondek`.
+
+The next compatibility increments add an authoritative token file and an opt-in dedicated `X-Mondek-Git-Token` credential for gateways that consume `Authorization`. A configured file remains authoritative while missing or invalid. In dedicated-header mode, a present header is authoritative. Invalid or repeated values fail the repository check, and Basic clients can omit the dedicated header. Both transports verify the same configured token.
+
+Protect the entire `/configuration.git` path and its subpaths with the outer gateway policy. Restrict direct access to the controller origin when relying on the gateway. The gateway authenticates the outer identity and forwards only allowed requests. Mondek does not interpret unverified proxy identity headers as principals. Treat the dedicated Git header as a credential at every hop and exclude it from request logs and traces. Configure the gateway to forward exactly one value without rewriting it.
+
+See the [configuration Git guide](CONFIGURATION-GIT.md) for client setup and whole-tree validation.
+
 ## Read-only connection diagnostic
 
 Execute as the runner's account with the same connection settings:
