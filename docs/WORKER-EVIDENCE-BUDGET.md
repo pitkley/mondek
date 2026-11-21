@@ -1,0 +1,21 @@
+# Worker evidence budget
+
+The check worker has a 65,536-byte combined capture limit. Within that limit, a large list or diff should consume optional detail space while leaving room for each declared output's actual verdict. Required result facts are the key, health, summary, value, source timestamp, impacts, and discovery. Keep these verbatim. Details remain optional text with a 16,384-byte UTF-8 limit per result.
+
+## Authoring and emission
+
+Provide an explicit SDK helper to build bounded details from an iterable of lines. It reserves a plain-text omission marker, retains the bounded prefix in input order, and stops reading once it detects overflow. Use validated UTF-8 text without NUL. Keep the existing stricter behavior of raw Result constructors and ResultBuilder. A consumer decides its verdict from its data independently of the excerpt it supplies.
+
+Use one compact UTF-8 JSON-lines encoder for both worker accounting and writing, including envelopes, escaping and newlines. Each validated result flushes immediately with its facts and an omission marker in place of any provided detail text. The worker keeps only the bounded optional text until it knows which facts fit. On normal completion or caught consumer error, it uses the remaining budget for detail replacements, divided across results with details in emission order. Unused share carries forward. A replacement can preserve the whole detail or a valid marked prefix. A result without a replacement keeps its marker. Once emitted, result records are never withdrawn or reordered.
+
+A replacement is an internal stdout record keyed to a preceding result with provisional details. The supervisor applies each replacement at most once to its preceding known result after ordinary text validation. Preserve empty text distinctly from absent text. Unique declared result keys, one final terminal, and no unknown or out-of-order records are required for complete coverage. Observation and report schemas stay unchanged. Timeout, process death, or output overflow can leave a result with only its facts and marker. The supervisor retains complete newline-terminated stdout records inside its allowance even when a read crosses the boundary. It kills the process group promptly on overflow or deadline and drains remaining stdout to a bounded byte and cleanup-time limit. Separate collection pipe allowances reserve that drain space even when stderr overflows before stdout is read. Completeness still requires a terminal record, exact coverage, and no process or capture error.
+
+## Fixed facts and diagnostics
+
+Reserve 4,096 bytes for collection stderr and 2,048 encoded bytes for the terminal record inside the 65,536-byte cap. The terminal diagnostic can be shortened at a valid Unicode boundary to fit its actual encoded line. The original decoded diagnostic limit still applies. The supervisor enforces the collection stderr allowance directly, including raw descriptor writes, and reserves the remaining 61,440 bytes for stdout. The capture limit still totals 65,536 bytes, and an overflow on either pipe aborts collection. Preparation retains the existing combined output limit. Overbudget collection diagnostics are an explicit incomplete collection rather than additional result evidence.
+
+If fixed result records exhaust their budget, stop collecting and emit an explicit fixed-data overflow diagnostic. Keep previously emitted facts as partial evidence. This case can occur with required summaries, impacts or discovery even when there are no authored details. The worker does not discard these fields or turn an incomplete report into complete coverage.
+
+## Verification
+
+Exercise a real runner subprocess on a synthetic 600-queue diff whose late healthy siblings would previously run out of capture space. Include non-BMP characters, quotes, control characters and stderr within budget. Check original required facts, raw and encoded limits, omission markers, and terminal completion. Separately exercise fixed-data overflow, exact and one-byte-over native stderr boundaries, process death after one flushed result, and a valid-looking unterminated record. Verify short text survives a caught consumer error. For ordinary results whose optional text fits, assert that the supervisor reconstructs the same details.
