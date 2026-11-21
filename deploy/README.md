@@ -28,6 +28,8 @@ Production builds default `PGPORT` to PostgreSQL's standard port 5432 and requir
 
 Set `MONDEK_DATABASE_POOL_SIZE` in the private .env file to change the controller's database pool size (for example `MONDEK_DATABASE_POOL_SIZE=4`). The default remains 12 connections per controller instance. The value must be a positive integer; empty, zero, negative and malformed values fail at startup. Restart/recreate the controller after changing it. Allow PostgreSQL connection headroom for other controller processes, migrations and other database clients; this setting is not an installation-wide connection limit. Development and test runtimes use the same setting; the root development Compose file forwards it as well. Outside deployment mode, an explicit `pool_size` in `DATABASE_URL` retains Ecto's existing precedence over this setting.
 
+For high-volume installations, size the controller’s age and count settings together using the [worked retention example](../docs/RETENTION.md#size-a-fourteen-day-lookback).
+
 ## Updates and recovery
 
 Back up PostgreSQL and each runner's complete state before upgrading. Keep the prior image digest and locked runner environment. Choose the documented matching controller/SDK release, update MONDEK_IMAGE in .env if pinned there, then:
