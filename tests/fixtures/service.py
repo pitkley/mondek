@@ -39,6 +39,7 @@ DEFAULT_MODE = {
     "webhook": "ok",
     "data_mode": "ok",
     "ingest_reply": "ok",
+    "hold_runner_preparation": False,
     "offline_installations": [],
     "ingest_reply_installation": None,
     "grouped_samples": {
@@ -122,6 +123,8 @@ def update_mode(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("invalid webhook mode")
         if current["data_mode"] not in {"ok", "slow", "crash", "oversize"}:
             raise ValueError("invalid data mode")
+        if type(current["hold_runner_preparation"]) is not bool:
+            raise ValueError("hold_runner_preparation must be boolean")
         if current["ingest_reply"] not in {"ok", "drop_once"}:
             raise ValueError("invalid ingestion reply mode")
         offline = current["offline_installations"]
@@ -347,9 +350,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def proxy(self, body: dict[str, Any]) -> None:
         """Local transport fault injection: drop only after real controller commit."""
-        if body.get("installation_id") in mode()["offline_installations"]:
+        current = mode()
+        if body.get("installation_id") in current["offline_installations"]:
             self.respond(503, {"error": "local installation transport is offline"})
             return
+        if self.path == "/api/v1/runner/control" and current["hold_runner_preparation"]:
+            body = body | {"prepared": {}}
         request = urllib.request.Request(
             "http://controller:4000" + self.path,
             json.dumps(body).encode(),
