@@ -52,7 +52,7 @@ defmodule MondekWeb.Router do
        MondekWeb.ConfigurationGitController,
        :receive_pack
 
-  live_session :operator_ui do
+  live_session :operator_ui, on_mount: MondekWeb.IncidentFavicon do
     scope "/", MondekWeb do
       pipe_through :browser
       live "/", NextOverviewLive, :index

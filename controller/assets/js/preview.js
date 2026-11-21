@@ -1,5 +1,6 @@
 // Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 // SPDX-License-Identifier: Apache-2.0
+import "./incident_favicon.mjs";
 import {Socket} from "phoenix";
 import {LiveSocket} from "phoenix_live_view";
 import {PanelStack} from "./panel_stack.mjs";

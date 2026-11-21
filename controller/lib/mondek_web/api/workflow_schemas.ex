@@ -497,7 +497,7 @@ defmodule MondekWeb.API.WorkflowSchemas do
 
       :overview ->
         obj(
-          "assignment_count result_count runner_count incident_count open_incident_count unacknowledged_incident_count acknowledged_incident_count monitoring_loss coverage health freshness counts total attention healthy runners retention configuration"
+          "assignment_count result_count runner_count incident_count open_alert_count open_incident_count unacknowledged_incident_count acknowledged_incident_count monitoring_loss coverage health freshness counts total attention healthy runners retention configuration"
         )
 
       :health ->
@@ -635,7 +635,7 @@ defmodule MondekWeb.API.WorkflowSchemas do
       key in ~w(can_retry gated_indefinitely waiting_on_gates delivery_enabled enabled changed replayed superseded exception can_apply acknowledged acknowledgement_active retired selected scope_resolved coverage_confirmed) ->
         n(S.boolean())
 
-      key in ~w(id revision series_index target_generation generation sequence http_status gate_revision desired_generation authorized_generation prepared_generation active_generation observed_generation boot lifecycle_revision resume_after_revision coverage_revision publication_count active_publication_count publications_omitted check_count retired_check_count selected_count excluded_count unresolved_count declared_count declaration_count selected_result_count capability_count member_count attention_revision acknowledgement_revision attempt_count attempts_count affected_results matched_checks match_count conflict_count selection_count history_count total page page_size pages total_matching eligible_count selected_result_count changed_count unchanged_count project_revision applied_project_revision current_project_revision expires_in_seconds original_result_count omitted_result_count version priority occurrence_count inventory_revision code_variants runtime_variants definition_variants) ->
+      key in ~w(id revision series_index open_alert_count target_generation generation sequence http_status gate_revision desired_generation authorized_generation prepared_generation active_generation observed_generation boot lifecycle_revision resume_after_revision coverage_revision publication_count active_publication_count publications_omitted check_count retired_check_count selected_count excluded_count unresolved_count declared_count declaration_count selected_result_count capability_count member_count attention_revision acknowledgement_revision attempt_count attempts_count affected_results matched_checks match_count conflict_count selection_count history_count total page page_size pages total_matching eligible_count selected_result_count changed_count unchanged_count project_revision applied_project_revision current_project_revision expires_in_seconds original_result_count omitted_result_count version priority occurrence_count inventory_revision code_variants runtime_variants definition_variants) ->
         if(key == "id", do: n(%Schema{anyOf: [S.string(), S.integer()]}), else: n(S.integer()))
 
       key in ~w(contact_seconds interval_seconds timeout_seconds freshness_seconds duration_seconds) ->

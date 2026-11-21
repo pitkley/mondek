@@ -50,6 +50,8 @@ defmodule MondekWeb.NextOverviewLiveTest do
            )
 
     assert has_element?(view, "#overview-incidents-heading", "Incidents")
+    assert has_element?(view, "#overview-open-alert-count", "6 open")
+    assert_push_event(view, "open-alert-count", %{count: 6})
     assert has_element?(view, "#overview-unacknowledged-incidents h3", "Unacknowledged")
     assert has_element?(view, "#overview-acknowledged-incidents h3", "Acknowledged")
     refute has_element?(view, "#preview-open-incidents details")
@@ -537,6 +539,10 @@ defmodule MondekWeb.NextOverviewLiveTest do
     assert {:ok, _} = MonitoringLoss.reconcile(now)
     incident = Repo.get_by!(MonitoringIncident, scope_kind: "coverage", status: "open")
 
+    {:ok, overview, _} = live(build_conn(), "/")
+    assert has_element?(overview, "#overview-open-alert-count", "1 open")
+    assert_push_event(overview, "open-alert-count", %{count: 1})
+
     for {suffix, root} <- [{"", "#overview-panel"}, {"/full", "#incident-page"}] do
       {:ok, view, _} = live(build_conn(), "/incidents/loss/#{incident.id}" <> suffix)
 
@@ -563,6 +569,15 @@ defmodule MondekWeb.NextOverviewLiveTest do
       assert has_element?(view, root <> " #preview-history-heading", "Incident history")
       assert has_element?(view, root <> " #preview-delivery-heading", "Notification delivery")
     end
+
+    Monitoring.change(incident, %{
+      status: "closed",
+      closed_at: now,
+      closure_reason: "scope_withdrawn"
+    })
+
+    send(overview.pid, :refresh_incident_favicon)
+    assert_push_event(overview, "open-alert-count", %{count: 0})
   end
 
   test "runner diagnostic keeps its explanation and setup link in both surfaces" do

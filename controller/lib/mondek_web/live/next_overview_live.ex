@@ -659,7 +659,12 @@ defmodule MondekWeb.NextOverviewLive do
           aria-labelledby="overview-incidents-heading"
         >
           <header class="preview-results-header">
-            <h2 id="overview-incidents-heading" class="pf-v6-c-title pf-m-2xl">Incidents</h2>
+            <div class="preview-section-heading">
+              <h2 id="overview-incidents-heading" class="pf-v6-c-title pf-m-2xl">Incidents</h2>
+              <span id="overview-open-alert-count" class="pf-v6-c-badge pf-m-read">
+                {@snapshot["open_alert_count"]} open
+              </span>
+            </div>
             <.link navigate="/incidents">View all incidents</.link>
           </header>
           <.dashboard_incidents
