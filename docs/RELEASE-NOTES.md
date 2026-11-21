@@ -1,23 +1,17 @@
-# Mondek 0.0.6
+# Mondek 0.0.7
 
-Controller and SDK versions are both `0.0.6`, with Git tag `v0.0.6` and controller image tag `0.0.6`. Mondek remains experimental. Run matching controller and SDK versions.
+Controller and SDK versions are both `0.0.7`, with Git tag `v0.0.7` and controller image tag `0.0.7`. Mondek remains experimental. Run matching controller and SDK versions.
 
-## Monitoring and operator workflows
+## Monitoring and investigation
 
-- Checks that read weekly samples can set source measurement freshness up to eight days while keeping the original sample timestamp. The execution interval remains capped at one day. See [the SDK guide](SDK.md).
-- The Overview paginates the combined incident list. The browser favicon shows the installation-wide open incident count.
-- Recurring maintenance HTTP responses include local and UTC occurrence dates. Saved occurrences expose their current and original dates and status. See [recurring maintenance](RECURRING-MAINTENANCE.md).
+- Outputs can specify `sustain_seconds` to require advancing fresh measurements across a duration before WARN or CRIT qualifies for incident handling. The controller retains reported health and shows qualification separately. See [per-output failure sustain](OUTPUT-SUSTAIN-DESIGN.md).
+- Result inspection links measurements across Condition changes when the output keeps its identity. Each measurement identifies its original stream and generation. Incidents and exact evidence remain scoped to their original stream. See [result detail](RESULT-DETAIL.md).
 
-## Deployment and access
+## Runner
 
-- Set `MONDEK_NOTIFICATION_ADAPTER=off` to collect measurements and track incidents without a delivery receiver. Existing delivery history stays available and deployment mode still defaults to SMTP. See [notification operations](RUNNERS-AND-NOTIFICATIONS.md#turn-delivery-off).
-- Kubernetes deployments can mount webhook configuration from a projected Secret using a dedicated file group. See [webhook configuration](WEBHOOK-NOTIFICATIONS.md).
-- Configuration Git can read a token from a file on each request, so operators can rotate it without restarting the controller. An opt-in token header also allows Git clients to use a separate gateway credential for forward authentication. See [Configuration Git](CONFIGURATION-GIT.md).
-
-## Security
-
-The controller updates Phoenix LiveView to 1.2.14, which includes the fix for [CVE-2026-126334](https://cna.erlef.org/cves/CVE-2026-126334.html).
+- The worker budgets optional details within the encoded capture limit, preserving required facts and the verdicts of sibling outputs. The SDK's `bounded_details` helper marks omissions in large lists and diffs. See [worker evidence budgeting](WORKER-EVIDENCE-BUDGET.md).
+- An opt-in Linux warm-worker prototype preloads verified consumer code and runs each check in a disposable process. The local ARM64 benchmark met both CPU targets with per-execution verification enabled. Qualify the actual consumer and deployment before adopting it. See [warm workers](WARM-WORKER-PROTOTYPE.md).
 
 ## Upgrading
 
-Back up PostgreSQL and runner state, then upgrade the controller and SDK together. This release adds no database migrations. Review delivery and Configuration Git settings if you adopt either opt-in feature, and upgrade both components before publishing checks that use the larger freshness range. See [upgrade guidance](UPGRADING.md#006-delivery-configuration-git-and-measurement-freshness).
+Back up PostgreSQL and complete runner state directories, then upgrade the controller and SDK together. Packaged startup adds two migrations for sustain state and measurement lineage. The lineage backfill uses retained Condition-change audit records and preserves original evidence and stream identities. See [upgrade guidance](UPGRADING.md#007-output-sustain-and-measurement-lineage).
