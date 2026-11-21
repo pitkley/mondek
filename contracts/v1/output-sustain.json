@@ -1,0 +1,74 @@
+{
+  "policy": [
+    {"name": "omitted", "output": {}, "valid": true, "canonical": {}},
+    {"name": "zero", "output": {"sustain_seconds": 0}, "valid": true, "canonical": {}},
+    {"name": "positive", "output": {"sustain_seconds": 5}, "valid": true, "canonical": {"sustain_seconds": 5}},
+    {"name": "maximum", "output": {"sustain_seconds": 86400}, "valid": true, "canonical": {"sustain_seconds": 86400}},
+    {"name": "negative", "output": {"sustain_seconds": -1}, "valid": false},
+    {"name": "above maximum", "output": {"sustain_seconds": 86401}, "valid": false},
+    {"name": "fraction", "output": {"sustain_seconds": 1.5}, "valid": false},
+    {"name": "integral float", "output": {"sustain_seconds": 1.0}, "valid": false},
+    {"name": "boolean", "output": {"sustain_seconds": true}, "valid": false},
+    {"name": "string", "output": {"sustain_seconds": "1"}, "valid": false},
+    {"name": "null", "output": {"sustain_seconds": null}, "valid": false}
+  ],
+  "qualification": {
+    "sustain_seconds": 5,
+    "freshness_seconds": 10,
+    "sequences": [
+      {
+        "name": "pending WARN survives a CRIT and qualifies separately",
+        "samples": [
+          {"source_us": 0, "receipt_us": 0, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 3000000, "receipt_us": 3000000, "reported": "CRIT", "effective": null, "evidence": null, "pending": "CRIT"},
+          {"source_us": 4999999, "receipt_us": 4999999, "reported": "CRIT", "effective": null, "evidence": null, "pending": "CRIT"},
+          {"source_us": 5000000, "receipt_us": 5000000, "reported": "CRIT", "effective": "WARN", "evidence": 4, "pending": "CRIT", "impacts": ["link"], "effective_impacts": ["link"]},
+          {"source_us": 6000000, "receipt_us": 6000000, "reported": "CRIT", "effective": "WARN", "evidence": 4, "pending": "CRIT", "impacts": ["link", "router"], "effective_impacts": ["link"]},
+          {"source_us": 8000000, "receipt_us": 8000000, "reported": "CRIT", "effective": "CRIT", "evidence": 6, "pending": null, "impacts": ["link", "router"], "effective_impacts": ["link", "router"]},
+          {"source_us": 9000000, "receipt_us": 9000000, "reported": "WARN", "effective": "WARN", "evidence": 7, "pending": null},
+          {"source_us": 10000000, "receipt_us": 10000000, "reported": "OK", "effective": "OK", "evidence": 8, "pending": null}
+        ]
+      },
+      {
+        "name": "a fast backlog cannot qualify and cutoff equality restarts continuity",
+        "samples": [
+          {"source_us": 0, "receipt_us": 5000000, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 5000000, "receipt_us": 5000000, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 15000000, "receipt_us": 15000000, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 20000000, "receipt_us": 20000000, "reported": "WARN", "effective": "WARN", "evidence": 4, "pending": null}
+        ]
+      },
+      {
+        "name": "repeated source time clears the original receipt span",
+        "samples": [
+          {"source_us": 0, "receipt_us": 0, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 0, "receipt_us": 3000000, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 5000000, "receipt_us": 5000000, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 8000000, "receipt_us": 8000000, "reported": "WARN", "effective": "WARN", "evidence": 4, "pending": null}
+        ]
+      },
+      {
+        "name": "regressed receipt clears the original source span",
+        "samples": [
+          {"source_us": 0, "receipt_us": 1000000, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 1000000, "receipt_us": 500000, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 5000000, "receipt_us": 6000000, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 6000000, "receipt_us": 6500000, "reported": "WARN", "effective": "WARN", "evidence": 4, "pending": null}
+        ]
+      },
+      {
+        "name": "unknown, omission, repeated source time, and regressed receipt reset continuity",
+        "samples": [
+          {"source_us": 0, "receipt_us": 0, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 4000000, "receipt_us": 4000000, "reported": null, "effective": null, "evidence": null, "pending": null},
+          {"source_us": 5000000, "receipt_us": 5000000, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": null, "receipt_us": 6000000, "reported": "UNKNOWN", "effective": null, "evidence": null, "pending": null},
+          {"source_us": 7000000, "receipt_us": 7900000, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 7000000, "receipt_us": 8000000, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 8000000, "receipt_us": 7900000, "reported": "WARN", "effective": null, "evidence": null, "pending": "WARN"},
+          {"source_us": 13000000, "receipt_us": 12900000, "reported": "WARN", "effective": "WARN", "evidence": 8, "pending": null}
+        ]
+      }
+    ]
+  }
+}
