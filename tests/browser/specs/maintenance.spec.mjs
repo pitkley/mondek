@@ -533,6 +533,37 @@ test('weekly civil dates reject later gaps, resolve later folds and retain cance
   expect(errors).toEqual([]);
 });
 
+test('open-ended weekly schedules preview the initial dates and cancel future generation', async ({ page, request }) => {
+  const date = shiftDate(new Date().toISOString().slice(0, 10), 7);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/maintenance/new?check_id=${httpId}`);
+  await connected(page);
+  await page.locator('#maintenance-name').fill('Standing service deployment');
+  await page.locator('#maintenance-reason').fill('Review the standing weekly schedule');
+  await page.locator('#maintenance-repeat').selectOption('weekly');
+  await page.locator('#maintenance-repeat-ending').selectOption('open');
+  await page.locator('#maintenance-timezone').fill('UTC');
+  await page.locator('#maintenance-start').fill(`${date}T14:00`);
+  await page.locator('#maintenance-end').fill(`${date}T15:00`);
+  await page.locator('#maintenance-preview-button').click();
+  await expect(page.locator('#maintenance-series-preview')).toContainText('Review the initial dates');
+  await expect(page.locator('#maintenance-series-preview-summary')).toContainText('8 windows');
+  await page.locator('#maintenance-save').click();
+  const saved = await currentSeries(page, request);
+  expect(saved.generation_enabled).toBe(true);
+  expect(saved.occurrence_total).toBe(8);
+  await expect(page.locator('#maintenance-series-cancel')).toHaveText('Cancel future scheduling');
+  await page.locator('#maintenance-series-cancel').click();
+  await page.locator('#maintenance-series-cancel-reason').fill('Retire this deployment schedule');
+  await page.locator('#maintenance-series-cancel-confirm').click();
+  await expect(page.locator('#maintenance-series-cancel-summary')).toContainText('Cancel 8 upcoming windows');
+  await page.locator('#maintenance-series-cancel-confirm').click();
+  await expect(page.locator('#maintenance-series-saved')).toContainText('Future scheduling was canceled.');
+  const stopped = await currentSeries(page, request);
+  expect(stopped.generation_enabled).toBe(false);
+  expect(stopped.cancelled_count).toBe(8);
+});
+
 test('finite count schedules expose every reviewed date through bounded pages and require review after reconnect', async ({ page, request }, testInfo) => {
   const year = new Date().getUTCFullYear() + 1;
   await page.goto(`/maintenance/new?check_id=${httpId}`);

@@ -556,6 +556,10 @@
             ],
             "nullable": true
           },
+          "generation_issue": {
+            "nullable": true,
+            "type": "string"
+          },
           "cancellation_reason": {
             "nullable": true,
             "type": "string"
@@ -608,6 +612,14 @@
             "type": "string"
           },
           "reason": {
+            "nullable": true,
+            "type": "string"
+          },
+          "generation_enabled": {
+            "type": "boolean"
+          },
+          "generation_stopped_at": {
+            "format": "date-time",
             "nullable": true,
             "type": "string"
           },
@@ -8515,6 +8527,16 @@
             }
           },
           {
+            "description": "Filter: history_page.",
+            "in": "query",
+            "name": "history_page",
+            "schema": {
+              "maximum": 1000000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
             "description": "Positive live page number. Investigation pages beyond the end are empty.",
             "in": "query",
             "name": "page",
@@ -8546,6 +8568,9 @@
                         "runner_label": {
                           "nullable": true,
                           "type": "string"
+                        },
+                        "history_page": {
+                          "type": "integer"
                         },
                         "occurrence_total": {
                           "type": "integer"
@@ -8653,6 +8678,13 @@
                           ],
                           "nullable": true
                         },
+                        "history_pages": {
+                          "type": "integer"
+                        },
+                        "generation_issue": {
+                          "nullable": true,
+                          "type": "string"
+                        },
                         "current_matches": {
                           "items": {
                             "additionalProperties": true,
@@ -8724,6 +8756,14 @@
                           "type": "string"
                         },
                         "reason": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "generation_enabled": {
+                          "type": "boolean"
+                        },
+                        "generation_stopped_at": {
+                          "format": "date-time",
                           "nullable": true,
                           "type": "string"
                         },
@@ -11922,6 +11962,9 @@
                       "nullable": true,
                       "type": "string"
                     },
+                    "history_page": {
+                      "type": "integer"
+                    },
                     "occurrence_total": {
                       "type": "integer"
                     },
@@ -12028,6 +12071,13 @@
                       ],
                       "nullable": true
                     },
+                    "history_pages": {
+                      "type": "integer"
+                    },
+                    "generation_issue": {
+                      "nullable": true,
+                      "type": "string"
+                    },
                     "current_matches": {
                       "items": {
                         "additionalProperties": true,
@@ -12099,6 +12149,14 @@
                       "type": "string"
                     },
                     "reason": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "generation_enabled": {
+                      "type": "boolean"
+                    },
+                    "generation_stopped_at": {
+                      "format": "date-time",
                       "nullable": true,
                       "type": "string"
                     },
@@ -12533,6 +12591,9 @@
                       "nullable": true,
                       "type": "string"
                     },
+                    "history_page": {
+                      "type": "integer"
+                    },
                     "occurrence_total": {
                       "type": "integer"
                     },
@@ -12639,6 +12700,13 @@
                       ],
                       "nullable": true
                     },
+                    "history_pages": {
+                      "type": "integer"
+                    },
+                    "generation_issue": {
+                      "nullable": true,
+                      "type": "string"
+                    },
                     "current_matches": {
                       "items": {
                         "additionalProperties": true,
@@ -12710,6 +12778,14 @@
                       "type": "string"
                     },
                     "reason": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "generation_enabled": {
+                      "type": "boolean"
+                    },
+                    "generation_stopped_at": {
+                      "format": "date-time",
                       "nullable": true,
                       "type": "string"
                     },
@@ -14772,6 +14848,9 @@
                         "$ref": "#/components/schemas/SavedMaintenanceOccurrence"
                       },
                       "type": "array"
+                    },
+                    "stops_generation": {
+                      "type": "boolean"
                     },
                     "timezone": {
                       "nullable": true,

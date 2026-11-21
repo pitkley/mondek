@@ -1,12 +1,13 @@
 # Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 # SPDX-License-Identifier: Apache-2.0
 defmodule Mondek.MaintenanceSchedules do
-  @moduledoc "Finite reviewed series, materialized as ordinary notification windows."
+  @moduledoc "Reviewed recurring series, materialized as ordinary notification windows."
   import Ecto.Query
   import Kernel, except: [apply: 2, apply: 3]
 
   alias Mondek.{
     Maintenance,
+    MaintenanceEvent,
     MaintenanceWindow,
     MaintenanceSeries,
     MaintenanceSeriesEvent,
@@ -97,7 +98,7 @@ defmodule Mondek.MaintenanceSchedules do
         verify!(token, "create")
 
         series =
-          Repo.insert!(%MaintenanceSeries{
+          %MaintenanceSeries{
             id: review["id"],
             revision: 1,
             name: p["name"],
@@ -108,7 +109,9 @@ defmodule Mondek.MaintenanceSchedules do
             tzdata_version: expanded["timezone_version"],
             inserted_at: at,
             updated_at: at
-          })
+          }
+          |> start_generation(windows)
+          |> Repo.insert!()
 
         children =
           Enum.map(
@@ -125,7 +128,7 @@ defmodule Mondek.MaintenanceSchedules do
         )
 
         Maintenance.series_wake!(scope)
-        detail(series, children, %{}, at)
+        detail(series, %{}, at)
       end)
 
     Monitoring.notify()
@@ -137,8 +140,94 @@ defmodule Mondek.MaintenanceSchedules do
       Repo.query!("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
       Maintenance.lock!(:shared)
       series = find!(id)
-      detail(series, children(series.id), if(is_map(params), do: params, else: %{}), at)
+      detail(series, if(is_map(params), do: params, else: %{}), at)
     end)
+  end
+
+  @doc false
+  def child_spec(_),
+    do: %{id: __MODULE__, start: {__MODULE__, :start_link, [[]]}, restart: :temporary}
+
+  @doc false
+  def start_link(_) do
+    refill_before_dispatch(Monitoring.now())
+    :ignore
+  end
+
+  defp refill_before_dispatch(at) do
+    if refill_due(at) == @limit, do: refill_before_dispatch(at)
+  end
+
+  @doc "Materialize a bounded batch of due rules under the dispatch and cancellation lock."
+  def refill_due(at) do
+    at = %{at | microsecond: {elem(at.microsecond, 0), 6}}
+
+    ids =
+      Repo.all(
+        from s in MaintenanceSeries,
+          where: s.refill_at <= ^at,
+          order_by: [asc: s.refill_at, asc: s.id],
+          limit: @limit,
+          select: s.id
+      )
+
+    Enum.each(ids, fn id ->
+      {:ok, _} =
+        Repo.transaction(fn ->
+          Maintenance.lock!()
+
+          case Repo.get(MaintenanceSeries, id) do
+            %{refill_at: %DateTime{} = refill_at} = series ->
+              if DateTime.compare(refill_at, at) != :gt, do: refill!(series, at)
+
+            _ ->
+              :ok
+          end
+        end)
+    end)
+
+    length(ids)
+  end
+
+  defp start_generation(%{proposal: %{"recurrence" => %{"end_mode" => "open"}}} = series, windows) do
+    %{
+      series
+      | next_index: length(windows) + 1,
+        refill_at: parse(hd(windows)["starts_at"]),
+        generated_through_at: parse(List.last(windows)["ends_at"])
+    }
+  end
+
+  defp start_generation(series, _windows), do: series
+
+  defp refill!(series, at) do
+    scope = scope_window(series)
+    Maintenance.series_lock_scope!(scope)
+
+    {windows, next_index, previous_end, issue} =
+      MaintenanceRecurrence.extend(
+        series.proposal,
+        series.next_index,
+        series.generated_through_at,
+        at
+      )
+
+    ordinary = Map.delete(series.proposal, "recurrence")
+
+    Enum.each(windows, fn window ->
+      window = Map.put(window, "id", Ecto.UUID.generate())
+      Maintenance.insert_series_window!(ordinary, window, series.id, at)
+    end)
+
+    Monitoring.change(series, %{
+      next_index: next_index,
+      generated_through_at: previous_end,
+      generation_issue: issue,
+      refill_at: if(is_nil(issue), do: DateTime.add(at, 1, :day)),
+      updated_at: at
+    })
+
+    if windows != [], do: Maintenance.series_wake!(scope)
   end
 
   def cancel_preview(id, revision, reason, page_number \\ 1, at \\ nil, token \\ nil) do
@@ -147,17 +236,17 @@ defmodule Mondek.MaintenanceSchedules do
       note!(reason)
       series = find!(id)
       if series.revision != revision, do: Repo.rollback(:stale)
-      rows = children(id)
       at = at || Monitoring.now()
-      upcoming = upcoming(rows, at)
+      upcoming = upcoming_children(id, at)
+      stops_generation? = generating?(series)
 
-      if upcoming == [],
+      if upcoming == [] and not stops_generation?,
         do:
           invalid!(
             "This series has no upcoming windows to cancel. Active windows must be ended individually."
           )
 
-      review = cancellation_review(series, rows, upcoming, reason)
+      review = cancellation_review(series, upcoming, reason)
       if token && verify!(token, "cancel") != review, do: Repo.rollback(:review_changed)
       page_number = page(page_number)
 
@@ -168,9 +257,11 @@ defmodule Mondek.MaintenanceSchedules do
         "reason" => reason,
         "timezone" => series.proposal["timezone"],
         "review_token" => token || sign(review),
+        "stops_generation" => stops_generation?,
         "upcoming_count" => length(upcoming),
-        "active_count" => Enum.count(rows, &active?(&1, at)),
-        "rows" => slice(upcoming, page_number) |> Enum.map(&child_public(&1, series, at)),
+        "active_count" =>
+          window_counts([id], at) |> Map.get(id, empty_counts()) |> Map.fetch!(:active),
+        "rows" => child_public_rows(slice(upcoming, page_number), at),
         "page" => page_number,
         "pages" => pages(length(upcoming)),
         "total" => length(upcoming),
@@ -186,17 +277,23 @@ defmodule Mondek.MaintenanceSchedules do
         Maintenance.lock!()
         note!(reason)
         series = find!(id)
-        rows = children(id)
         Maintenance.series_lock_scope!(scope_window(series))
         at = at || Monitoring.now()
-        upcoming = upcoming(rows, at)
+        upcoming = upcoming_children(id, at)
 
-        if cancellation_review(series, rows, upcoming, reason) != review,
+        if cancellation_review(series, upcoming, reason) != review,
           do: Repo.rollback(:review_changed)
 
         verify!(token, "cancel")
         cancelled = Enum.map(upcoming, &Maintenance.cancel_series_window!(&1, reason, at))
-        series = Monitoring.change(series, %{revision: series.revision + 1, updated_at: at})
+        attrs = %{revision: series.revision + 1, updated_at: at}
+
+        attrs =
+          if generating?(series),
+            do: Map.merge(attrs, %{refill_at: nil, generation_stopped_at: at}),
+            else: attrs
+
+        series = Monitoring.change(series, attrs)
 
         event!(
           series,
@@ -209,7 +306,7 @@ defmodule Mondek.MaintenanceSchedules do
         # Every member has the same immutable scope; one wake preserves existing
         # occurrence, payload, job and retry-budget identities.
         Maintenance.series_wake!(scope_window(series))
-        detail(series, children(id), %{}, at)
+        detail(series, %{}, at)
       end)
 
     Monitoring.notify()
@@ -254,7 +351,8 @@ defmodule Mondek.MaintenanceSchedules do
   defp list_snapshot(params, at) do
     params = if is_map(params), do: params, else: %{}
     history? = params["status"] == "history"
-    ordinary = Maintenance.series_list_query(params, at)
+    selectors = Maintenance.series_list_selectors(params)
+    ordinary = Maintenance.series_list_query(params, at, selectors)
 
     ordinary =
       from w in ordinary,
@@ -272,30 +370,51 @@ defmodule Mondek.MaintenanceSchedules do
             )
         }
 
-    matching = Maintenance.series_list_query(Map.put(params, "status", "all"), at)
+    matching = Maintenance.series_list_query(Map.put(params, "status", "all"), at, selectors)
+    search = if is_binary(params["search"]), do: params["search"], else: ""
+    scope = if params["scope"] in ~w(check target selection), do: params["scope"]
+
+    scope_match = parent_scope_match(selectors)
+
+    parent_match =
+      dynamic(
+        [s],
+        not is_nil(s.next_index) and ^scope_match and
+          fragment(
+            "strpos(lower(concat_ws(' ', ?, ?)), lower(?)) > 0",
+            s.name,
+            s.reason,
+            ^search
+          ) and
+          (^is_nil(scope) or fragment("?->>'scope'", s.proposal) == ^(scope || ""))
+      )
 
     series =
-      from w in MaintenanceWindow,
+      from s in MaintenanceSeries,
+        left_join: w in MaintenanceWindow,
+        on: w.series_id == s.id,
         where:
-          not is_nil(w.series_id) and
-            w.series_id in subquery(
-              from m in matching, where: not is_nil(m.series_id), select: m.series_id
-            ),
-        group_by: w.series_id,
+          s.id in subquery(
+            from m in matching, where: not is_nil(m.series_id), select: m.series_id
+          ),
+        or_where: ^parent_match,
+        group_by: s.id,
         select: %{
-          id: w.series_id,
+          id: s.id,
           kind: fragment("'series'::text"),
           sort_at:
             fragment(
-              "CASE WHEN ? THEN max(COALESCE(?,?)) ELSE COALESCE(min(?) FILTER (WHERE ? IS NULL AND ?>?),max(?)) END",
+              "CASE WHEN ? THEN COALESCE(max(COALESCE(?,?)),?) ELSE COALESCE(min(?) FILTER (WHERE ? IS NULL AND ?>?),max(?),?) END",
               ^history?,
               w.cancelled_at,
               w.ends_at,
+              s.updated_at,
               w.starts_at,
               w.cancelled_at,
               w.ends_at,
               ^at,
-              w.starts_at
+              w.starts_at,
+              s.updated_at
             )
         }
 
@@ -305,24 +424,26 @@ defmodule Mondek.MaintenanceSchedules do
           series
 
         "history" ->
-          from w in series,
+          from [s, w] in series,
             having:
-              fragment(
-                "count(*) FILTER (WHERE ? IS NULL AND ?>?)=0",
-                w.cancelled_at,
-                w.ends_at,
-                ^at
-              )
+              (is_nil(s.next_index) or not is_nil(s.generation_stopped_at)) and
+                fragment(
+                  "count(*) FILTER (WHERE ? IS NULL AND ?>?)=0",
+                  w.cancelled_at,
+                  w.ends_at,
+                  ^at
+                )
 
         _ ->
-          from w in series,
+          from [s, w] in series,
             having:
-              fragment(
-                "count(*) FILTER (WHERE ? IS NULL AND ?>?)>0",
-                w.cancelled_at,
-                w.ends_at,
-                ^at
-              )
+              (not is_nil(s.next_index) and is_nil(s.generation_stopped_at)) or
+                fragment(
+                  "count(*) FILTER (WHERE ? IS NULL AND ?>?)>0",
+                  w.cancelled_at,
+                  w.ends_at,
+                  ^at
+                )
       end
 
     union = union_all(ordinary, ^series)
@@ -359,6 +480,9 @@ defmodule Mondek.MaintenanceSchedules do
             name: s.name,
             reason: s.reason,
             actor: s.actor,
+            next_index: s.next_index,
+            generation_stopped_at: s.generation_stopped_at,
+            generation_issue: s.generation_issue,
             inserted_at: s.inserted_at,
             updated_at: s.updated_at,
             proposal:
@@ -402,27 +526,12 @@ defmodule Mondek.MaintenanceSchedules do
          }}
       end)
 
-    members =
-      Repo.all(
-        from w in MaintenanceWindow,
-          where: w.series_id in ^series_ids,
-          select:
-            struct(w, [
-              :id,
-              :series_id,
-              :series_index,
-              :revision,
-              :starts_at,
-              :ends_at,
-              :cancelled_at
-            ])
-      )
-      |> Enum.group_by(& &1.series_id)
+    counts = window_counts(series_ids, at)
 
     public =
       Enum.map(entries, fn
         %{kind: "window", id: id} -> Maintenance.public_window(windows[id], at)
-        %{kind: "series", id: id} -> summary(parents[id], members[id], at)
+        %{kind: "series", id: id} -> summary(parents[id], Map.get(counts, id, empty_counts()))
       end)
 
     %{
@@ -432,6 +541,32 @@ defmodule Mondek.MaintenanceSchedules do
       "total" => total,
       "pages" => pages(total)
     }
+  end
+
+  defp parent_scope_match(nil), do: dynamic(true)
+
+  defp parent_scope_match(selectors) do
+    dynamic(
+      [s],
+      fragment(
+        """
+        CASE WHEN ?->>'scope'='selection'
+        THEN ARRAY(SELECT jsonb_array_elements(?->'selections')) && ?
+        ELSE maintenance_selections_match(?, ?->>'assignment_id', ?->>'source_id',
+                                         ?->>'environment', ?->>'target_kind', ?->>'target_key')
+        END
+        """,
+        s.proposal,
+        s.proposal,
+        type(^selectors, {:array, :map}),
+        type(^selectors, {:array, :map}),
+        s.proposal,
+        s.proposal,
+        s.proposal,
+        s.proposal,
+        s.proposal
+      )
+    )
   end
 
   defp prepare!(proposal, lock?) when is_map(proposal) do
@@ -484,17 +619,27 @@ defmodule Mondek.MaintenanceSchedules do
     {windows, indexed |> Map.values() |> Enum.sort_by(& &1.id)}
   end
 
-  defp detail(series, windows, params, at) do
-    occurrence_page = page(params["occurrence_page"])
+  defp detail(series, params, at) do
+    counts = window_counts([series.id], at) |> Map.get(series.id, empty_counts())
+    occurrence_page = min(page(params["occurrence_page"]), pages(counts.total))
     result_page = page(params["result_page"])
     inspection = Maintenance.series_inspection(scope_window(series), result_page)
 
+    windows =
+      Repo.all(
+        from w in children(series.id), limit: @limit, offset: ^((occurrence_page - 1) * @limit)
+      )
+
+    event_query = from e in MaintenanceSeriesEvent, where: e.series_id == ^series.id
+    history_count = Repo.aggregate(event_query, :count)
+    history_page = min(page(params["history_page"]), pages(history_count))
+
     events =
       Repo.all(
-        from e in MaintenanceSeriesEvent,
-          where: e.series_id == ^series.id,
+        from e in event_query,
           order_by: [desc: e.revision],
-          limit: 100
+          limit: @limit,
+          offset: ^((history_page - 1) * @limit)
       )
 
     scope_labels =
@@ -506,16 +651,16 @@ defmodule Mondek.MaintenanceSchedules do
           ),
         else: %{}
 
-    summary(series, windows, at)
+    summary(series, counts)
     |> Map.merge(scope_labels)
     |> Map.merge(%{
       "proposal" => series.proposal,
       "recurrence" => series.proposal["recurrence"],
       "timezone_version" => series.tzdata_version,
-      "occurrences" => slice(windows, occurrence_page) |> Enum.map(&child_public(&1, series, at)),
+      "occurrences" => child_public_rows(windows, at),
       "occurrence_page" => occurrence_page,
-      "occurrence_pages" => pages(length(windows)),
-      "occurrence_total" => length(windows),
+      "occurrence_pages" => pages(counts.total),
+      "occurrence_total" => counts.total,
       "rows" => inspection["rows"],
       "result_page" => result_page,
       "result_total" => inspection["total"],
@@ -527,26 +672,49 @@ defmodule Mondek.MaintenanceSchedules do
       },
       "page_size" => @limit,
       "history" => Enum.map(events, &Monitoring.public/1),
-      "history_count" =>
-        Repo.aggregate(
-          from(e in MaintenanceSeriesEvent, where: e.series_id == ^series.id),
-          :count
-        )
+      "history_count" => history_count,
+      "history_page" => history_page,
+      "history_pages" => pages(history_count)
     })
   end
 
-  defp summary(series, rows, at) do
-    active = Enum.count(rows, &active?(&1, at))
-    upcoming = upcoming(rows, at)
-    cancelled = Enum.count(rows, & &1.cancelled_at)
-    ended = length(rows) - active - length(upcoming) - cancelled
+  defp window_counts(ids, at) do
+    Repo.all(
+      from w in MaintenanceWindow,
+        where: w.series_id in ^ids,
+        group_by: w.series_id,
+        select:
+          {w.series_id,
+           %{
+             total: count(w.id),
+             active:
+               filter(
+                 count(w.id),
+                 is_nil(w.cancelled_at) and w.starts_at <= ^at and w.ends_at > ^at
+               ),
+             upcoming: filter(count(w.id), is_nil(w.cancelled_at) and w.starts_at > ^at),
+             cancelled: filter(count(w.id), not is_nil(w.cancelled_at)),
+             next: filter(min(w.starts_at), is_nil(w.cancelled_at) and w.starts_at > ^at),
+             final: max(w.ends_at)
+           }}
+    )
+    |> Map.new()
+  end
+
+  defp empty_counts, do: %{total: 0, active: 0, upcoming: 0, cancelled: 0, next: nil, final: nil}
+
+  defp generating?(series),
+    do: not is_nil(series.next_index) and is_nil(series.generation_stopped_at)
+
+  defp summary(series, counts) do
+    ended = counts.total - counts.active - counts.upcoming - counts.cancelled
 
     status =
       cond do
-        active > 0 -> "active"
-        upcoming != [] and ended == 0 -> "upcoming"
-        upcoming != [] -> "between"
-        cancelled == length(rows) -> "cancelled"
+        counts.active > 0 -> "active"
+        counts.upcoming > 0 and ended == 0 -> "upcoming"
+        counts.upcoming > 0 or generating?(series) -> "between"
+        counts.cancelled == counts.total -> "cancelled"
         true -> "completed"
       end
 
@@ -570,22 +738,45 @@ defmodule Mondek.MaintenanceSchedules do
       "selection_count" =>
         series.proposal["selection_count"] || length(series.proposal["selections"] || []),
       "recurrence" => series.proposal["recurrence"],
-      "active_count" => active,
-      "upcoming_count" => length(upcoming),
+      "generation_enabled" => generating?(series),
+      "generation_issue" => series.generation_issue,
+      "generation_stopped_at" => Monitoring.iso(series.generation_stopped_at),
+      "active_count" => counts.active,
+      "upcoming_count" => counts.upcoming,
       "ended_count" => ended,
-      "cancelled_count" => cancelled,
-      "remaining_count" => active + length(upcoming),
-      "occurrence_total" => length(rows),
-      "next_starts_at" => upcoming |> Enum.map(& &1.starts_at) |> min_date() |> Monitoring.iso(),
-      "final_ends_at" => rows |> Enum.map(& &1.ends_at) |> Enum.max(DateTime) |> Monitoring.iso(),
+      "cancelled_count" => counts.cancelled,
+      "remaining_count" => counts.active + counts.upcoming,
+      "occurrence_total" => counts.total,
+      "next_starts_at" => Monitoring.iso(counts.next),
+      "final_ends_at" => Monitoring.iso(counts.final),
       "inserted_at" => Monitoring.iso(series.inserted_at),
       "updated_at" => Monitoring.iso(series.updated_at)
     }
   end
 
-  defp child_public(window, series, at) do
-    original = Enum.find(series.resolved_windows, &(&1["index"] == window.series_index))
+  defp child_public_rows(windows, at) do
+    ids = Enum.map(windows, & &1.id)
 
+    originals =
+      Repo.all(
+        from e in MaintenanceEvent,
+          where: e.window_id in ^ids and e.revision == 1 and e.kind == "created",
+          select:
+            {e.window_id,
+             fragment(
+               "jsonb_build_object('starts_local',?->'starts_local','ends_local',?->'ends_local','starts_at',?->'starts_at','ends_at',?->'ends_at')",
+               e.snapshot,
+               e.snapshot,
+               e.snapshot,
+               e.snapshot
+             )}
+      )
+      |> Map.new()
+
+    Enum.map(windows, &child_public(&1, originals[&1.id] || %{}, at))
+  end
+
+  defp child_public(window, original, at) do
     Maintenance.public_window(window, at)
     |> Map.drop(@scope_fields)
     |> Map.merge(%{
@@ -599,45 +790,47 @@ defmodule Mondek.MaintenanceSchedules do
     })
   end
 
-  defp cancellation_review(series, rows, upcoming, reason),
+  defp cancellation_review(series, upcoming, reason),
     do: %{
       "action" => "cancel",
       "id" => series.id,
       "revision" => series.revision,
       "reason" => reason,
-      "children" => Enum.map(rows, &{&1.id, &1.revision}),
-      "upcoming_ids" => Enum.map(upcoming, & &1.id)
+      "children" => fingerprint(Enum.map(upcoming, &{&1.id, &1.revision}))
     }
+
+  defp upcoming_children(id, at) do
+    Repo.all(from w in children(id), where: is_nil(w.cancelled_at) and w.starts_at > ^at)
+  end
 
   defp children(id),
     do:
-      Repo.all(
-        from w in MaintenanceWindow,
-          where: w.series_id == ^id,
-          order_by: w.series_index,
-          select:
-            struct(w, [
-              :id,
-              :series_id,
-              :series_index,
-              :revision,
-              :name,
-              :reason,
-              :actor,
-              :timezone,
-              :tzdata_version,
-              :starts_local,
-              :ends_local,
-              :start_fold,
-              :end_fold,
-              :starts_at,
-              :ends_at,
-              :cancelled_at,
-              :cancelled_by,
-              :cancellation_reason,
-              :inserted_at,
-              :updated_at
-            ])
+      from(w in MaintenanceWindow,
+        where: w.series_id == ^id,
+        order_by: w.series_index,
+        select:
+          struct(w, [
+            :id,
+            :series_id,
+            :series_index,
+            :revision,
+            :name,
+            :reason,
+            :actor,
+            :timezone,
+            :tzdata_version,
+            :starts_local,
+            :ends_local,
+            :start_fold,
+            :end_fold,
+            :starts_at,
+            :ends_at,
+            :cancelled_at,
+            :cancelled_by,
+            :cancellation_reason,
+            :inserted_at,
+            :updated_at
+          ])
       )
 
   defp scope_window(series),
@@ -646,18 +839,6 @@ defmodule Mondek.MaintenanceSchedules do
         MaintenanceWindow,
         Map.new(@scope_fields, &{String.to_existing_atom(&1), series.proposal[&1]})
       )
-
-  defp upcoming(rows, at),
-    do:
-      Enum.filter(rows, &(is_nil(&1.cancelled_at) and DateTime.compare(&1.starts_at, at) == :gt))
-
-  defp active?(w, at),
-    do:
-      is_nil(w.cancelled_at) and DateTime.compare(w.starts_at, at) != :gt and
-        DateTime.compare(w.ends_at, at) == :gt
-
-  defp min_date([]), do: nil
-  defp min_date(values), do: Enum.min(values, DateTime)
 
   defp future!(windows, at) do
     if Enum.any?(windows, &(DateTime.compare(parse(&1["starts_at"]), at) != :gt)),

@@ -16,7 +16,9 @@ defmodule Mondek.Sweeper do
       )
 
   def handle_info(:tick, count) do
-    MonitoringLoss.reconcile(Monitoring.now())
+    at = Monitoring.now()
+    Mondek.MaintenanceSchedules.refill_due(at)
+    MonitoringLoss.reconcile(at)
     Monitoring.notify()
     wake_held_notifications(Monitoring.now())
     Mondek.ConsumerState.cleanup()
@@ -331,7 +333,10 @@ defmodule Mondek.Sweeper do
         Repo.query!(
           """
           DELETE FROM maintenance_windows WHERE id IN (SELECT w.id FROM maintenance_windows w
-          WHERE w.series_id IS NULL AND COALESCE(w.cancelled_at,w.ends_at) < $1
+          WHERE (w.series_id IS NULL OR (w.revision=1 AND EXISTS (
+              SELECT 1 FROM maintenance_series ms WHERE ms.id=w.series_id
+                AND ms.next_index IS NOT NULL AND ms.generation_stopped_at IS NULL
+            ))) AND COALESCE(w.cancelled_at,w.ends_at) < $1
             AND NOT EXISTS (
               SELECT 1 FROM incidents i
               JOIN assignments a ON a.id=i.assignment_id
@@ -348,14 +353,14 @@ defmodule Mondek.Sweeper do
           [history_cutoff, limit]
         )
 
-      # Keep each finite series complete while any member is still upcoming or
-      # retained incident history can need its scope. Parent deletion cascades
-      # only after every member satisfies the ordinary retention conditions.
+      # Finished series retain their remaining dates until every child qualifies.
+      # An open rule (including a blocked one) and its exceptions stay inspectable.
       series =
         Repo.query!(
           """
           DELETE FROM maintenance_series WHERE id IN (SELECT ms.id FROM maintenance_series ms
-          WHERE NOT EXISTS (
+          WHERE (ms.next_index IS NULL OR ms.generation_stopped_at < $1)
+          AND NOT EXISTS (
             SELECT 1 FROM maintenance_windows w WHERE w.series_id=ms.id
               AND COALESCE(w.cancelled_at,w.ends_at) >= $1
           ) AND NOT EXISTS (

@@ -100,6 +100,11 @@ defmodule Mondek.MaintenanceSeries do
     field :proposal, :map
     field :resolved_windows, {:array, :map}, default: []
     field :tzdata_version, :string
+    field :next_index, :integer
+    field :refill_at, :utc_datetime_usec
+    field :generated_through_at, :utc_datetime_usec
+    field :generation_stopped_at, :utc_datetime_usec
+    field :generation_issue, :string
     field :inserted_at, :utc_datetime_usec
     field :updated_at, :utc_datetime_usec
   end

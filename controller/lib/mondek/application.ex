@@ -8,10 +8,16 @@ defmodule Mondek.Application do
       [
         Mondek.Repo,
         Mondek.ConfigurationRepositoryBootstrap,
-        {Phoenix.PubSub, name: Mondek.PubSub},
-        {Oban, Application.fetch_env!(:mondek, Oban)},
-        MondekWeb.Endpoint
+        {Phoenix.PubSub, name: Mondek.PubSub}
       ] ++
+        if(Application.get_env(:mondek, :sweep_enabled, true),
+          do: [Mondek.MaintenanceSchedules],
+          else: []
+        ) ++
+        [
+          {Oban, Application.fetch_env!(:mondek, Oban)},
+          MondekWeb.Endpoint
+        ] ++
         if(Application.get_env(:mondek, :sweep_enabled, true),
           do: [Mondek.Sweeper],
           else: []

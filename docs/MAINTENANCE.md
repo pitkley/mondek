@@ -42,7 +42,7 @@ Choose an explicit IANA timezone, such as `Europe/Berlin`, or `UTC`. The server 
 
 During the spring clock change, some local times do not exist. Mondek rejects them instead of silently changing the time. During the autumn clock change, some local times occur twice. Select the earlier or later occurrence for each ambiguous endpoint. The elapsed duration is calculated between resolved instants, so a clock reading that looks earlier can still be a later instant across that change.
 
-Saved UTC instants define execution. Controller restarts and browser timezone changes do not move the window. One-off windows can be long, with no two-hour limit. [Repeating maintenance](RECURRING-MAINTENANCE.md) creates a finite weekly series with an explicit ending and a review of every resolved window.
+Saved UTC instants define execution. Controller restarts and browser timezone changes do not move the window. One-off windows can be long, with no two-hour limit. [Repeating maintenance](RECURRING-MAINTENANCE.md) supports weekly series with an explicit ending or generation until canceled.
 
 ## Edit, end and inspect
 

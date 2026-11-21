@@ -149,7 +149,12 @@ defmodule MondekWeb.API.WorkflowSchemas do
       "MaintenanceSeries" =>
         obj(
           "id revision name reason scope assignment_id source_id environment target_kind target_key selections selection_count timezone starts_local ends_local start_fold end_fold tzdata_version actor inserted_at updated_at cancelled_at cancelled_by cancellation_reason status kind exception cadence weekdays duration_seconds starts_on ends_on local_time occurrence_count next_occurrence recurrence active_count upcoming_count ended_count cancelled_count remaining_count occurrence_total next_starts_at final_ends_at"
-        ),
+        )
+        |> with_properties(%{
+          generation_enabled: S.boolean(),
+          generation_issue: n(S.string()),
+          generation_stopped_at: S.time()
+        }),
       "PlannedMaintenanceOccurrence" =>
         maintenance_occurrence(%{
           overlap_count: S.integer(),
@@ -415,9 +420,10 @@ defmodule MondekWeb.API.WorkflowSchemas do
         merge_ref(
           "MaintenanceSeries",
           obj(
-            "proposal scope_options rows current_matches match_count history history_count limits selection_summary counts page_size recurrence timezone_version check_label runner_label"
+            "proposal scope_options rows current_matches match_count history history_count history_page history_pages limits selection_summary counts page_size recurrence timezone_version check_label runner_label"
           )
           |> with_properties(series_pagination("SavedMaintenanceOccurrence"))
+          |> with_properties(%{history_page: S.integer(), history_pages: S.integer()})
         )
 
       :maintenance_series_preview ->
@@ -438,7 +444,8 @@ defmodule MondekWeb.API.WorkflowSchemas do
         |> with_properties(%{
           rows: S.array(S.ref("SavedMaintenanceOccurrence")),
           active_count: S.integer(),
-          upcoming_count: S.integer()
+          upcoming_count: S.integer(),
+          stops_generation: S.boolean()
         })
 
       :save ->

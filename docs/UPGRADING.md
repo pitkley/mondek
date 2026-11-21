@@ -16,6 +16,8 @@ Subsequent schema changes use normal Ecto migrations. Inspect the release's migr
 
 The stable check maintenance migration extends selector validation and records exact source check keys on existing monitoring gaps where the assignment or coverage declaration identifies them. Saved assignment and target selectors keep their format. To roll back after saving stable check selectors, restore a pre-upgrade database backup with the matching controller.
 
+The open-ended maintenance migration adds generation state and preserves saved finite schedules. The controller catches up due schedules before it starts notification workers. To roll back after enabling open-ended rules, restore a pre-upgrade database backup with the matching controller.
+
 ## Preserve identity and evidence
 
 Keep the same PostgreSQL database, Compose volume bindings and complete runner state directories. Retain installation, source, check, environment, target and output identities. Buffered reports preserve their original IDs, payloads and execution times. Existing configuration Git objects are immutable history; do not rewrite their contents or commit IDs during an update.
