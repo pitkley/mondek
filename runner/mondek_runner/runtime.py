@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import math
 import os
 import shutil
 import signal
@@ -16,13 +17,14 @@ from pathlib import Path
 from typing import Any
 
 from . import environment
-from ._text import diagnostic_text
+from ._text import DETAIL_OMISSION, diagnostic_text
 from .api import (
     Impact,
     timestamp,
     validate_details,
     validate_impacts,
     validate_invocation_scope,
+    validate_source_at,
     validate_summary,
 )
 from .authoring import label
@@ -32,9 +34,13 @@ from .connection_diagnostics import ConnectionEvents
 from .discovery import validate_discovery
 from .state import State, inventory_summary
 from .transport import post_json
+from .worker_evidence import (
+    MAX_CAPTURE_BYTES,
+    MAX_COLLECTION_STDERR_BYTES,
+    MAX_COLLECTION_STDOUT_BYTES,
+)
 from .worker_limits import PREPARATION_TIMEOUT_SECONDS
 
-MAX_OUTPUT = 65536
 MAX_ASSIGNMENT = 4 * 1024 * 1024
 DISCOVERY_RETRY_SECONDS = 60
 SNAPSHOT_RETRY_SECONDS = 15
@@ -107,26 +113,49 @@ async def execute(
     )
     output = bytearray()
     captured = 0
+    stderr_bytes = 0
     diagnostic = None
+    readers: list[asyncio.Task[None]] = []
+    assert process.stdout is not None and process.stderr is not None
 
-    async def read(stream: asyncio.StreamReader, retain: bool) -> None:
-        nonlocal captured
+    async def read(stream: asyncio.StreamReader, *, stdout: bool) -> None:
+        nonlocal captured, stderr_bytes
         while chunk := await stream.read(4096):
-            captured += len(chunk)
-            if captured > MAX_OUTPUT:
-                raise OutputLimit("worker output exceeded 64 KiB cap")
-            if retain:
-                output.extend(chunk)
+            if checking:
+                remaining = MAX_CAPTURE_BYTES - captured
+                captured += len(chunk)
+            elif stdout:
+                remaining = MAX_COLLECTION_STDOUT_BYTES - len(output)
+            else:
+                remaining = MAX_COLLECTION_STDERR_BYTES - stderr_bytes
+                stderr_bytes += len(chunk)
+            if stdout:
+                output.extend(chunk[: max(0, remaining)])
+            if len(chunk) > remaining:
+                if not checking and not stdout:
+                    raise OutputLimit("worker output exceeded 4 KiB stderr allowance")
+                if checking:
+                    raise OutputLimit("worker output exceeded 64 KiB capture budget")
+                raise OutputLimit("worker output exceeded 60 KiB stdout allowance")
 
     async def communicate() -> None:
         assert process.stdin is not None
         process.stdin.write(encoded_assignment)
         await process.stdin.drain()
         process.stdin.close()
-        assert process.stdout is not None and process.stderr is not None
-        await asyncio.gather(
-            read(process.stdout, True), read(process.stderr, False), process.wait()
+        readers.extend(
+            [
+                asyncio.create_task(read(process.stdout, stdout=True)),
+                asyncio.create_task(read(process.stderr, stdout=False)),
+            ]
         )
+        await asyncio.gather(*readers, process.wait())
+
+    async def drain(stream: asyncio.StreamReader, *, retain: bool) -> None:
+        while chunk := await stream.read(4096):
+            if retain:
+                remaining = MAX_COLLECTION_STDOUT_BYTES - len(output)
+                output.extend(chunk[: max(0, remaining)])
 
     try:
         await asyncio.wait_for(
@@ -154,25 +183,88 @@ async def execute(
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+        for reader in readers:
+            reader.cancel()
+        await asyncio.gather(*readers, return_exceptions=True)
+        if diagnostic is not None or process.returncode is None:
+            # The other pipe can report its overflow before already-flushed result
+            # frames have reached the stdout reader. Keep bounded space for those.
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(
+                        drain(process.stdout, retain=not checking),
+                        drain(process.stderr, retain=False),
+                        process.wait(),
+                    ),
+                    timeout=0.25,
+                )
+            except TimeoutError:
+                pass
         await process.wait()
 
-    results: list[dict[str, Any]] = []
+    results: dict[str, dict[str, Any]] = {}
     terminal: dict[str, Any] = {}
+    replacements: set[str] = set()
+    expected = set() if checking else set(assignment["expected_keys"])
     try:
-        for line in output.splitlines():
+        lines = output.split(b"\n")
+        for line in lines[:-1]:
             item = json.loads(line)
-            if not isinstance(item, dict):
-                raise ValueError("worker message must be an object")
-            if "result" in item:
-                _validate_result_impacts(item["result"])
-                validate_summary(item["result"].get("summary"))
-                validate_details(item["result"].get("details"))
-                if "discovery" in item["result"]:
-                    validate_discovery(item["result"]["discovery"])
-                results.append(item["result"])
+            if not isinstance(item, dict) or terminal:
+                raise ValueError("invalid worker frame ordering")
+            if item.keys() == {"result"} and not checking:
+                result = item["result"]
+                _validate_result_impacts(result)
+                key = result.get("key")
+                if not isinstance(key, str) or key not in expected or key in results:
+                    raise ValueError("unexpected or duplicate worker result key")
+                if not {"health", "value", "source_at"} <= result.keys():
+                    raise ValueError(
+                        "worker result is missing required evidence fields"
+                    )
+                if result["health"] not in ("OK", "WARN", "CRIT", "UNKNOWN"):
+                    raise ValueError("invalid worker result health")
+                value = result["value"]
+                if value is not None and (
+                    type(value) not in (int, float) or not math.isfinite(value)
+                ):
+                    raise ValueError("invalid worker result value")
+                validate_source_at(result["source_at"], timestamp())
+                validate_summary(result.get("summary"))
+                validate_details(result.get("details"))
+                if "discovery" in result:
+                    validate_discovery(result["discovery"])
+                results[key] = result
+            elif item.keys() == {"detail"} and not checking:
+                detail = item["detail"]
+                if not isinstance(detail, dict) or set(detail) != {"key", "text"}:
+                    raise ValueError("invalid worker detail frame")
+                key = detail["key"]
+                if (
+                    not isinstance(key, str)
+                    or key not in results
+                    or results[key].get("details") != DETAIL_OMISSION
+                    or key in replacements
+                    or not isinstance(detail["text"], str)
+                ):
+                    raise ValueError("unexpected or duplicate worker detail")
+                validate_details(detail["text"])
+                results[key]["details"] = detail["text"]
+                replacements.add(key)
             else:
+                field = "prepared" if checking and "prepared" in item else "complete"
+                if (
+                    not item.keys() <= {field, "diagnostic"}
+                    or type(item.get(field)) is not bool
+                ):
+                    raise ValueError("unknown worker frame")
+                detail = item.get("diagnostic")
+                if detail is not None and (not isinstance(detail, str) or item[field]):
+                    raise ValueError("invalid worker terminal diagnostic")
                 terminal = item
-    except (ValueError, TypeError) as error:
+        if lines[-1]:
+            raise ValueError("unterminated worker frame")
+    except (ValueError, TypeError, OverflowError) as error:
         diagnostic = diagnostic or diagnostic_text(
             f"worker returned malformed output: {error}"
         )
@@ -183,9 +275,13 @@ async def execute(
             "prepared": bool(terminal.get("prepared")) and diagnostic is None,
             "diagnostic": diagnostic or terminal.get("diagnostic"),
         }
-    complete = bool(terminal.get("complete")) and diagnostic is None
+    complete = (
+        terminal.get("complete") is True
+        and diagnostic is None
+        and results.keys() == expected
+    )
     return {
-        "results": results[:16],
+        "results": list(results.values()),
         "complete": complete,
         "diagnostic": diagnostic
         or terminal.get("diagnostic")

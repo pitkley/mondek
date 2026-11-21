@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Byte-bounded diagnostic text, shared without importing the authoring SDK."""
 
+DETAIL_OMISSION = "[Detail evidence omitted]"
+
 
 def truncate_utf8(value: str, max_bytes: int = 2048) -> str:
     """Keep text within a wire byte limit without splitting a Unicode character."""

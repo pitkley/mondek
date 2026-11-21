@@ -11,52 +11,41 @@ import fcntl
 import json
 import math
 import os
-import re
 import signal
 import sys
 import threading
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from . import environment
 from ._text import diagnostic_text
 from .api import (
+    MAX_DETAILS_BYTES,
     Result,
     evaluate,
     timestamp,
     validate_details,
     validate_invocation_scope,
+    validate_source_at,
     validate_summary,
 )
 from .authoring import validate_params
 from .bundle import load_snapshot, verify_snapshot
 from .config import validate
 from .consumer_state import CheckContext, _StateClient
+from .worker_evidence import EvidenceWriter, encode_record
 from .worker_limits import PREPARATION_TIMEOUT_SECONDS, WATCHDOG_GRACE_SECONDS
 
 
 def emit(value: dict[str, Any]) -> None:
-    sys.__stdout__.write(json.dumps(value, allow_nan=False) + "\n")
-    sys.__stdout__.flush()
-
-
-def validate_source_at(source_at: str | None) -> None:
-    """Reject unusable source evidence before it can invalidate the whole report."""
-    if source_at is None:
-        return
-    if not isinstance(source_at, str) or not re.fullmatch(
-        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}(?:Z|\+00:00)", source_at
-    ):
-        raise ValueError("source_at must be a UTC timestamp with six fractional digits")
-    source = datetime.fromisoformat(source_at)
-    if source.year < 2000 or source > datetime.fromisoformat(timestamp()):
-        raise ValueError("source_at must be between year 2000 and collection time")
+    sys.__stdout__.buffer.write(encode_record(value))
+    sys.__stdout__.buffer.flush()
 
 
 async def run(assignment: dict[str, Any], prepare: bool = False) -> None:
     seen: set[str] = set()
+    evidence = EvidenceWriter(emit, MAX_DETAILS_BYTES)
     try:
         context = None
         if not prepare and (
@@ -129,26 +118,23 @@ async def run(assignment: dict[str, Any], prepare: bool = False) -> None:
                     or not math.isfinite(result.value)
                 ):
                     raise ValueError("result value must be finite number or null")
-                validate_source_at(result.source_at)
+                validate_source_at(result.source_at, timestamp())
                 validate_details(result.details)
                 serialized = result.to_dict()
                 validate_invocation_scope(serialized)
+                evidence.result(serialized)
                 seen.add(result.key)
-                emit({"result": serialized})
-        complete = seen == set(assignment["expected_keys"])
-        emit(
-            {
-                "complete": complete,
-                "diagnostic": None if complete else "missing expected output",
-            }
-        )
     except Exception as error:
-        emit(
-            {
-                "complete": False,
-                "diagnostic": diagnostic_text(f"{type(error).__name__}: {error}"),
-            }
-        )
+        complete = False
+        diagnostic = diagnostic_text(f"{type(error).__name__}: {error}")
+    else:
+        complete = seen == set(assignment["expected_keys"])
+        diagnostic = None if complete else "missing expected output"
+
+    if prepare:
+        emit({"complete": False, "diagnostic": diagnostic})
+    else:
+        evidence.finish(complete, diagnostic)
 
 
 def main() -> None:

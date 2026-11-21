@@ -52,8 +52,8 @@ class PublicApiTests(unittest.TestCase):
                 'Impact', 'ManagedResource', 'Output', 'Parameter',
                 'Placement', 'PlacementContext',
                 'Result', 'ResultBuilder', 'RunnerContext', 'Target',
-                'build_result', 'check', 'crit', 'discover_checks', 'ok',
-                'unknown', 'warn',
+                'bounded_details', 'build_result', 'check', 'crit', 'discover_checks',
+                'ok', 'unknown', 'warn',
             }
             assert set(mondek_runner.__all__) == expected
             for name in expected:

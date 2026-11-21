@@ -5,11 +5,13 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import AsyncIterator, Callable, Mapping
+import re
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, fields
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
+from ._text import DETAIL_OMISSION
 from ._text import truncate_utf8 as truncate_utf8
 
 if TYPE_CHECKING:
@@ -40,6 +42,19 @@ def timestamp() -> str:
     return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
+def validate_source_at(source_at: str | None, now: str) -> None:
+    """Reject unusable source evidence before it can invalidate the whole report."""
+    if source_at is None:
+        return
+    if not isinstance(source_at, str) or not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}(?:Z|\+00:00)", source_at
+    ):
+        raise ValueError("source_at must be a UTC timestamp with six fractional digits")
+    source = datetime.fromisoformat(source_at)
+    if source.year < 2000 or source > datetime.fromisoformat(now):
+        raise ValueError("source_at must be between year 2000 and collection time")
+
+
 def validate_summary(summary: str) -> None:
     """Authored summaries must match the controller's bounded text contract."""
     if not isinstance(summary, str) or "\x00" in summary:
@@ -64,6 +79,28 @@ def validate_details(details: str | None) -> None:
         raise ValueError("result details must be valid UTF-8 text") from error
     if size > MAX_DETAILS_BYTES:
         raise ValueError("result details exceeds 16384-byte output cap")
+
+
+def bounded_details(lines: Iterable[str]) -> str:
+    """Join a bounded prefix of plain text lines and mark omitted evidence."""
+    parts: list[str] = []
+    remaining = MAX_DETAILS_BYTES
+    for line in lines:
+        if not isinstance(line, str) or "\x00" in line:
+            raise ValueError("result details must be plain text without NUL")
+        separator = "\n" if parts else ""
+        prefix = line[: remaining + 1]
+        try:
+            size = len(separator) + len(prefix.encode("utf-8"))
+        except UnicodeEncodeError as error:
+            raise ValueError("result details must be valid UTF-8 text") from error
+        if size > remaining:
+            suffix = "\n\n" + DETAIL_OMISSION
+            leading = "".join(parts) + separator + prefix
+            return truncate_utf8(leading, MAX_DETAILS_BYTES - len(suffix)) + suffix
+        parts.append(separator + prefix)
+        remaining -= size
+    return "".join(parts)
 
 
 def validate_invocation_scope(value: Mapping[str, Any]) -> None:

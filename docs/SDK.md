@@ -134,6 +134,8 @@ app = App(source_id="queue-monitoring", environment=Environment("local"), checks
 
 A check can be synchronous, a coroutine, a generator or an async generator. Annotate these as `Result`, `Result`, `Iterator[Result]` and `AsyncIterator[Result]` respectively; call or await them normally in policy tests. The runner awaits/iterates them under the same per-assignment execution boundary. One multi-result check has one schedule and shared parameter set, while each result retains independent health/history. Declare `outputs` or `expected_keys`, not both; a missing declared result is missing evidence, not automatic removal.
 
+Use `from mondek_runner import bounded_details` and pass `bounded_details(lines)` as a result's `details` for large lists or diffs. It keeps a UTF-8 prefix within the 16 KiB raw text limit and marks omissions. The worker shares its remaining encoded output space across result details after reserving required facts, terminal status and diagnostics. Compute health and structured facts from the full data before producing the excerpt. See [worker evidence budgeting](WORKER-EVIDENCE-BUDGET.md).
+
 ## Share data between executions
 
 Use the typed `CheckContext` and its `state` client for bounded controller-backed baselines and shared input. See [consumer state](CONSUMER-STATE.md) for CAS, TTL, assignment-local scope, outage/error behavior and original acquisition age. State does not provide executor election or failure sustain.
