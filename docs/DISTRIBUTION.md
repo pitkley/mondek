@@ -1,6 +1,6 @@
 # Installation and distribution
 
-The normal installation uses the controller/PostgreSQL [image recipe](../deploy/README.md) and an installed SDK as described in [getting started](GETTING-STARTED.md). The [0.0.8 release](https://github.com/pitkley/mondek/releases/tag/v0.0.8) includes the controller image `ghcr.io/pitkley/mondek/controller:0.0.8` for Linux/amd64 and Linux/arm64, plus the wheel and sdist for [mondek on PyPI](https://pypi.org/project/mondek/0.0.8/). No source checkout is required for ordinary installation.
+The normal installation uses the controller/PostgreSQL [image recipe](../deploy/README.md) and an installed SDK as described in [getting started](GETTING-STARTED.md). The [0.0.9 release](https://github.com/pitkley/mondek/releases/tag/v0.0.9) includes the controller image `ghcr.io/pitkley/mondek/controller:0.0.9` for Linux/amd64 and Linux/arm64, plus the wheel and sdist for [mondek on PyPI](https://pypi.org/project/mondek/0.0.9/). No source checkout is required for ordinary installation.
 
 Use matching published controller/SDK releases, or the same reviewed source revision for local builds. The versioned wire contracts do not promise arbitrary controller/SDK combinations, and the runner deliberately fences frozen executable snapshots against their installed runtime. Preserve installation state when changing artifacts; see [upgrading](UPGRADING.md). The [controller trust boundary](CONTROLLER-AUTH.md) still applies to a parallel pilot.
 
