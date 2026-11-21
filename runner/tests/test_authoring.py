@@ -16,13 +16,16 @@ from mondek_runner import (
     Binding,
     Datasource,
     DatasourceFactory,
+    DeferredOwner,
     Environment,
     FromFactory,
     Output,
     Parameter,
+    Result,
     Target,
     check,
     crit,
+    defer,
     discover_checks,
     ok,
     warn,
@@ -95,6 +98,25 @@ async def factory_check(
 
 
 class AuthoringTests(unittest.IsolatedAsyncioTestCase):
+    def test_deferral_reports_an_exact_owner_without_measurement(self):
+        result = defer(
+            "cluster",
+            "Migration owns evaluation",
+            owner_check="migration",
+            owner_output="progress",
+        )
+        self.assertEqual(result.health, "UNKNOWN")
+        self.assertIsNone(result.source_at)
+        self.assertEqual(
+            result.to_dict()["deferral"],
+            {"check_key": "migration", "output_key": "progress"},
+        )
+        self.assertNotIn("deferral", ok("cluster", "Healthy").to_dict())
+        with self.assertRaises(ValueError):
+            Result("cluster", "OK", "Healthy", deferral=DeferredOwner("a", "b"))
+        with self.assertRaises(ValueError):
+            defer("cluster", "", owner_check="migration", owner_output="progress")
+
     async def test_factory_method_descriptors_validate_without_construction(self):
         for base in (MethodFactory, ClassMethodFactory, StaticMethodFactory):
             inherited = type("Inherited" + base.__name__, (base,), {})

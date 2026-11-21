@@ -754,7 +754,8 @@ defmodule Mondek.Monitoring do
           end)
       end
     else
-      {:error, {:unsupported_result_environment, message}} ->
+      {:error, {reason, message}}
+      when reason in [:unsupported_result_environment, :invalid_result_deferral] ->
         # Older controllers ignored these fields. An exact receipt already
         # committed for this installation remains replayable after the stricter
         # validation, without granting new measurement or namespace authority.
@@ -773,7 +774,7 @@ defmodule Mondek.Monitoring do
             %{
               "id" => id,
               "disposition" => "rejected",
-              "reason" => "unsupported_result_environment",
+              "reason" => Atom.to_string(reason),
               "error" => message
             }
         end
@@ -857,6 +858,7 @@ defmodule Mondek.Monitoring do
         {sustain, effective_health} =
           Mondek.OutputSustain.reduce(stream, state, measured?, o, seconds, freshness, at)
 
+        raw_state = Mondek.DeferredOutput.project(raw_state, result, a, stream)
         stream = change(stream, %{current: raw_state, sustain: sustain})
 
         if effective_health do

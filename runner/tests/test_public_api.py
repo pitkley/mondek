@@ -51,10 +51,11 @@ class PublicApiTests(unittest.TestCase):
                 'App', 'Binding', 'Capability', 'CheckGroup', 'Condition', 'Consumer',
                 'Datasource', 'DatasourceFactory', 'Environment', 'FromFactory',
                 'Discovery', 'DiscoveryCandidate', 'DiscoveryChoice',
-                'Impact', 'ManagedResource', 'Output', 'Parameter',
+                'DeferredOwner', 'Impact', 'ManagedResource', 'Output', 'Parameter',
                 'Placement', 'PlacementContext',
                 'Result', 'ResultBuilder', 'RunnerContext', 'Target',
-                'bounded_details', 'build_result', 'check', 'crit', 'discover_checks',
+                'bounded_details', 'build_result', 'check', 'crit', 'defer',
+                'discover_checks',
                 'ok', 'unknown', 'warn',
             }
             assert set(mondek_runner.__all__) == expected

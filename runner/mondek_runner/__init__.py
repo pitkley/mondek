@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .api import (
+        DeferredOwner,
         Impact,
         Result,
         ResultBuilder,
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
         build_result,
         check,
         crit,
+        defer,
         ok,
         unknown,
         warn,
@@ -96,6 +98,7 @@ __all__ = [
     "FromFactory",
     "ManagedResource",
     "Impact",
+    "DeferredOwner",
     "Output",
     "Parameter",
     "Placement",
@@ -108,6 +111,7 @@ __all__ = [
     "build_result",
     "check",
     "crit",
+    "defer",
     "discover_checks",
     "ok",
     "unknown",
@@ -117,12 +121,14 @@ __all__ = [
 _RESULT_EXPORTS = frozenset(
     (
         "Impact",
+        "DeferredOwner",
         "Result",
         "ResultBuilder",
         "bounded_details",
         "build_result",
         "check",
         "crit",
+        "defer",
         "ok",
         "unknown",
         "warn",

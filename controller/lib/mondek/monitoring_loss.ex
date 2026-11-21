@@ -133,6 +133,11 @@ defmodule Mondek.MonitoringLoss do
           "runner_id" => runner_id
         }
 
+        details =
+          if reason == "unavailable" and is_map(current["deferral"]),
+            do: Map.put(details, "deferral", current["deferral"]),
+            else: details
+
         # Startup/configuration adoption gets at least two scheduled executions.
         delay =
           if knowledge == "awaiting",
@@ -265,6 +270,11 @@ defmodule Mondek.MonitoringLoss do
       |> Map.put("initial_knowledge", gap.details["initial_knowledge"])
       |> Map.put("suppressed_by", gap.details["suppressed_by"])
 
+    details =
+      if details["deferral"] && Map.has_key?(gap.details, "deferral_active"),
+        do: Map.put(details, "deferral_active", gap.details["deferral_active"]),
+        else: details
+
     if gap.details != details, do: Monitoring.change(gap, %{details: details}), else: gap
   end
 
@@ -360,12 +370,13 @@ defmodule Mondek.MonitoringLoss do
 
   defp reduce_scope!(scope, kind, runner_id, source_id, label, at, withdrew?) do
     query = active_gaps(scope, at)
+    count = Repo.aggregate(exclude(query, :order_by), :count)
+    claims_changed? = count > 0 and kind == "runner" and refresh_deferrals!(query, at)
     members = Repo.all(from g in query, limit: @snapshot_limit)
 
     episode =
       Repo.one(from i in MonitoringIncident, where: i.scope_key == ^scope and i.status == "open")
 
-    count = Repo.aggregate(exclude(query, :order_by), :count)
     snapshot = Enum.map(members, &member/1)
 
     cond do
@@ -385,7 +396,8 @@ defmodule Mondek.MonitoringLoss do
         if Mondek.NotificationDelivery.enabled?(), do: occurrence!(incident, "firing", at)
 
       count > 0 ->
-        if episode.member_count != count or episode.member_snapshot != snapshot or withdrew? do
+        if episode.member_count != count or episode.member_snapshot != snapshot or withdrew? or
+             claims_changed? do
           Monitoring.change(episode, %{
             member_count: count,
             member_snapshot: snapshot,
@@ -408,6 +420,23 @@ defmodule Mondek.MonitoringLoss do
       true ->
         :ok
     end
+  end
+
+  defp refresh_deferrals!(query, at) do
+    gaps = Repo.all(from g in query, where: not is_nil(fragment("?->'deferral'", g.details)))
+    until_by_key = Mondek.DeferredOutput.covering_until(Enum.map(gaps, &member/1), at)
+
+    gaps
+    |> Enum.reduce(false, fn gap, changed? ->
+      active? = not is_nil(until_by_key[gap.key])
+
+      if gap.details["deferral_active"] != active? do
+        Monitoring.change(gap, %{details: Map.put(gap.details, "deferral_active", active?)})
+        true
+      else
+        changed?
+      end
+    end)
   end
 
   defp close!(incident, reason, at) do
@@ -528,13 +557,22 @@ defmodule Mondek.MonitoringLoss do
     )
   end
 
-  def maintenance_windows(incident, at) do
-    rows = Repo.all(active_gaps(incident.scope_key, at)) |> Enum.map(&member/1)
-    by_row = Maintenance.active_for_rows(rows, at)
+  def maintenance_windows(incident, at), do: elem(collection_holds(incident, at), 0)
 
-    if rows != [] and Enum.all?(rows, &(Map.get(by_row, &1["key"], []) != [])),
-      do: by_row |> Map.values() |> List.flatten() |> Enum.uniq_by(& &1.id),
-      else: []
+  defp collection_holds(incident, at) do
+    rows = Repo.all(active_gaps(incident.scope_key, at)) |> Enum.map(&member/1)
+    maintenance = Maintenance.active_for_rows(rows, at)
+    deferred = Mondek.DeferredOutput.covering_until(rows, at)
+
+    holds = Enum.map(rows, &{Map.get(maintenance, &1["key"], []), deferred[&1["key"]]})
+
+    if Enum.all?(holds, fn {windows, until} -> windows != [] or not is_nil(until) end) do
+      windows = Enum.flat_map(holds, &elem(&1, 0)) |> Enum.uniq_by(& &1.id)
+      deferral_ends = for {[], until} <- holds, do: until
+      {windows, deferral_ends}
+    else
+      {[], []}
+    end
   end
 
   def delivery_eligibility(o, incident, at) do
@@ -550,11 +588,12 @@ defmodule Mondek.MonitoringLoss do
 
       true ->
         ack? = Monitoring.acknowledgement_active?(incident, at)
-        windows = maintenance_windows(incident, at)
+        {windows, deferral_ends} = collection_holds(incident, at)
 
         gates =
           if(ack?, do: ["acknowledgement"], else: []) ++
-            if windows != [], do: ["maintenance"], else: []
+            if(windows != [], do: ["maintenance"], else: []) ++
+            if(deferral_ends != [], do: ["deferral"], else: [])
 
         # Re-evaluate each minute as membership and overlapping windows evolve.
         # The durable gate revision also wakes edits promptly without a new budget.
@@ -564,6 +603,7 @@ defmodule Mondek.MonitoringLoss do
           else
             ([DateTime.add(at, 60)] ++
                Enum.map(windows, & &1.ends_at) ++
+               deferral_ends ++
                if(ack?, do: [incident.acknowledged_until], else: []))
             |> Enum.min(DateTime)
           end

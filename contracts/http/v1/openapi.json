@@ -1085,6 +1085,12 @@
             ],
             "nullable": true
           },
+          "deferral": {
+            "$ref": "#/components/schemas/DeferredOutputClaim"
+          },
+          "deferral_active": {
+            "type": "boolean"
+          },
           "environment": {
             "nullable": true,
             "type": "string"
@@ -1125,6 +1131,10 @@
             "type": "string"
           },
           "source_id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "source_key": {
             "nullable": true,
             "type": "string"
           },
@@ -2152,6 +2162,61 @@
         ],
         "type": "object"
       },
+      "LossClosingEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "coverage_id": {
+            "type": "string"
+          },
+          "environment": {
+            "nullable": true,
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "health": {
+            "enum": [
+              "OK",
+              "WARN",
+              "CRIT",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "knowledge": {
+            "enum": [
+              "fresh",
+              "observed"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "observation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "source_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "stream_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          }
+        },
+        "required": [
+          "label",
+          "knowledge"
+        ],
+        "type": "object"
+      },
       "InventoryReceipt": {
         "additionalProperties": false,
         "properties": {
@@ -3042,6 +3107,9 @@
             "nullable": true,
             "type": "string"
           },
+          "deferral": {
+            "$ref": "#/components/schemas/DeferredOutputClaim"
+          },
           "diagnostic": {
             "nullable": true,
             "type": "string"
@@ -3663,6 +3731,28 @@
           "timeout_seconds",
           "freshness_seconds",
           "expected_keys"
+        ],
+        "type": "object"
+      },
+      "DeferredOutputOwner": {
+        "additionalProperties": false,
+        "properties": {
+          "check_key": {
+            "description": "UTF-8 byte budget also enforced by domain validation.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "output_key": {
+            "description": "UTF-8 byte budget also enforced by domain validation.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "check_key",
+          "output_key"
         ],
         "type": "object"
       },
@@ -4611,6 +4701,42 @@
         ],
         "type": "object"
       },
+      "DeferredOutputClaim": {
+        "additionalProperties": false,
+        "properties": {
+          "check_key": {
+            "type": "string"
+          },
+          "evaluated_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "output_key": {
+            "type": "string"
+          },
+          "owner_assignment_id": {
+            "type": "string"
+          },
+          "owner_generation": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "owner_stream_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "check_key",
+          "output_key",
+          "reason"
+        ],
+        "type": "object"
+      },
       "Result": {
         "additionalProperties": false,
         "properties": {
@@ -4776,6 +4902,9 @@
       "EvidenceResult": {
         "additionalProperties": false,
         "properties": {
+          "deferral": {
+            "$ref": "#/components/schemas/DeferredOutputOwner"
+          },
           "details": {
             "nullable": true,
             "type": "string"
@@ -4816,6 +4945,9 @@
         "additionalProperties": true,
         "description": "Canonical producer result. Environment overrides are forbidden by admission. Text limits are UTF-8 bytes; unknown extension fields retain their existing semantics.",
         "properties": {
+          "deferral": {
+            "$ref": "#/components/schemas/DeferredOutputOwner"
+          },
           "details": {
             "description": "UTF-8 byte budget also enforced by domain validation.",
             "maxLength": 16384,
@@ -18483,6 +18615,12 @@
                         "environment_label": {
                           "nullable": true,
                           "type": "string"
+                        },
+                        "closing_evidence": {
+                          "items": {
+                            "$ref": "#/components/schemas/LossClosingEvidence"
+                          },
+                          "type": "array"
                         },
                         "scope_kind": {
                           "nullable": true,

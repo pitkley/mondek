@@ -1,0 +1,7 @@
+# Deferred output evaluation design
+
+A check can explicitly defer one declared output to a different source check and exact output key in the same source, runner and monitored environment. The result records a reason and no measurement timestamp. The controller pins the admitted owner's result stream and authorized generation when projecting the claim. A missing, replaced or reconfigured owner cannot take responsibility under that claim. A later admitted claim can name a current owner.
+
+Only the owner's latest confirmed, fresh measurement in the current runner session and authorized generation qualifies. A measured failure can establish that the owner is evaluating its responsibility. A self-reference or a claim whose owner is itself deferred creates no hold. The deferred output is unmeasured, which preserves previous confirmed evidence and qualified health, breaks pending sustain, and leaves the measured configuration generation unchanged.
+
+Keep the original collection-loss gap, episode and deadline. A pending firing notification waits only while every due gap is either covered by maintenance or has valid deferral. Evaluate the full membership during dispatch. Deferral is limited to five minutes from the original gap and also ends at owner freshness expiry or control-contact loss. Replays and repeated claims cannot reset the gap clock. Keep previously missing declared coverage eligible until admitted measurement proves restoration.

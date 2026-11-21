@@ -9,6 +9,9 @@ defmodule Mondek.OutputSustainTest do
     ConditionIncident,
     Configuration,
     Inventory,
+    MonitoringGap,
+    MonitoringIncident,
+    MonitoringLoss,
     ResultStream,
     SourceInventory,
     Sweeper
@@ -185,6 +188,181 @@ defmodule Mondek.OutputSustainTest do
     assert disposition(ingest(sample, rolled_back)) == "current"
     refute Repo.one(Incident)
     assert Repo.get!(ResultStream, stream.id).sustain["warn"]["observation_id"] == sample["id"]
+  end
+
+  test "deferral retains measurement and qualification while the exact owner is current" do
+    previous = Application.get_env(:mondek, :monitoring_loss_grace_seconds)
+    Application.put_env(:mondek, :monitoring_loss_grace_seconds, 5)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:mondek, :monitoring_loss_grace_seconds, previous),
+        else: Application.delete_env(:mondek, :monitoring_loss_grace_seconds)
+    end)
+
+    checks = [
+      declaration("link", %{"sustain_seconds" => 5}),
+      declaration("migration", %{}),
+      declaration("side", %{})
+    ]
+
+    assert {:ok, _} = Monitoring.inventory(inventory(checks), @base)
+    [link, owner, side] = Repo.all(from a in Assignment, order_by: a.source_key)
+    assert {:ok, _} = activate([link, owner, side], @base)
+    assert {:ok, _} = reviewed_maintenance_fixture(side.id, 3600, "Separate maintenance", @base)
+
+    assert disposition(send_result(owner, 1, 1, "OK")) == "current"
+    assert disposition(send_result(link, 1, 1, "OK")) == "current"
+    assert disposition(send_result(side, 1, 1, "OK")) == "current"
+    assert disposition(send_result(link, 2, 2, "CRIT")) == "current"
+    assert disposition(send_result(side, 2, 3, "UNKNOWN")) == "current"
+    stream = Repo.get_by!(ResultStream, assignment_id: link.id)
+    assert stream.sustain["crit"]
+    assert stream.sustain["effective_health"] == "OK"
+
+    deferred = deferred_report(link, 3, 3, "migration")
+    assert disposition(ingest(deferred, tick(3_000_000))) == "current"
+
+    current = Repo.get!(ResultStream, stream.id)
+    refute current.sustain["crit"]
+
+    assert current.sustain["effective_observation_id"] ==
+             stream.sustain["effective_observation_id"]
+
+    assert current.current["confirmed_observation_id"] ==
+             stream.current["confirmed_observation_id"]
+
+    assert current.current["source_at"] == stream.current["source_at"]
+    assert current.current["knowledge"] == "unavailable"
+    assert current.current["deferral"]["owner_assignment_id"] == owner.id
+    refute current.current["complete"]
+
+    gap = Repo.get!(MonitoringGap, stream.id)
+    assert {:ok, _} = MonitoringLoss.reconcile(tick(8_000_000))
+    loss = Repo.one!(MonitoringIncident)
+    firing = Repo.get_by!(Occurrence, monitoring_incident_id: loss.id)
+
+    assert {:gated, ["maintenance", "deferral"], _} =
+             MonitoringLoss.delivery_eligibility(firing, loss, tick(8_000_000))
+
+    assert [%{name: "Planned maintenance"}] =
+             MonitoringLoss.maintenance_windows(loss, tick(8_000_000))
+
+    repeat = deferred_report(link, 4, 9, "migration")
+    assert disposition(ingest(repeat, tick(9_000_000))) == "current"
+    assert disposition(ingest(deferred, tick(9_000_000))) == "duplicate"
+    assert Repo.get!(MonitoringGap, stream.id).ready_at == gap.ready_at
+
+    revision = Repo.get!(Occurrence, firing.id).gate_revision
+    assert disposition(send_result(owner, 2, 10, "UNKNOWN")) == "current"
+    assert MonitoringLoss.delivery_eligibility(firing, loss, tick(10_000_000)) == :eligible
+    assert Repo.get!(Occurrence, firing.id).gate_revision > revision
+
+    assert disposition(send_result(link, 5, 11, "CRIT")) == "current"
+
+    assert Repo.get!(ResultStream, stream.id).sustain["crit"]["received_at"] ==
+             Monitoring.iso(tick(11_000_000))
+
+    refute Repo.one(Incident)
+  end
+
+  test "self references and cycles have no eligible deferral owner" do
+    checks = [declaration("first", %{}), declaration("second", %{})]
+    assert {:ok, _} = Monitoring.inventory(inventory(checks), @base)
+    [first, second] = Repo.all(from a in Assignment, order_by: a.source_key)
+    assert {:ok, _} = activate([first, second], @base)
+
+    for assignment <- [first, second],
+        do: assert(disposition(send_result(assignment, 1, 1, "OK")) == "current")
+
+    assert disposition(ingest(deferred_report(first, 2, 2, "first"), tick(2_000_000))) ==
+             "current"
+
+    stream = Repo.get_by!(ResultStream, assignment_id: first.id)
+    refute stream.current["deferral"]["owner_stream_id"]
+
+    assert disposition(ingest(deferred_report(first, 3, 3, "second"), tick(3_000_000))) ==
+             "current"
+
+    assert disposition(ingest(deferred_report(second, 2, 4, "first"), tick(4_000_000))) ==
+             "current"
+
+    rows = Repo.all(MonitoringGap)
+    rows = Enum.map(rows, &Map.put(&1.details, "since_at", Monitoring.iso(&1.since_at)))
+
+    assert Enum.all?(Mondek.DeferredOutput.covering_until(rows, tick(4_000_000)), fn {_, value} ->
+             is_nil(value)
+           end)
+  end
+
+  test "previously admitted observations with legacy deferral fields replay without authority changes" do
+    assert {:ok, _} = Monitoring.inventory(inventory([declaration("link", %{})]), @base)
+    link = Repo.one!(Assignment)
+    assert {:ok, _} = activate([link], @base)
+    stamp = tick(1_000_000)
+    report = sample_report(link, 1, stamp, reported("health", "OK", stamp, []))
+    assert disposition(ingest(report, stamp)) == "current"
+    old = put_in(report, ["results", Access.at(0), "deferral"], nil)
+    stored = Repo.get!(Observation, report["id"])
+    Monitoring.change(stored, %{payload: old})
+
+    assert disposition(ingest(old, stamp)) == "duplicate"
+    changed = put_in(old, ["results", Access.at(0), "deferral"], "bad")
+    assert disposition(ingest(changed, stamp)) == "conflict"
+    fresh_id = %{old | "id" => Ecto.UUID.generate(), "sequence" => 2}
+    assert disposition(ingest(fresh_id, stamp)) == "rejected"
+    assert Repo.get!(Assignment, link.id).last_sequence == 1
+  end
+
+  test "fresh owner evidence and repeated claims cannot extend the original deferral cap" do
+    checks = [declaration("link", %{}), declaration("migration", %{})]
+    assert {:ok, _} = Monitoring.inventory(inventory(checks), @base)
+    [link, owner] = Repo.all(from a in Assignment, order_by: a.source_key)
+    assert {:ok, _} = activate([link, owner], @base)
+    assert disposition(send_result(link, 1, 1, "OK")) == "current"
+    assert disposition(send_result(owner, 1, 1, "OK")) == "current"
+
+    assert disposition(ingest(deferred_report(link, 2, 3, "migration"), tick(3_000_000))) ==
+             "current"
+
+    later = tick(300_000_000)
+    assert {:ok, _} = activate([link, owner], later)
+    assert disposition(send_result(owner, 2, 300, "OK")) == "current"
+    # The owner has a prior stale-gap deadline. Only the deferred output is due.
+    assert disposition(ingest(deferred_report(link, 3, 301, "migration"), tick(301_000_000))) ==
+             "current"
+
+    assert {:ok, _} = MonitoringLoss.reconcile(tick(302_000_000))
+
+    loss = Repo.one!(MonitoringIncident)
+    firing = Repo.get_by!(Occurrence, monitoring_incident_id: loss.id)
+    deadline = tick(303_000_000)
+
+    assert MonitoringLoss.delivery_eligibility(firing, loss, tick(302_000_000)) ==
+             {:gated, ["deferral"], deadline}
+
+    assert MonitoringLoss.delivery_eligibility(firing, loss, deadline) == :eligible
+  end
+
+  test "a delayed first upload cannot revive its expired deferral claim" do
+    checks = [declaration("link", %{}), declaration("migration", %{})]
+    assert {:ok, _} = Monitoring.inventory(inventory(checks), @base)
+    [link, owner] = Repo.all(from a in Assignment, order_by: a.source_key)
+    assert {:ok, _} = activate([link, owner], @base)
+    assert disposition(send_result(link, 1, 1, "OK")) == "current"
+    buffered = deferred_report(link, 2, 2, "migration")
+
+    receipt = tick(310_000_000)
+    assert {:ok, _} = activate([link, owner], receipt)
+    assert disposition(send_result(owner, 1, 310, "OK")) == "current"
+    assert disposition(ingest(buffered, receipt)) == "current"
+
+    stream = Repo.get_by!(ResultStream, assignment_id: link.id)
+    gap = Repo.get!(MonitoringGap, stream.id)
+    row = Map.put(gap.details, "since_at", Monitoring.iso(gap.since_at))
+    assert gap.since_at == receipt
+    assert row["deferral"]["owner_assignment_id"] == owner.id
+    assert Mondek.DeferredOutput.covering_until([row], receipt) == %{stream.id => nil}
   end
 
   test "a changed desired freshness leaves authorized continuity intact until adoption" do
@@ -394,7 +572,45 @@ defmodule Mondek.OutputSustainTest do
              json_response(conn, 200)["data"]["stream"]
   end
 
+  test "result fly-over and full page show the reason and exact owner of a deferral" do
+    now = DateTime.utc_now()
+    checks = [declaration("link", %{}), declaration("migration", %{})]
+    assert {:ok, _} = Monitoring.inventory(inventory(checks), now)
+    [link, owner] = Repo.all(from a in Assignment, order_by: a.source_key)
+    assert {:ok, _} = activate([link, owner], now)
+    result = hd(deferred_report(link, 1, 1, "migration")["results"])
+    assert disposition(ingest(sample_report(link, 1, now, [result]), now)) == "current"
+    assert Repo.get!(Assignment, link.id).observed_generation == nil
+    stream = Repo.get_by!(ResultStream, assignment_id: link.id)
+
+    for path <- ["/results/#{stream.id}", "/results/#{stream.id}/full"] do
+      {:ok, view, _} = live(build_conn(), path)
+      assert has_element?(view, "[data-output-deferral]", "Migration owns evaluation")
+      assert has_element?(view, "[data-output-deferral]", "Owner check migration · output health")
+    end
+  end
+
   defp tick(microseconds), do: DateTime.add(@base, microseconds, :microsecond)
+
+  defp send_result(assignment, sequence, seconds, health) do
+    at = tick(seconds * 1_000_000)
+    ingest(sample_report(assignment, sequence, at, reported("health", health, at, [])), at)
+  end
+
+  defp deferred_report(assignment, sequence, seconds, owner) do
+    at = tick(seconds * 1_000_000)
+
+    sample_report(assignment, sequence, at, [
+      %{
+        "key" => "health",
+        "health" => "UNKNOWN",
+        "summary" => "Migration owns evaluation",
+        "source_at" => nil,
+        "value" => nil,
+        "deferral" => %{"check_key" => owner, "output_key" => "health"}
+      }
+    ])
+  end
 
   defp declaration(key, attrs) do
     %{
