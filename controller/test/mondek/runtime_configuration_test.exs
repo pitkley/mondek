@@ -4,7 +4,7 @@ defmodule Mondek.RuntimeConfigurationTest do
   use ExUnit.Case, async: false
 
   @runtime Path.expand("../../config/runtime.exs", __DIR__)
-  @variables ~w(MONDEK_RETENTION_RECEIPT_DAYS MONDEK_RETENTION_HISTORY_DAYS MONDEK_RETENTION_MAX_OBSERVATIONS MONDEK_DEPLOYMENT_MODE SECRET_KEY_BASE DATABASE_URL MONDEK_DATABASE_POOL_SIZE PGSSLMODE PGSSLROOTCERT PGPASSWORD PGHOST PGPORT PGUSER PGDATABASE PORT MONDEK_PUBLIC_URL MONDEK_SEED_DEMO MONDEK_NOTIFICATION_ADAPTER MONDEK_WEBHOOK_CONFIG_FILE MONDEK_SMTP_HOST MONDEK_SMTP_PORT MONDEK_SMTP_TRANSPORT MONDEK_SMTP_USERNAME MONDEK_SMTP_PASSWORD MONDEK_SMTP_FROM MONDEK_SMTP_TO MONDEK_SMTP_TIMEOUT_MS)
+  @variables ~w(MONDEK_RETENTION_RECEIPT_DAYS MONDEK_RETENTION_HISTORY_DAYS MONDEK_RETENTION_MAX_OBSERVATIONS MONDEK_DEPLOYMENT_MODE SECRET_KEY_BASE DATABASE_URL MONDEK_DATABASE_POOL_SIZE PGSSLMODE PGSSLROOTCERT PGPASSWORD PGHOST PGPORT PGUSER PGDATABASE PORT MONDEK_PUBLIC_URL MONDEK_SEED_DEMO MONDEK_NOTIFICATION_ADAPTER MONDEK_WEBHOOK_CONFIG_FILE MONDEK_WEBHOOK_CONFIG_GROUP_ID MONDEK_SMTP_HOST MONDEK_SMTP_PORT MONDEK_SMTP_TRANSPORT MONDEK_SMTP_USERNAME MONDEK_SMTP_PASSWORD MONDEK_SMTP_FROM MONDEK_SMTP_TO MONDEK_SMTP_TIMEOUT_MS)
 
   setup do
     variables =
@@ -388,6 +388,7 @@ defmodule Mondek.RuntimeConfigurationTest do
     assert configuration()[:notification_adapter] == :off
 
     System.put_env("MONDEK_WEBHOOK_CONFIG_FILE", "/nonexistent/unused-webhook-secret")
+    System.put_env("MONDEK_WEBHOOK_CONFIG_GROUP_ID", "unused")
     System.put_env("MONDEK_SMTP_HOST", "unused")
     System.put_env("MONDEK_SMTP_TRANSPORT", "invalid")
     config = configuration()
@@ -431,6 +432,67 @@ defmodule Mondek.RuntimeConfigurationTest do
     assert_raise RuntimeError,
                  "MONDEK_WEBHOOK_CONFIG_FILE is required for deployment webhooks",
                  &configuration/0
+  end
+
+  test "projected webhook Secret requires the configured group and safe permissions" do
+    root = Path.join(System.tmp_dir!(), "mondek-runtime-projection-#{Ecto.UUID.generate()}")
+    version = Path.join(root, "..2026_11_21")
+    File.mkdir_p!(version)
+    on_exit(fn -> File.rm_rf!(root) end)
+    File.ln_s!("..2026_11_21", Path.join(root, "..data"))
+    path = Path.join(root, "webhooks.json")
+    File.ln_s!("..data/webhooks.json", path)
+    target = Path.join(version, "webhooks.json")
+
+    File.write!(
+      target,
+      Jason.encode!(%{
+        "active" => "ops",
+        "destinations" => %{"ops" => %{"url" => "https://receiver.example.invalid"}}
+      })
+    )
+
+    deployment()
+    System.put_env("MONDEK_NOTIFICATION_ADAPTER", "webhook")
+    System.put_env("MONDEK_WEBHOOK_CONFIG_FILE", path)
+    %{gid: group_id} = File.stat!(target)
+    other_group = if group_id == 0, do: 1, else: 0
+    invalid_file = ~r/^Invalid webhook configuration/
+
+    File.chmod!(target, 0o600)
+    assert configuration()[:webhook].active == "ops"
+
+    File.chmod!(target, 0o440)
+    assert_raise ArgumentError, invalid_file, &configuration/0
+
+    System.put_env("MONDEK_WEBHOOK_CONFIG_GROUP_ID", Integer.to_string(other_group))
+    assert_raise ArgumentError, invalid_file, &configuration/0
+
+    for invalid <- ["", "-1", "4294967295", "sensitive-text"] do
+      System.put_env("MONDEK_WEBHOOK_CONFIG_GROUP_ID", invalid)
+
+      assert_raise RuntimeError,
+                   "MONDEK_WEBHOOK_CONFIG_GROUP_ID must be an integer from 0 to 4294967294",
+                   &configuration/0
+    end
+
+    System.put_env("MONDEK_WEBHOOK_CONFIG_GROUP_ID", Integer.to_string(group_id))
+    assert configuration()[:webhook].active == "ops"
+
+    for mode <- [0o460, 0o450, 0o444, 0o442, 0o441] do
+      File.chmod!(target, mode)
+      assert_raise ArgumentError, invalid_file, &configuration/0
+    end
+
+    File.chmod!(target, 0o640)
+    assert configuration()[:webhook].active == "ops"
+
+    File.write!(target, File.read!(target) <> String.duplicate(" ", 65_536))
+    assert_raise ArgumentError, invalid_file, &configuration/0
+
+    File.rm!(target)
+    File.mkdir!(target)
+    assert_raise ArgumentError, invalid_file, &configuration/0
   end
 
   test "SMTP credentials retain literal characters and require encrypted transport" do
