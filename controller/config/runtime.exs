@@ -284,6 +284,15 @@ case env.("MONDEK_CONFIGURATION_GIT_TOKEN_FILE", nil) do
     config :mondek, configuration_git_token: nil, configuration_git_token_file: path
 end
 
+configuration_git_header_auth =
+  case env.("MONDEK_CONFIGURATION_GIT_HEADER_AUTH", "false") do
+    "true" -> true
+    "false" -> false
+    _ -> raise "MONDEK_CONFIGURATION_GIT_HEADER_AUTH must be true or false"
+  end
+
+config :mondek, :configuration_git_header_auth, configuration_git_header_auth
+
 retention =
   for {key, name, default, maximum} <- [
         {:receipt_days, "MONDEK_RETENTION_RECEIPT_DAYS", 7, 36500},

@@ -41,7 +41,8 @@ For a gateway requiring an additional HTTP header, enter the complete header pri
 read -rs MONDEK_GATEWAY_HEADER
 export MONDEK_GATEWAY_HEADER
 mondek_git() {
-  git --config-env=http.https://monitoring.example.test/.extraHeader=MONDEK_GATEWAY_HEADER \
+  git -c http.followRedirects=false \
+    --config-env=http.https://monitoring.example.test/configuration.git.extraHeader=MONDEK_GATEWAY_HEADER \
     -c credential.username=mondek "$@"
 }
 mondek_git ls-remote https://monitoring.example.test/configuration.git refs/heads/main
@@ -51,6 +52,28 @@ mondek_git clone https://monitoring.example.test/configuration.git mondek-config
 Replace the example origin with your controller's HTTPS origin and use the header name required by your gateway. The additional header must coexist with Mondek's HTTP Basic authentication; do not override its `Authorization` header. At Git's password prompt, supply the Mondek configuration token from `controller.env`. The gateway header stays in the current shell environment, outside repository configuration and command-line arguments. Refresh it through your gateway's tooling when it expires; `unset MONDEK_GATEWAY_HEADER` removes the shell copy when finished. A gateway login redirect or denial concerns the outer access policy; a Mondek Basic-auth challenge concerns the inner configuration token. Never share either credential in diagnostic output.
 
 For an initial write test without changing monitoring settings, enter the cloned directory, create an empty commit (`git commit --allow-empty -m 'Verify configuration Git access'`) and use `mondek_git push origin main`. History should show settings unchanged. Then test a deliberate UI adjustment followed by `mondek_git pull --ff-only`, before reviewing a real parameter change through Git. A competing UI save may require fetching and reconciling even the empty test commit.
+
+## Gateways that consume `Authorization`
+
+Set `MONDEK_CONFIGURATION_GIT_HEADER_AUTH=true` in the controller environment when the gateway uses the client's `Authorization` header. Configure the gateway to authenticate and authorize the Git paths, consume `Authorization`, and forward the independent `X-Mondek-Git-Token` and Git protocol headers to the controller. Restrict access to the controller origin as usual and redact both credential headers in logs. The gateway controls outer authorization. Mondek verifies the Git token against its configured credential on every request and does not use proxy identity headers as proof of Git access.
+
+Send a single bare token in `X-Mondek-Git-Token` (for example, the hex token generated above). With the option enabled, a supplied header is authoritative. An invalid, empty, comma-joined or repeated header is rejected without falling back to Basic. Requests without the header can still use Basic directly or through a gateway that leaves it intact. Header authentication is off by default.
+
+In Bash or Zsh, enter both complete headers privately. The first is the gateway's credential, such as `Authorization: Bearer …`. The second is `X-Mondek-Git-Token: …` with the current Mondek token:
+
+```sh
+read -rs MONDEK_GATEWAY_HEADER
+read -rs MONDEK_GIT_HEADER
+export MONDEK_GATEWAY_HEADER MONDEK_GIT_HEADER
+mondek_git_via_gateway() {
+  git -c http.followRedirects=false \
+    --config-env=http.https://monitoring.example.test/configuration.git.extraHeader=MONDEK_GATEWAY_HEADER \
+    --config-env=http.https://monitoring.example.test/configuration.git.extraHeader=MONDEK_GIT_HEADER "$@"
+}
+mondek_git_via_gateway clone https://monitoring.example.test/configuration.git mondek-config
+```
+
+Use the exact HTTPS repository URL for the clone and header configuration. The wrapper refuses redirects. Use the same wrapper for fetch and push. Unset both variables when finished. A gateway denial concerns the outer credential, while HTTP 401 from Mondek concerns its Git token.
 
 ## Repository format
 
