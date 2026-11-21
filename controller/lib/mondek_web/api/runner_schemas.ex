@@ -48,7 +48,11 @@ defmodule MondekWeb.API.RunnerSchemas do
         params: S.ref("ParameterValues"),
         interval_seconds: %Schema{type: :number, minimum: 0.1, maximum: 86400},
         timeout_seconds: %Schema{type: :number, minimum: 0.1, maximum: 300},
-        freshness_seconds: %Schema{type: :number, minimum: 0.1, maximum: 172_800},
+        freshness_seconds: %Schema{
+          type: :number,
+          minimum: 0.1,
+          maximum: Mondek.Protocol.max_freshness_seconds()
+        },
         outputs: %Schema{type: :array, minItems: 1, maxItems: 16, items: S.ref("InventoryOutput")}
       },
       additionalProperties: true

@@ -431,6 +431,29 @@ class AuthoringTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(metadata["environment"], "node-a")
         self.assertEqual(metadata["environment_label"], "node-a")
 
+    async def test_source_metadata_accepts_weekly_sample_freshness(self):
+        for freshness in (604800.125, 691200, 691200.001):
+            with self.subTest(freshness=freshness):
+
+                @check(
+                    id="weekly", expected_keys=("value",), freshness_seconds=freshness
+                )
+                def probe():
+                    return ok("value", "Weekly sample")
+
+                app = App(
+                    source_id="checks", environment=Environment("a"), checks=[probe]
+                )
+                if freshness <= 691200:
+                    self.assertEqual(
+                        app.metadata("a" * 64)[0]["freshness_seconds"], freshness
+                    )
+                else:
+                    with self.assertRaisesRegex(
+                        ValueError, "invalid freshness_seconds"
+                    ):
+                        app.metadata("a" * 64)
+
     async def test_source_defaults_and_schema_bounds_match_wire_contract(self):
         @check(id="fixed", expected_keys=("value",), params={"limit": 3})
         def fixed(*, params: dict):

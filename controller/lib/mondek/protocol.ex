@@ -1,8 +1,11 @@
 # Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
 # SPDX-License-Identifier: Apache-2.0
 defmodule Mondek.Protocol do
-  @integer_limit Integer.pow(10, 4096)
   @moduledoc "Bounded, versioned local runner transport validation."
+  @integer_limit Integer.pow(10, 4096)
+
+  def max_freshness_seconds, do: 8 * 24 * 60 * 60
+
   def control(p) when is_map(p) do
     valid =
       p["version"] == 1 and uuid?(p["installation_id"]) and uuid?(p["session_id"]) and

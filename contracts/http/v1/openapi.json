@@ -1210,7 +1210,7 @@
             "type": "string"
           },
           "freshness_seconds": {
-            "maximum": 172800,
+            "maximum": 691200,
             "minimum": 0.1,
             "type": "number"
           },
@@ -3495,7 +3495,7 @@
             "uniqueItems": true
           },
           "freshness_seconds": {
-            "maximum": 172800,
+            "maximum": 691200,
             "minimum": 0.1,
             "type": "number"
           },

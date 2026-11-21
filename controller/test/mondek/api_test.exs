@@ -127,6 +127,38 @@ defmodule Mondek.APITest do
              })
   end
 
+  test "runner HTTP accepts weekly freshness independently of its scheduling limit", %{url: url} do
+    check = Mondek.CoverageFixtures.check("weekly")
+
+    inventory =
+      control()
+      |> Map.merge(%{
+        "runner_label" => "Weekly observer",
+        "source_id" => "weekly-source",
+        "source_revision" => String.duplicate("a", 64),
+        "inventory_revision" => 1,
+        "complete" => true,
+        "checks" => [
+          Map.merge(check, %{"interval_seconds" => 86_400, "freshness_seconds" => 604_800.125}),
+          Map.merge(check, %{"key" => "max", "freshness_seconds" => 691_200})
+        ]
+      })
+
+    path = "/api/v1/runner/inventory"
+    assert {200, %{"accepted_checks" => 2}} = post(url, path, inventory)
+    assert {200, %{"assignments" => assignments}} = post(url, "/api/v1/runner/control", control())
+
+    assert assignments
+           |> Enum.filter(&(&1["source_id"] == "weekly-source"))
+           |> Map.new(&{&1["source_key"], &1["freshness_seconds"]}) ==
+             %{"max" => 691_200.0, "weekly" => 604_800.125}
+
+    for {field, value} <- [{"freshness_seconds", 691_200.001}, {"interval_seconds", 86_400.001}] do
+      invalid = put_in(inventory, ["checks", Access.at(0), field], value)
+      assert {422, _} = post(url, path, %{invalid | "inventory_revision" => 2})
+    end
+  end
+
   test "real inventory HTTP accepts bounded large catalogs while ordinary bodies stay small", %{
     url: url
   } do

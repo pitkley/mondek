@@ -27,6 +27,7 @@ from .catalogs import DiscoveryCatalog as DiscoveryCatalog
 from .consumer_state import CheckContext, _StateClient
 
 MAX_CHECKS = 512
+MAX_FRESHNESS_SECONDS = 8 * 24 * 60 * 60
 INTEGER_LIMIT = 10**4096
 KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/@-]{0,127}")
 
@@ -1275,7 +1276,7 @@ class App:
             for field_name, lower, upper in (
                 ("interval_seconds", 0.1, 86400),
                 ("timeout_seconds", 0.1, 300),
-                ("freshness_seconds", 0.1, 172800),
+                ("freshness_seconds", 0.1, MAX_FRESHNESS_SECONDS),
             ):
                 value = definition[field_name]
                 if (

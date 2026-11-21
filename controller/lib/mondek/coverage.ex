@@ -207,7 +207,7 @@ defmodule Mondek.Coverage do
       CASE WHEN s.current <> '{}'::jsonb AND s.current->>'session_id'=r.session_id::text
         AND s.current->>'knowledge' NOT IN ('unavailable','stale')
         AND s.current->>'confirmed_observation_id' IS NOT NULL
-        AND (s.current->>'source_at')::timestamptz > $2::timestamptz - a.freshness_seconds * interval '1 second'
+        AND (s.current->>'source_at')::timestamptz > $2::timestamptz - ceil(a.freshness_seconds * 1000000) * interval '1 microsecond'
         THEN true ELSE false END AS fresh_evidence,
       CASE WHEN (s.current->>'generation')::bigint=a.desired_generation
         AND c.definition->>'source_revision'=p.coverage_source_revision

@@ -156,6 +156,39 @@ defmodule Mondek.MonitoringLossTest do
     assert episode().member_count == 1
   end
 
+  test "weekly source evidence expires at its fractional cutoff before loss grace" do
+    Application.put_env(:mondek, :monitoring_contact_seconds, 86_400)
+    single()
+    assignment = Repo.get!(Assignment, "10000000-0000-4000-8000-000000000001")
+
+    Monitoring.change(assignment, %{
+      interval_seconds: 86_400.0,
+      freshness_seconds: 604_800.1250004
+    })
+
+    assert {:ok, _} = Monitoring.control(control(), time(604_801))
+    report = sample("OK", 2, 604_801, 1)
+    stream = Repo.get_by!(ResultStream, assignment_id: assignment.id)
+    assert stream.current["source_at"] == hd(report["results"])["source_at"]
+
+    cutoff = DateTime.add(time(1), 604_800_125_001, :microsecond)
+    before_cutoff = DateTime.add(cutoff, -1, :microsecond)
+    assert {:ok, _} = MonitoringLoss.reconcile(before_cutoff)
+    assert Mondek.Inspection.coverage(before_cutoff)["fresh"] == 1
+    refute Repo.exists?(MonitoringGap)
+
+    assert {:ok, _} = MonitoringLoss.reconcile(cutoff)
+    assert Mondek.Inspection.coverage(cutoff)["stale"] == 1
+    gap = Repo.one!(MonitoringGap)
+    assert gap.details["knowledge"] == "stale"
+    assert gap.since_at == cutoff
+    assert gap.ready_at == DateTime.add(cutoff, 5)
+    refute Repo.exists?(MonitoringIncident)
+
+    assert {:ok, _} = MonitoringLoss.reconcile(gap.ready_at)
+    assert episode().opened_at == gap.ready_at
+  end
+
   test "retirement ends monitoring administratively and does not claim restoration" do
     single()
     sample("UNKNOWN", 2, 2)

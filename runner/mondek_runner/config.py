@@ -9,7 +9,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
-from .authoring import canonical, stable_key
+from .authoring import MAX_FRESHNESS_SECONDS, canonical, stable_key
 
 MAX_ASSIGNMENTS = 512
 
@@ -41,7 +41,7 @@ def validate(assignment: dict[str, Any]) -> dict[str, Any]:
     for key, low, high in (
         ("interval_seconds", 0.1, 86400),
         ("timeout_seconds", 0.1, 300),
-        ("freshness_seconds", 0.1, 172800),
+        ("freshness_seconds", 0.1, MAX_FRESHNESS_SECONDS),
     ):
         if not number(assignment[key], low, high):
             raise ValueError(f"invalid {key}")

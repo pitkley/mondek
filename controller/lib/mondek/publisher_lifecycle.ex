@@ -688,7 +688,7 @@ defmodule Mondek.PublisherLifecycle do
       is_nil(source_at) or
           DateTime.compare(
             source_at,
-            DateTime.add(at, -round(a.freshness_seconds * 1_000_000), :microsecond)
+            DateTime.add(at, -ceil(a.freshness_seconds * 1_000_000), :microsecond)
           ) != :gt ->
         "stale"
 

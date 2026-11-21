@@ -884,6 +884,17 @@ class ValidationTests(unittest.TestCase):
                 config[field] = value
                 validate(config)
 
+    def test_weekly_freshness_keeps_the_daily_execution_limit(self):
+        for freshness in (604800.125, 691200):
+            with self.subTest(freshness=freshness):
+                config = assignment(interval_seconds=86400, freshness_seconds=freshness)
+                self.assertEqual(validate(config), config)
+
+        with self.assertRaisesRegex(ValueError, "invalid freshness_seconds"):
+            validate(assignment(freshness_seconds=691200.001))
+        with self.assertRaisesRegex(ValueError, "invalid interval_seconds"):
+            validate(assignment(interval_seconds=86400.001, freshness_seconds=691200))
+
     def test_generation_matches_controller_integer_storage_bound(self):
         self.assertEqual(
             validate(assignment(generation=2_147_483_647))["generation"], 2_147_483_647

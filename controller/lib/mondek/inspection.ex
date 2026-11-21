@@ -141,7 +141,7 @@ defmodule Mondek.Inspection do
   defmacro knowledge(s, a, r, at) do
     quote do
       fragment(
-        "CASE WHEN ? IS NOT NULL THEN 'retired' WHEN ? = '{}'::jsonb OR (?->>'generation')::bigint IS DISTINCT FROM ? OR (? IS NOT NULL AND ?->>'session_id' IS DISTINCT FROM ?::text) THEN 'awaiting' WHEN ?->>'knowledge' IN ('unavailable','stale') THEN ?->>'knowledge' WHEN ?->>'source_at' IS NULL OR (?->>'source_at')::timestamptz <= ?::timestamptz - (? * INTERVAL '1 second') THEN 'stale' ELSE 'fresh' END",
+        "CASE WHEN ? IS NOT NULL THEN 'retired' WHEN ? = '{}'::jsonb OR (?->>'generation')::bigint IS DISTINCT FROM ? OR (? IS NOT NULL AND ?->>'session_id' IS DISTINCT FROM ?::text) THEN 'awaiting' WHEN ?->>'knowledge' IN ('unavailable','stale') THEN ?->>'knowledge' WHEN ?->>'source_at' IS NULL OR (?->>'source_at')::timestamptz <= ?::timestamptz - (ceil(? * 1000000) * INTERVAL '1 microsecond') THEN 'stale' ELSE 'fresh' END",
         unquote(s).retired_at,
         unquote(s).current,
         unquote(s).current,

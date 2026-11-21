@@ -491,7 +491,8 @@ defmodule Mondek.Inventory do
       contract?(c["parameter_contract"], c["params_owner"], c["parameter_schema"]) and
       Parameters.validate(c["parameter_schema"], c["params"]) == :ok and
       bounded?(c["interval_seconds"], 86400) and
-      bounded?(c["timeout_seconds"], 300) and bounded?(c["freshness_seconds"], 172_800) and
+      bounded?(c["timeout_seconds"], 300) and
+      bounded?(c["freshness_seconds"], Mondek.Protocol.max_freshness_seconds()) and
       is_list(c["outputs"]) and length(c["outputs"]) in 1..16 and
       Enum.all?(c["outputs"], &output?/1) and unique?(c["outputs"], "key") and
       not Map.has_key?(c, "adopt_assignment_id")
