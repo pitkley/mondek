@@ -62,6 +62,14 @@ The updated runner checks saved snapshots against installed dependencies before 
 
 Correlation batching defaults off and case acknowledgements require explicit reviewed actions. Existing queued work remains native-only with its original budget. Preserve new state, case history and pending exact-batch terminal obligations when planning recovery; older code is not an automatic database rollback. The packaged consumer-state qualification's historical one-migration result predates the full 0.0.5 migration set.
 
+## 0.0.6: delivery, Configuration Git and measurement freshness
+
+Back up PostgreSQL and complete runner state directories and upgrade the controller and SDK together. Upgrading from 0.0.5 adds no database migration. Preserve configuration Git history, runner installation identities, journals and buffered observations. Upgrade both components before publishing checks whose source measurement freshness exceeds the former two-day limit.
+
+Notification delivery still defaults to SMTP in deployment mode. If you opt into delivery off, review how pending retries are recorded and how to resume delivery before switching. For a group-readable Kubernetes webhook configuration file, match the configured GID to the Pod's dedicated file group. See [notification delivery](RUNNERS-AND-NOTIFICATIONS.md#turn-delivery-off) and [webhook settings](WEBHOOK-NOTIFICATIONS.md).
+
+Existing Configuration Git token settings continue to work. When adopting file-based rotation, mount the containing directory and preserve access from the controller UID. If enabling the separate Git token header behind a gateway, update gateway rules and client credentials together. See [Configuration Git](CONFIGURATION-GIT.md).
+
 ## Runtime cases
 
 The additive correlation migration runs at packaged startup. Existing evidence, controls, jobs and identities remain unchanged. Back up before upgrading. Correlation batching defaults off and case acknowledgements remain explicit; rollback to older code requires a reviewed database rollback and must not discard case history silently.
