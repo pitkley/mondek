@@ -2815,11 +2815,11 @@ defmodule OpenApiSpex.License do
 end
 ```
 
-## hex:phoenix 1.8.14
+## hex:phoenix 1.8.17
 
 License: (MIT). Scope: controller.
 
-Source: https://repo.hex.pm/tarballs/phoenix-1.8.14.tar (sha256:2782ff375824b2b5e41561fbae4764ee7b875af6898483bca49f24a9d1e37816)
+Source: https://repo.hex.pm/tarballs/phoenix-1.8.17.tar (sha256:21fd4d6a33c6af4e86b95156a49815a59140c2ba4ef8cf19565dbb7be881633e)
 
 ### LICENSE.md
 
@@ -2943,11 +2943,11 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-## hex:phoenix_pubsub 2.3.0
+## hex:phoenix_pubsub 2.4.1
 
 License: (MIT). Scope: controller.
 
-Source: https://repo.hex.pm/tarballs/phoenix_pubsub-2.3.0.tar (sha256:eec7be6e9cf02e2551d389b558402d6c637cd3973796326e7ba4bb03c6b2e91d)
+Source: https://repo.hex.pm/tarballs/phoenix_pubsub-2.4.1.tar (sha256:352fba7a87bf61395b6e97da66944ad9b1bfe5459e5981039f60d68270bd9700)
 
 ### LICENSE.md
 
