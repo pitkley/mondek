@@ -1138,7 +1138,7 @@ db.close()
         self.eventually(
             "output cap produces explicit coverage failure",
             lambda: (
-                "cap"
+                "4 KiB stderr allowance"
                 in (self.assignment("consumer")["current"].get("diagnostic") or "")
             ),
         )
