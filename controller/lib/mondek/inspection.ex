@@ -11,12 +11,16 @@ defmodule Mondek.Inspection do
     ResultStream,
     Runner,
     Incident,
+    ConditionIncident,
+    MonitoringIncident,
+    MonitoringLoss,
     Occurrence,
     Observation,
     Control,
     Attempt
   }
 
+  @overview_incident_page_size 10
   @configuration_stages ~w(saved prepared active measured)
   @target_summary_fields ~w(identity label environment_label urgency total observers critical warning unknown healthy fresh stale unavailable awaiting retired inventory_total id)a
 
@@ -1406,6 +1410,21 @@ defmodule Mondek.Inspection do
           limit: ^size
       )
 
+    %{
+      items: incident_items(query, identities, f, at),
+      total: total,
+      acknowledged_total: acknowledged_total,
+      unacknowledged_total: total - acknowledged_total,
+      page: page,
+      page_size: size,
+      coverage: coverage(at),
+      facets: facets()
+    }
+  end
+
+  defp incident_items(_query, [], _filters, _at), do: []
+
+  defp incident_items(query, identities, f, at) do
     standalone_ids = for %{grouped: false, id: id} <- identities, do: id
     condition_ids = for %{grouped: true, id: id} <- identities, do: id
 
@@ -1478,25 +1497,117 @@ defmodule Mondek.Inspection do
         })
       end)
 
-    by_id = Map.new(items ++ groups, &{&1["id"], &1})
+    by_id =
+      Map.new(items ++ groups, &{{&1["incident_kind"] == "condition", &1["id"]}, &1})
 
-    items =
-      for identity <- identities, item = by_id[identity.id], not is_nil(item) do
-        item
-        |> Map.put("acknowledgement_active", identity.acknowledgement_active)
-        |> Mondek.IncidentPresentation.health(at)
-      end
+    for identity <- identities,
+        item = by_id[{identity.grouped, identity.id}],
+        not is_nil(item) do
+      item
+      |> Map.put("acknowledgement_active", identity.acknowledgement_active)
+      |> Mondek.IncidentPresentation.health(at)
+    end
+  end
 
-    %{
-      items: items,
-      total: total,
-      acknowledged_total: acknowledged_total,
-      unacknowledged_total: total - acknowledged_total,
-      page: page,
-      page_size: size,
-      coverage: coverage(at),
-      facets: facets()
-    }
+  @doc "Pages open health and monitoring-loss incidents in a shared priority order."
+  def overview_incident_pages(filters, at) do
+    {:ok, sections} =
+      Repo.transaction(fn ->
+        Repo.query!("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+
+        standalone = from(i in Incident, where: is_nil(i.condition_incident_id))
+        shared = ConditionIncident |> overview_health_identities(true, at)
+
+        loss =
+          from i in MonitoringIncident,
+            where: i.status == "open",
+            select: %{
+              id: i.id,
+              kind: type(^"loss", :string),
+              grouped: type(^false, :boolean),
+              acknowledgement_active: acknowledgement_active_sql(i, ^at),
+              priority: type(^1, :integer),
+              opened_at: i.opened_at
+            }
+
+        identities = standalone |> overview_health_identities(false, at)
+        identities = from(i in subquery(union_all(identities, ^shared) |> union_all(^loss)))
+
+        for {key, acknowledged} <- [{"unacknowledged", false}, {"acknowledged", true}],
+            into: %{} do
+          scoped = from(i in identities, where: i.acknowledgement_active == ^acknowledged)
+
+          {page, size, total} =
+            page(scoped, %{
+              "page" => filters[key <> "_incident_page"],
+              "page_size" => @overview_incident_page_size
+            })
+
+          selected =
+            Repo.all(
+              from i in scoped,
+                order_by: [
+                  asc: i.priority,
+                  asc: i.opened_at,
+                  asc: i.id,
+                  asc: i.kind,
+                  asc: i.grouped
+                ],
+                offset: ^((page - 1) * size),
+                limit: ^size
+            )
+
+          {key,
+           %{
+             items: overview_incident_items(selected, at),
+             page: page,
+             page_size: size,
+             total: total
+           }}
+        end
+      end)
+
+    sections
+  end
+
+  defp overview_health_identities(query, grouped, at) do
+    from i in query,
+      where: i.status == "open",
+      select: %{
+        id: i.id,
+        kind: type(^"health", :string),
+        grouped: type(^grouped, :boolean),
+        acknowledgement_active: acknowledgement_active_sql(i, ^at),
+        priority: fragment("CASE ? WHEN 'CRIT' THEN 0 WHEN 'WARN' THEN 2 ELSE 3 END", i.health),
+        opened_at: i.opened_at
+      }
+  end
+
+  defp overview_incident_items(selected, at) do
+    {health, loss} = Enum.split_with(selected, &(&1.kind == "health"))
+    health_filters = %{}
+
+    health_rows =
+      incident_items(filtered_incident_rows(health_filters), health, health_filters, at)
+
+    lossy_ids = Enum.map(loss, & &1.id)
+
+    loss_rows =
+      if lossy_ids == [],
+        do: [],
+        else:
+          Repo.all(from i in MonitoringIncident, where: i.id in ^lossy_ids)
+          |> MonitoringLoss.present_incidents(at)
+
+    rows =
+      Map.new(health_rows ++ loss_rows, fn row ->
+        kind = if row["scope_kind"], do: "loss", else: "health"
+        {{kind, row["incident_kind"] == "condition", row["id"]}, row}
+      end)
+
+    for identity <- selected do
+      {identity.kind, Map.fetch!(rows, {identity.kind, identity.grouped, identity.id})}
+    end
   end
 
   defp incident_rows(roll_up?) do

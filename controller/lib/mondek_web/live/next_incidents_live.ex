@@ -290,18 +290,6 @@ defmodule MondekWeb.NextIncidentsLive do
     if socket.assigns.full_page, do: assign(socket, now: now), else: refresh_listing(socket, now)
   end
 
-  def open_summary(now) do
-    for acknowledgement <- ~w(unacknowledged acknowledged), into: %{} do
-      listing = incident_listing(filters(%{"acknowledgement" => acknowledgement}), now)
-
-      {acknowledgement,
-       %{
-         rows: Enum.take(listing.rows, 4),
-         total: listing.totals["health"] + listing.totals["loss"]
-       }}
-    end
-  end
-
   defp refresh_listing(%{assigns: %{filters: filters}} = socket, now) do
     assign(
       socket,
@@ -324,8 +312,11 @@ defmodule MondekWeb.NextIncidentsLive do
 
     health = if type != "loss", do: Monitoring.list_incidents(domain, now)
     loss = if type != "health" && !health_only?, do: MonitoringLoss.list(domain, now)
-    health_rows = if health, do: Enum.map(health.items, &row("health", &1, now)), else: []
-    loss_rows = if loss, do: Enum.map(loss["items"], &row("loss", &1, now)), else: []
+
+    health_rows =
+      if health, do: Enum.map(health.items, &incident_row("health", &1, now)), else: []
+
+    loss_rows = if loss, do: Enum.map(loss["items"], &incident_row("loss", &1, now)), else: []
 
     rows =
       if type == "all" do
@@ -366,7 +357,8 @@ defmodule MondekWeb.NextIncidentsLive do
   defp priority(%{health: "WARN"}), do: 2
   defp priority(_), do: 3
 
-  defp row(kind, incident, now) do
+  @doc false
+  def incident_row(kind, incident, now) do
     %{
       kind: kind,
       id: incident["id"],

@@ -96,16 +96,16 @@ defmodule MondekWeb.NextOverviewLive do
          List.last(
            InvestigationTrail.resolve(params, InvestigationTrail.initial(URI.parse(uri).path))
          ) ||
-           InvestigationTrail.root(URI.parse(uri).path),
-       incident_selection: nil
+           InvestigationTrail.root(URI.parse(uri).path)
      )
-     |> refresh()}
+     |> refresh()
+     |> normalize_incident_pages()}
   end
 
   @impl true
   def handle_info(:tick, socket) do
     Process.send_after(self(), :tick, 2_000)
-    {:noreply, refresh(socket)}
+    {:noreply, socket |> refresh() |> normalize_incident_pages()}
   end
 
   @impl true
@@ -303,22 +303,72 @@ defmodule MondekWeb.NextOverviewLive do
     declarations = Coverage.summary(%{}, now)
     snapshot = Monitoring.overview(now)
 
+    open_incidents =
+      Map.new(Inspection.overview_incident_pages(filters, now), fn {key, listing} ->
+        rows =
+          Enum.map(listing.items, fn {kind, item} ->
+            NextIncidentsLive.incident_row(kind, item, now)
+          end)
+
+        {key, listing |> Map.delete(:items) |> Map.put(:rows, rows)}
+      end)
+
+    effective_filters =
+      Enum.reduce(open_incidents, filters, fn {key, listing}, acc ->
+        page_filter(acc, key <> "_incident_page", listing.page)
+      end)
+
     assign(socket,
       now: now,
       overview: overview,
       missing: missing,
       declarations: declarations,
       snapshot: snapshot,
-      open_incidents: MondekWeb.NextIncidentsLive.open_summary(now),
+      open_incidents: open_incidents,
       page_title: "Overview",
-      list_path: path(filters),
+      list_path: path(effective_filters),
       current_path:
         path(
-          Map.put(filters, "return_to", socket.assigns.return_to),
+          Map.put(effective_filters, "return_to", socket.assigns.return_to),
           socket.assigns.live_action,
           socket.assigns.selected_id
         )
     )
+  end
+
+  defp normalize_incident_pages(
+         %{assigns: %{list_action: :index, open_incidents: incidents, investigation_host: host}} =
+           socket
+       ) do
+    uri = URI.parse(host)
+    query = URI.decode_query(uri.query || "")
+
+    normalized =
+      Enum.reduce(incidents, query, fn {key, listing}, acc ->
+        page_filter(acc, key <> "_incident_page", listing.page)
+      end)
+
+    if connected?(socket) && normalized != query,
+      do: push_patch(socket, to: with_query(uri, normalized), replace: true),
+      else: socket
+  end
+
+  defp normalize_incident_pages(socket), do: socket
+
+  defp page_filter(filters, key, 1), do: Map.delete(filters, key)
+  defp page_filter(filters, key, page), do: Map.put(filters, key, to_string(page))
+
+  defp incident_page_path(host, key, page) do
+    uri = URI.parse(host)
+    query = URI.decode_query(uri.query || "") |> page_filter(key, page)
+    with_query(uri, query)
+  end
+
+  defp with_query(uri, query) do
+    URI.to_string(%{
+      uri
+      | query: if(map_size(query) == 0, do: nil, else: URI.encode_query(query))
+    })
   end
 
   def path(filters, action \\ :index, id \\ nil, full \\ false) do
@@ -662,7 +712,7 @@ defmodule MondekWeb.NextOverviewLive do
             <div class="preview-section-heading">
               <h2 id="overview-incidents-heading" class="pf-v6-c-title pf-m-2xl">Incidents</h2>
               <span id="overview-open-alert-count" class="pf-v6-c-badge pf-m-read">
-                {@snapshot["open_alert_count"]} open
+                {@open_incidents["unacknowledged"].total + @open_incidents["acknowledged"].total} open
               </span>
             </div>
             <.link navigate="/incidents">View all incidents</.link>
@@ -673,8 +723,11 @@ defmodule MondekWeb.NextOverviewLive do
             }
             id={"overview-" <> key <> "-incidents"}
             summary={@open_incidents[key]}
+            page_url={
+              fn page -> incident_page_path(@investigation_host, key <> "_incident_page", page) end
+            }
             label={label}
-            incident_selection={@incident_selection}
+            incident_selection={@investigation_active}
             list_path={@list_path}
             now={@now}
           />
@@ -1142,6 +1195,13 @@ defmodule MondekWeb.NextOverviewLive do
           </tr>
         </tbody>
       </table>
+      <MondekWeb.PreviewPagination.pagination
+        page={@summary.page}
+        size={@summary.page_size}
+        total={@summary.total}
+        label={@label <> " incident pages"}
+        url={@page_url}
+      />
     </section>
     """
   end

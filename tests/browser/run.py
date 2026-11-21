@@ -137,6 +137,8 @@ def run_suite(suite: str) -> bool:
         command.extend(["-f", "tests/browser/compose/grouped.yaml"])
     elif suite in {"coverage", "publishers", "overview"}:
         command.extend(["-f", "tests/browser/compose/coverage.yaml"])
+        if suite == "overview":
+            command.extend(["-f", "tests/browser/compose/overview.yaml"])
     if suite == "parity":
         command.extend(["--profile", "capacity"])
     elif suite == "bulk":

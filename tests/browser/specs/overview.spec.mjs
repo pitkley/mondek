@@ -355,3 +355,137 @@ test('thirty real alerts remain compact and page without dropping evidence', asy
   await expect(page.locator('#overview-panel')).toContainText('Root filesystem is 96% used');
   await expect(page.locator('#overview-panel')).toHaveAttribute('aria-modal', 'true');
 });
+
+test('Overview reaches mixed incidents past each source cutoff and clamps the emptied last page', async ({page, request}, testInfo) => {
+  test.setTimeout(120_000);
+  const {randomUUID} = await import('node:crypto');
+  const newIdentity = () => ({version: 1, installation_id: randomUUID(), session_id: randomUUID(), boot: 1});
+  const postRunner = async (operation, data) => {
+    const response = await request.post(`/api/v1/runner/${operation}`, {data});
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json().then(unpackAPI);
+  };
+  const check = name => ({key: name, label: name, definition_revision: 'b'.repeat(64),
+    environment: 'production', environment_label: 'Production', params_owner: 'source',
+    parameter_schema: {fields: {}}, params: {}, interval_seconds: 1, timeout_seconds: 3,
+    freshness_seconds: 3600, outputs: [{key: 'health', label: 'Health',
+      target: {key: name, label: name, kind: 'host'}}]});
+  const publish = async (identity, label, source, checks) => {
+    await postRunner('inventory', {...identity, runner_label: label, source_id: source,
+      source_revision: 'a'.repeat(64), inventory_revision: 1, complete: true, checks});
+    const {assignments} = await postRunner('control', {...identity, prepared: {}, active: {}, wait_seconds: 0});
+    const prepared = Object.fromEntries(assignments.map(row => [row.id, row.generation]));
+    await postRunner('control', {...identity, prepared, active: {}, wait_seconds: 0});
+    return assignments;
+  };
+  const measure = async (identity, assignments, health, sequence = 1) => {
+    const at = new Date().toISOString().replace('Z', '000Z');
+    const outcome = await postRunner('observations', {...identity, reports: assignments.map(row => ({
+      id: randomUUID(), assignment_id: row.id, installation_id: identity.installation_id,
+      session_id: identity.session_id, generation: row.generation, sequence,
+      started_at: at, evaluated_at: at, complete: true, diagnostic: '',
+      results: [{key: 'health', health, source_at: health === 'UNKNOWN' ? null : at, summary: 'Overview paging fixture'}],
+    }))});
+    expect(outcome.dispositions.map(row => row.disposition)).toEqual(assignments.map(() => 'current'));
+  };
+  const getIncidents = async (kind, query) => {
+    const response = await request.get(`/api/v1/incidents/${kind}?${new URLSearchParams(query)}`);
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json().then(unpackAPI);
+  };
+  const healthRunner = newIdentity();
+  const healthPrefix = 'overview-paging-health';
+  const assignments = await publish(healthRunner, 'Overview paging checks', healthPrefix,
+    Array.from({length: 31}, (_, index) => check(`${healthPrefix}-${index + 1}`)));
+  await measure(healthRunner, assignments, 'CRIT');
+  const health = [];
+  for (const pageNumber of [1, 2]) {
+    health.push(...(await getIncidents('health', {search: healthPrefix, page: pageNumber, page_size: 25})).items);
+  }
+  expect(health).toHaveLength(31);
+
+  const lossPrefix = 'overview-paging-loss';
+  for (let index = 0; index < 26; index += 4) {
+    await Promise.all(Array.from({length: Math.min(4, 26 - index)}, async (_, offset) => {
+      const identity = newIdentity();
+      const name = `${lossPrefix}-${index + offset + 1}`;
+      const generated = await publish(identity, name, name, [check(name)]);
+      await measure(identity, generated, 'UNKNOWN');
+    }));
+  }
+  await expect.poll(async () => (await getIncidents('monitoring-loss', {search: lossPrefix})).total,
+    {timeout: 25_000}).toBe(26);
+  const losses = [];
+  for (const pageNumber of [1, 2]) {
+    losses.push(...(await getIncidents('monitoring-loss', {search: lossPrefix, page: pageNumber})).items);
+  }
+  expect(losses).toHaveLength(26);
+
+  const acknowledge = async incident => {
+    const response = await request.post(`/api/v1/incidents/health/${incident.id}/acknowledge`, {
+      data: {mode: 'duration', seconds: 600, note: 'Overview paging fixture',
+        revision: incident.acknowledgement_revision, attention_revision: incident.attention_revision},
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+  };
+  await page.setViewportSize({width: 1600, height: 1000});
+  await page.goto('/?page=2');
+  await connected(page);
+  const primary = page.locator('#overview-unacknowledged-incidents');
+  const primaryPager = primary.getByRole('navigation', {name: 'Unacknowledged incident pages'});
+  const seen = [];
+  for (let pageNumber = 1; pageNumber <= 15; pageNumber++) {
+    await expect(primaryPager.getByLabel(`Page ${pageNumber}`, {exact: true})).toHaveAttribute('aria-current', 'page');
+    const rows = await primary.locator('tbody tr').evaluateAll(elements => elements.map(row => {
+      const link = row.querySelector('[data-overview-open]');
+      const severity = row.querySelector('[data-label="Severity"]').innerText.trim();
+      const rank = {Critical: 0, Loss: 1, Warning: 2}[severity] ?? 3;
+      return {id: link.id, rank, opened: row.querySelector('time').dateTime};
+    }));
+    if (pageNumber === 1) expect(rows).toHaveLength(10);
+    seen.push(...rows);
+    const next = primaryPager.getByRole('link', {name: 'Next', exact: true});
+    if (!(await next.count())) break;
+    await next.click();
+  }
+  const ids = seen.map(row => row.id);
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(ids).toEqual(seen.toSorted((a, b) =>
+    a.rank - b.rank || a.opened.localeCompare(b.opened) ||
+    a.id.slice(-36).localeCompare(b.id.slice(-36)) || a.id.localeCompare(b.id)
+  ).map(row => row.id));
+  for (const incident of losses) expect(ids).toContain(`overview-incident-loss-${incident.id}`);
+  for (const incident of health) expect(ids).toContain(`overview-incident-health-${incident.id}`);
+
+  for (const incident of health.slice(0, 11)) await acknowledge(incident);
+  await page.goto('/?page=2&unacknowledged_incident_page=2');
+  await connected(page);
+  const acknowledged = page.locator('#overview-acknowledged-incidents');
+  const ackPager = acknowledged.getByRole('navigation', {name: 'Acknowledged incident pages'});
+  await ackPager.getByRole('link', {name: 'Next', exact: true}).click();
+  await expect(acknowledged.locator('tbody tr')).toHaveCount(1);
+  await expect(ackPager.locator('.preview-page-range > span:not([aria-hidden])')).toHaveText('11–11 of 11');
+  const urlBefore = new URL(page.url());
+  expect(urlBefore.searchParams.get('page')).toBe('2');
+  expect(urlBefore.searchParams.get('unacknowledged_incident_page')).not.toBeNull();
+  const last = acknowledged.locator('[data-overview-open]');
+  const id = (await last.getAttribute('id')).slice(-36);
+  await last.click();
+  await expect(page.locator('#overview-panel')).toBeVisible();
+  await page.locator('#overview-panel [data-overview-close]').click();
+  await expect(page.locator('#overview-panel')).toHaveCount(0);
+  await expect(ackPager.getByLabel('Page 2', {exact: true})).toHaveAttribute('aria-current', 'page');
+  await page.setViewportSize({width: 390, height: 900});
+  await checkpoint(page, testInfo, 'overview-mixed-incidents-390');
+
+  const incident = health.find(row => row.id === id);
+  const recovered = assignments.find(row => row.id === incident?.assignment_id);
+  expect(recovered).toBeDefined();
+  await measure(healthRunner, [recovered], 'OK', 2);
+  await expect(acknowledged.locator('tbody tr')).toHaveCount(10);
+  await expect(ackPager).toHaveCount(0);
+  await expect.poll(() => new URL(page.url()).searchParams.get('acknowledged_incident_page')).toBeNull();
+  const urlAfter = new URL(page.url());
+  expect(urlAfter.searchParams.get('unacknowledged_incident_page')).toBe(urlBefore.searchParams.get('unacknowledged_incident_page'));
+  expect(urlAfter.searchParams.get('page')).toBe('2');
+});

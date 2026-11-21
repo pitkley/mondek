@@ -1,0 +1,6 @@
+# Copyright 2026 Pit Kleyersburg <pitkley@googlemail.com>
+# SPDX-License-Identifier: Apache-2.0
+services:
+  controller:
+    environment:
+      MONDEK_MONITORING_LOSS_GRACE_SECONDS: "6"

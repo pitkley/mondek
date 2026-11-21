@@ -27,12 +27,12 @@ defmodule MondekWeb.NextOverviewLiveTest do
                reviewed_acknowledgement_fixture(incident["id"], 3600, "Investigating", now)
     end
 
-    summary = MondekWeb.NextIncidentsLive.open_summary(now)
+    summary = Inspection.overview_incident_pages(%{}, now)
     assert summary["unacknowledged"].total == 1
-    assert length(summary["unacknowledged"].rows) == 1
+    assert length(summary["unacknowledged"].items) == 1
     assert summary["acknowledged"].total == 5
-    assert length(summary["acknowledged"].rows) == 4
-    expired = MondekWeb.NextIncidentsLive.open_summary(DateTime.add(now, 3600, :second))
+    assert length(summary["acknowledged"].items) == 5
+    expired = Inspection.overview_incident_pages(%{}, DateTime.add(now, 3600, :second))
     assert expired["unacknowledged"].total == 6
     assert expired["acknowledged"].total == 0
     {:ok, view, _} = live(build_conn(), "/")
@@ -85,6 +85,84 @@ defmodule MondekWeb.NextOverviewLiveTest do
 
       assert has_element?(detail, root <> " button", "End acknowledgement")
     end
+  end
+
+  test "overview pages mixed incidents and preserves independent URL state" do
+    now = Monitoring.now()
+    check = CoverageFixtures.check("Independent failure", "production", "Shared target")
+    publication = CoverageFixtures.publication([CoverageFixtures.candidate(check)])
+    assert {:ok, _} = Monitoring.inventory(publication, now)
+    assert {:ok, _} = CoverageFixtures.activate(publication, now)
+    assert disposition(CoverageFixtures.sample(publication, "CRIT", 1, now)) == "current"
+    failure = Repo.one!(Incident)
+
+    losses =
+      for n <- 1..37 do
+        Repo.insert!(%MonitoringIncident{
+          scope_key: "coverage:overview-#{n}",
+          scope_kind: "coverage",
+          source_id: "overview-#{n}",
+          label: "Overview loss #{n}",
+          opened_at: DateTime.add(now, -n, :second),
+          member_count: 1,
+          acknowledgement_mode: if(n > 26, do: "until_incident_ends"),
+          acknowledged_by: if(n > 26, do: "Local operator")
+        })
+      end
+
+    severe_first = Inspection.overview_incident_pages(%{}, now)["unacknowledged"]
+    assert severe_first.total == 27
+
+    assert [{"health", %{"id" => failure_id}} | _] = severe_first.items
+    assert failure_id == failure.id
+
+    filters = %{"unacknowledged_incident_page" => "3", "acknowledged_incident_page" => "2"}
+    sections = Inspection.overview_incident_pages(filters, now)
+
+    assert severe_first.total + sections["acknowledged"].total ==
+             Inspection.navigation_counts(now)["open_alert_count"]
+
+    assert sections["unacknowledged"].page == 3
+
+    assert Enum.map(sections["unacknowledged"].items, fn {kind, row} -> {kind, row["id"]} end) ==
+             Enum.map(Enum.reverse(Enum.take(losses, 7)), &{"loss", &1.id})
+
+    [last] = sections["acknowledged"].items |> Enum.map(fn {kind, row} -> {kind, row["id"]} end)
+    assert last == {"loss", Enum.at(losses, 26).id}
+
+    {:ok, view, _} =
+      live(
+        build_conn(),
+        "/?acknowledged_incident_page=2&healthy_page=2&unacknowledged_incident_page=3"
+      )
+
+    assert has_element?(view, "#overview-unacknowledged-incidents nav [aria-current=page]", "3")
+    assert has_element?(view, "#overview-acknowledged-incidents nav [aria-current=page]", "2")
+
+    loss_id = hd(losses).id
+    view |> element("#overview-incident-loss-#{loss_id}") |> render_click()
+    assert has_element?(view, "#overview-panel")
+    assert has_element?(view, "#overview-incident-loss-#{loss_id}")
+    view |> element("[data-overview-close]") |> render_click()
+    refute has_element?(view, "#overview-panel")
+    assert has_element?(view, "#overview-unacknowledged-incidents nav [aria-current=page]", "3")
+    assert has_element?(view, "#overview-acknowledged-incidents nav [aria-current=page]", "2")
+
+    acknowledged = Enum.at(losses, 26)
+
+    Repo.update!(
+      Ecto.Changeset.change(acknowledged,
+        status: "closed",
+        closed_at: now,
+        closure_reason: "monitoring_restored",
+        acknowledgement_mode: nil
+      )
+    )
+
+    send(view.pid, :tick)
+    assert_patch(view, "/?healthy_page=2&unacknowledged_incident_page=3")
+    assert has_element?(view, "#overview-acknowledged-incidents", "10 incidents")
+    refute has_element?(view, "#overview-acknowledged-incidents nav")
   end
 
   test "checks filters results and keeps its filters when opening and closing evidence" do
