@@ -188,7 +188,19 @@ if notification_adapter != :off do
         do: raise("MONDEK_WEBHOOK_CONFIG_FILE is required for deployment webhooks")
 
     path ->
-      config :mondek, :webhook, Mondek.WebhookNotification.load!(path)
+      group_id =
+        case env.("MONDEK_WEBHOOK_CONFIG_GROUP_ID", nil) do
+          nil ->
+            nil
+
+          value ->
+            case Integer.parse(value) do
+              {id, ""} when id in 0..4_294_967_294 -> id
+              _ -> raise "MONDEK_WEBHOOK_CONFIG_GROUP_ID must be an integer from 0 to 4294967294"
+            end
+        end
+
+      config :mondek, :webhook, Mondek.WebhookNotification.load!(path, group_id)
   end
 end
 

@@ -4,12 +4,11 @@ defmodule Mondek.WebhookNotification do
   @moduledoc "One active webhook destination, with immutable non-secret delivery snapshots."
   alias Mondek.NotificationTemplate
   @max_body 262_144
+  @max_config 65_536
 
-  def load!(path) do
+  def load!(path, group_id \\ nil) do
     try do
-      %{mode: mode} = File.stat!(path)
-      true = Bitwise.band(mode, 0o077) == 0
-      raw = read_json!(path, 65_536)
+      raw = read_json!(path, group_id)
       true = Map.keys(raw) |> Enum.sort() == ["active", "destinations"]
       %{"active" => active, "destinations" => destinations} = raw
       true = is_map(destinations) and map_size(destinations) in 1..16
@@ -91,7 +90,7 @@ defmodule Mondek.WebhookNotification do
     rescue
       _ ->
         raise ArgumentError,
-              "Invalid webhook configuration; check destination, headers, timeout and template files"
+              "Invalid webhook configuration; check file permissions, destination, headers, timeout and template files"
     end
   end
 
@@ -145,10 +144,22 @@ defmodule Mondek.WebhookNotification do
 
   def teams_path, do: Application.app_dir(:mondek, "priv/notification_templates/teams.json")
 
-  defp read_json!(path, limit) do
-    %{type: :regular, size: size} = File.stat!(path)
-    true = size <= limit
-    Jason.decode!(File.read!(path))
+  defp read_json!(path, group_id) do
+    # Follow projected Secret links and reject nonregular paths before opening.
+    %{type: :regular} = File.stat!(path)
+
+    File.open!(path, [:read, :binary, :raw], fn file ->
+      # Kubelet can rotate the projection between operations. Validate the
+      # opened target and read from the same descriptor.
+      {:ok, info} = :file.read_file_info(file)
+      %{type: :regular, mode: mode, gid: gid, size: size} = File.Stat.from_record(info)
+      access = Bitwise.band(mode, 0o077)
+      true = access == 0 or (access == 0o040 and gid == group_id)
+      true = size <= @max_config
+      {:ok, bytes} = :file.read(file, @max_config + 1)
+      true = byte_size(bytes) <= @max_config
+      Jason.decode!(bytes)
+    end)
   end
 
   def document(payload, label, summary, measured_health, public_url) do

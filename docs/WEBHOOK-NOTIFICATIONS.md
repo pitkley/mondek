@@ -11,7 +11,7 @@ MONDEK_NOTIFICATION_ADAPTER=webhook
 MONDEK_WEBHOOK_CONFIG_FILE=/run/secrets/mondek-webhooks.json
 ```
 
-Mount a private JSON configuration file read-only into the controller. The loader requires no group/other permissions; use mode 0600 with suitable ownership (the packaged image runs as UID 65532). Do not commit real files, URLs, headers or preview output containing private findings. The file is loaded and validated at startup; restart the controller after edits. A minimal configuration is:
+Mount a private JSON configuration file read-only into the controller. By default, use mode 0600 with suitable ownership. The packaged image runs as UID 65532. Do not commit real files, URLs, headers or preview output containing private findings. The file is loaded and validated at startup; restart the controller after edits. A minimal configuration is:
 
 ```json
 {
@@ -29,6 +29,45 @@ Mount a private JSON configuration file read-only into the controller. The loade
 Omit `headers` for an unauthenticated endpoint. The URL itself may contain a secret token in its path or query, as Teams workflow URLs commonly do. URLs and headers stay in runtime configuration: neither is copied to notification payloads, delivery errors or the operator destination display. The stored destination is `webhook:operations`, with a SHA-256 fingerprint binding that identity to its original URL. Configuration errors omit supplied values. Use HTTPS; plain HTTP is accepted only for explicit localhost/loopback test receivers. URL user information, fragments, raw whitespace, header injection and overrides of transport-controlled headers are rejected. Optional `cacertfile` selects a PEM CA file, relative to the configuration file or absolute; otherwise HTTPS uses system trust. Hostname and certificate-chain verification are required.
 
 In the deployment Compose recipe, set the two environment variables above in its private .env file, and mount `./mondek-webhooks.json:/run/secrets/mondek-webhooks.json:ro`. Set `MONDEK_PUBLIC_URL` to the installation's HTTPS origin for incident links. Deployment mode requires an explicit webhook configuration file. Local development without one retains its existing local recording receiver and payload format.
+
+## Mount a Kubernetes Secret
+
+Mount the Secret as a read-only directory. Set `defaultMode: 0440` and a dedicated Pod `fsGroup` such as 65533, then set `MONDEK_WEBHOOK_CONFIG_GROUP_ID` to that same numeric GID. The loader follows the projected symlink and checks the opened regular file. For a group-readable config, only the configured file group may read it. Group write, group execute and all permissions for other users are rejected. Owner-only files still work without the group setting. Kubernetes updates projected files asynchronously. Recreate the controller Pod to load edited settings. [Kubernetes Pod security context](https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-pod)
+
+This fragment sets the Pod's group and mounts the Secret as a directory with a `webhooks.json` key. Add it to the controller Pod spec and supply the usual database and public URL settings.
+
+```yaml
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65533
+containers:
+  - name: controller
+    env:
+      - name: MONDEK_NOTIFICATION_ADAPTER
+        value: webhook
+      - name: MONDEK_WEBHOOK_CONFIG_FILE
+        value: /run/secrets/mondek/webhooks.json
+      - name: MONDEK_WEBHOOK_CONFIG_GROUP_ID
+        value: "65533"
+    volumeMounts:
+      - name: webhook
+        mountPath: /run/secrets/mondek
+        readOnly: true
+volumes:
+  - name: webhook
+    secret:
+      secretName: mondek-webhook
+      defaultMode: 0440
+```
+
+To verify a packaged image, build it locally and supply it alongside a local PostgreSQL image. The script uses kind v0.33.0, a disposable Kubernetes cluster and a synthetic Secret.
+
+```sh
+docker build -f controller/Dockerfile -t mondek-controller:local .
+bash tests/kubernetes/webhook_secret.sh mondek-controller:local postgres:18.6-alpine
+```
 
 ## Stable Mondek document
 
