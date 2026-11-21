@@ -137,6 +137,11 @@ defmodule MondekWeb.Router do
     get "/assignments", API.V1.AssignmentsController, :configuration
     get "/configuration/assignments", API.V1.AssignmentsController, :assignment_configurations
     get "/configuration/revision", API.V1.ConfigurationController, :configuration_revision
+
+    post "/configuration/schema-migration/preview",
+         API.V1.ConfigurationController,
+         :schema_migration_preview
+
     post "/configuration/policy/plan", API.V1.ConfigurationController, :policy_plan
     post "/configuration/policy/apply", API.V1.ConfigurationController, :policy_apply
     get "/configuration/policy/export", API.V1.ConfigurationController, :policy_export

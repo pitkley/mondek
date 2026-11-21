@@ -78,6 +78,7 @@ defmodule MondekWeb.API.Contract do
           monitoring_incidents: "listMonitoringLossIncidents",
           monitoring_incident: "getMonitoringLossIncident",
           inventory: "publishRunnerInventory",
+          schema_migration_preview: "previewSchemaMigration",
           control: "exchangeRunnerControl",
           observations: "submitRunnerObservations",
           runner_state: "exchangeRunnerState",
@@ -102,6 +103,10 @@ defmodule MondekWeb.API.Contract do
   defp description(:inventory),
     do:
       "Complete source-owned inventory. Admission is atomic; stale, conflicting and fenced publications cannot remove accepted membership. Request budget is 4 MiB."
+
+  defp description(:schema_migration_preview),
+    do:
+      "Read-only comparison of a complete candidate inventory against an accepted source installation. Pages share a review digest for the same revisions. Request budget is 4 MiB."
 
   defp description(:monitoring_incident),
     do:
@@ -236,7 +241,7 @@ defmodule MondekWeb.API.Contract do
       :publisher_successors ->
         ~w(page search)
 
-      action when action in [:publisher, :publisher_event, :rules] ->
+      action when action in [:publisher, :publisher_event, :rules, :schema_migration_preview] ->
         ~w(page)
 
       _ ->
@@ -324,7 +329,7 @@ defmodule MondekWeb.API.Contract do
       :control ->
         S.ref("ControlRequest")
 
-      :inventory ->
+      a when a in [:inventory, :schema_migration_preview] ->
         S.ref("InventoryRequest")
 
       :observations ->

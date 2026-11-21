@@ -14615,6 +14615,691 @@
         ]
       }
     },
+    "/api/v1/configuration/schema-migration/preview": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Read-only comparison of a complete candidate inventory against an accepted source installation. Pages share a review digest for the same revisions. Request budget is 4 MiB.",
+        "operationId": "previewSchemaMigration",
+        "parameters": [
+          {
+            "description": "Positive live page number. Investigation pages beyond the end are empty.",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "maximum": 1000000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryRequest"
+              }
+            }
+          },
+          "description": "Operation input. Reviewed and runner semantics are enforced by the domain context.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "accepted": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "inventory_revision": {
+                          "type": "integer"
+                        },
+                        "lifecycle_revision": {
+                          "type": "integer"
+                        },
+                        "publication_id": {
+                          "type": "integer"
+                        },
+                        "source_revision": {
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "candidate": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "digest": {
+                          "type": "string"
+                        },
+                        "inventory_revision": {
+                          "type": "integer"
+                        },
+                        "publication_status": {
+                          "enum": [
+                            "candidate",
+                            "accepted_replay",
+                            "inventory_conflict",
+                            "stale_inventory",
+                            "publisher_retired",
+                            "publication_refresh_required"
+                          ],
+                          "type": "string"
+                        },
+                        "source_revision": {
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "check_count": {
+                      "type": "integer"
+                    },
+                    "installation_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "page": {
+                      "type": "integer"
+                    },
+                    "page_size": {
+                      "type": "integer"
+                    },
+                    "review_digest": {
+                      "type": "string"
+                    },
+                    "rows": {
+                      "items": {
+                        "oneOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "accepted": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "assignment_id": {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  "definition_revision": {
+                                    "type": "string"
+                                  },
+                                  "desired_generation": {
+                                    "nullable": true,
+                                    "type": "integer"
+                                  },
+                                  "environment": {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  "installation_id": {
+                                    "format": "uuid",
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  "parameter_contract": {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  "params_owner": {
+                                    "enum": [
+                                      "ui",
+                                      "source"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "revision": {
+                                    "nullable": true,
+                                    "type": "integer"
+                                  },
+                                  "schema_fingerprint": {
+                                    "type": "string"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "blockers": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "candidate": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "assignment_id": {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  "definition_revision": {
+                                    "type": "string"
+                                  },
+                                  "desired_generation": {
+                                    "nullable": true,
+                                    "type": "integer"
+                                  },
+                                  "environment": {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  "installation_id": {
+                                    "format": "uuid",
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  "parameter_contract": {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  "params_owner": {
+                                    "enum": [
+                                      "ui",
+                                      "source"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "revision": {
+                                    "nullable": true,
+                                    "type": "integer"
+                                  },
+                                  "schema_fingerprint": {
+                                    "type": "string"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "change": {
+                                "enum": [
+                                  "added",
+                                  "withdrawn",
+                                  "updated"
+                                ],
+                                "type": "string"
+                              },
+                              "check_key": {
+                                "type": "string"
+                              },
+                              "comparisons_changed": {
+                                "type": "boolean"
+                              },
+                              "defaults_changed_fields": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "fields": {
+                                "items": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "attributes": {
+                                      "items": {
+                                        "type": "string"
+                                      },
+                                      "type": "array"
+                                    },
+                                    "change": {
+                                      "enum": [
+                                        "added",
+                                        "withdrawn",
+                                        "updated"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "field": {
+                                      "type": "string"
+                                    },
+                                    "type_after": {
+                                      "nullable": true,
+                                      "type": "string"
+                                    },
+                                    "type_before": {
+                                      "nullable": true,
+                                      "type": "string"
+                                    },
+                                    "unit_after": {
+                                      "nullable": true,
+                                      "type": "string"
+                                    },
+                                    "unit_before": {
+                                      "nullable": true,
+                                      "type": "string"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "type": "array"
+                              },
+                              "instance_exception": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "findings": {
+                                    "additionalProperties": false,
+                                    "nullable": true,
+                                    "properties": {
+                                      "failed_comparisons": {
+                                        "items": {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "left": {
+                                              "type": "string"
+                                            },
+                                            "op": {
+                                              "enum": [
+                                                "lt",
+                                                "lte"
+                                              ],
+                                              "type": "string"
+                                            },
+                                            "right": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "type": "object"
+                                        },
+                                        "type": "array"
+                                      },
+                                      "invalid_fields": {
+                                        "items": {
+                                          "type": "string"
+                                        },
+                                        "type": "array"
+                                      },
+                                      "missing_fields": {
+                                        "items": {
+                                          "type": "string"
+                                        },
+                                        "type": "array"
+                                      },
+                                      "removed_fields": {
+                                        "items": {
+                                          "type": "string"
+                                        },
+                                        "type": "array"
+                                      },
+                                      "valid": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "type": "object"
+                                  },
+                                  "saved_fields": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "kind": {
+                                "enum": [
+                                  "check"
+                                ],
+                                "type": "string"
+                              },
+                              "rule_resolution": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "diagnostic": {
+                                    "type": "string"
+                                  },
+                                  "origin": {
+                                    "additionalProperties": true,
+                                    "type": "object"
+                                  },
+                                  "rule_ids": {
+                                    "items": {
+                                      "format": "uuid",
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "saved_default_findings": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "failed_comparisons": {
+                                    "items": {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "left": {
+                                          "type": "string"
+                                        },
+                                        "op": {
+                                          "enum": [
+                                            "lt",
+                                            "lte"
+                                          ],
+                                          "type": "string"
+                                        },
+                                        "right": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "type": "object"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "invalid_fields": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "missing_fields": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "removed_fields": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "valid": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "type": "object"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "check_key",
+                              "change",
+                              "accepted",
+                              "candidate",
+                              "fields",
+                              "comparisons_changed",
+                              "defaults_changed_fields",
+                              "saved_default_findings",
+                              "instance_exception",
+                              "blockers",
+                              "rule_resolution"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "assignment_id": {
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "candidate_schema_changed": {
+                                "type": "boolean"
+                              },
+                              "captured_schema_fingerprint": {
+                                "type": "string"
+                              },
+                              "check_key": {
+                                "type": "string"
+                              },
+                              "enabled": {
+                                "type": "boolean"
+                              },
+                              "kind": {
+                                "enum": [
+                                  "rule"
+                                ],
+                                "type": "string"
+                              },
+                              "other_matching_assignments": {
+                                "type": "integer"
+                              },
+                              "other_publisher_count": {
+                                "type": "integer"
+                              },
+                              "other_publisher_sample": {
+                                "items": {
+                                  "format": "uuid",
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "priority": {
+                                "type": "integer"
+                              },
+                              "rule_id": {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "rule_name": {
+                                "type": "string"
+                              },
+                              "rule_revision": {
+                                "type": "integer"
+                              },
+                              "rule_value_findings": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "failed_comparisons": {
+                                    "items": {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "left": {
+                                          "type": "string"
+                                        },
+                                        "op": {
+                                          "enum": [
+                                            "lt",
+                                            "lte"
+                                          ],
+                                          "type": "string"
+                                        },
+                                        "right": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "type": "object"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "invalid_fields": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "missing_fields": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "removed_fields": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "valid": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "scope_after": {
+                                "enum": [
+                                  "none",
+                                  "partial",
+                                  "full"
+                                ],
+                                "type": "string"
+                              },
+                              "scope_before": {
+                                "enum": [
+                                  "none",
+                                  "partial",
+                                  "full"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "check_key",
+                              "assignment_id",
+                              "rule_id",
+                              "rule_revision",
+                              "rule_name",
+                              "enabled",
+                              "priority",
+                              "scope_before",
+                              "scope_after",
+                              "captured_schema_fingerprint",
+                              "candidate_schema_changed",
+                              "rule_value_findings",
+                              "other_matching_assignments",
+                              "other_publisher_count",
+                              "other_publisher_sample"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "type": "array"
+                    },
+                    "rule_match_count": {
+                      "type": "integer"
+                    },
+                    "source_id": {
+                      "type": "string"
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "source_id",
+                    "installation_id",
+                    "accepted",
+                    "candidate",
+                    "review_digest",
+                    "check_count",
+                    "rule_match_count",
+                    "page",
+                    "page_size",
+                    "total",
+                    "rows"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Schema migration preview",
+        "tags": [
+          "Configuration"
+        ]
+      }
+    },
     "/api/v1/results/{id}/evidence": {
       "get": {
         "callbacks": {},

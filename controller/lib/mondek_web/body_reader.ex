@@ -4,7 +4,11 @@ defmodule MondekWeb.BodyReader do
   def read_body(conn, options) do
     limit =
       case conn.request_path do
-        "/api/v1/runner/inventory" ->
+        path
+        when path in [
+               "/api/v1/runner/inventory",
+               "/api/v1/configuration/schema-migration/preview"
+             ] ->
           4_194_304
 
         path
