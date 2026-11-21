@@ -70,7 +70,7 @@ Notification delivery still defaults to SMTP in deployment mode. If you opt into
 
 Existing Configuration Git token settings continue to work. When adopting file-based rotation, mount the containing directory and preserve access from the controller UID. If enabling the separate Git token header behind a gateway, update gateway rules and client credentials together. See [Configuration Git](CONFIGURATION-GIT.md).
 
-## 0.0.7: output sustain and measurement lineage
+## 0.0.8: output sustain and measurement lineage
 
 After backing up PostgreSQL and complete runner state directories, upgrade the controller and SDK together. Packaged startup applies `20261121110000_add_output_sustain` and `20261121120000_link_condition_measurement_history`. The first adds the per-stream sustain projection. The second backfills unambiguous predecessor links with a retained Condition-change audit record. Existing measurements, stream identities and open incidents keep their original data.
 
