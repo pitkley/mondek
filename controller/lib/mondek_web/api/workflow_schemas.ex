@@ -128,9 +128,10 @@ defmodule MondekWeb.API.WorkflowSchemas do
       "MaintenanceSelector" =>
         S.record(
           %{
-            scope: S.enum(~w(check target)),
+            scope: S.enum(~w(check stable_check target)),
             assignment_id: n(S.string()),
             source_id: n(S.string()),
+            source_key: S.string(),
             environment: n(S.string()),
             target_kind: n(S.string()),
             target_key: n(S.string())

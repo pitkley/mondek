@@ -5170,12 +5170,16 @@
           "scope": {
             "enum": [
               "check",
+              "stable_check",
               "target"
             ],
             "type": "string"
           },
           "source_id": {
             "nullable": true,
+            "type": "string"
+          },
+          "source_key": {
             "type": "string"
           },
           "target_key": {

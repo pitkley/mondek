@@ -933,7 +933,12 @@ defmodule MondekWeb.MaintenanceLive do
   end
 
   defp choice_filter_options(_, "kind"),
-    do: [{"check", "Scheduled checks"}, {"target", "Monitored targets"}]
+    do: [
+      {"check", "Scheduled checks"},
+      {"stable_check", "Stable checks"},
+      {"check_target", "Stable check targets"},
+      {"target", "Monitored targets"}
+    ]
 
   defp choice_filter_options(choices, field) do
     key =
@@ -1347,7 +1352,7 @@ defmodule MondekWeb.MaintenanceLive do
     do:
       put_selections(
         socket,
-        selections(socket.assigns.proposal) ++ Enum.map(rows, &Map.take(&1, @scope_fields))
+        selections(socket.assigns.proposal) ++ Enum.map(rows, &selector_identity/1)
       )
 
   defp put_selections(%{assigns: %{window: window}} = socket, _) when not is_nil(window),
@@ -1393,7 +1398,7 @@ defmodule MondekWeb.MaintenanceLive do
 
       added =
         Enum.filter(page_rows, &MapSet.member?(chosen, MaintenanceSelection.key(&1)))
-        |> Enum.map(&Map.take(&1, @scope_fields))
+        |> Enum.map(&selector_identity/1)
 
       socket = put_selections(socket, retained ++ added)
 
@@ -1445,8 +1450,14 @@ defmodule MondekWeb.MaintenanceLive do
       if Enum.all?(Map.take(filters, @selection_filter_fields), fn {_, value} ->
            is_binary(value) && byte_size(value) <= 200
          end) do
+        kind = filters["kind"]
+
         filters =
-          Map.put(filters, "kind", if(filters["kind"] == "target", do: "target", else: "check"))
+          Map.put(
+            filters,
+            "kind",
+            if(kind in ~w(stable_check check_target target), do: kind, else: "check")
+          )
 
         previous = if captured == %{}, do: current, else: captured
 

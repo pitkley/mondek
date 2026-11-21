@@ -90,7 +90,7 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
                 All results of this scheduled check are covered. Other checks, including checks of the same target, are unaffected.
               </p>
               <p :if={@proposal["scope"] == "selection"} class="footnote space-top">
-                Scheduled-check selections include future results of those same check instances. Target selections follow their exact source and monitored environment across observers. Separately named child targets are not included automatically.
+                Stable checks follow the same source check and environment across observers. Scheduled checks stay with their original instances. Target selections match exact targets.
               </p>
               <p :if={@window} class="footnote space-top">
                 A saved window's scope is fixed. To cover something else, create another window.

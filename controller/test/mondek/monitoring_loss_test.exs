@@ -277,12 +277,14 @@ defmodule Mondek.MonitoringLossTest do
     assert {:ok, _} = Monitoring.inventory(publication, at())
     tick(0)
     first_gap = Repo.one!(MonitoringGap)
+    assert first_gap.details["source_key"] == candidate["key"]
     assert {:ok, _} = Monitoring.inventory(Map.put(publication, "inventory_revision", 2), time(2))
     tick(2)
     assert Repo.one!(MonitoringGap).since_at == first_gap.since_at
     tick(5)
     loss = episode()
     assert loss.scope_kind == "coverage"
+    assert hd(loss.member_snapshot)["source_key"] == candidate["key"]
     selected = F.publication([F.candidate(F.check())])
     assert {:ok, _} = Monitoring.inventory(selected, time(6))
     assert {:ok, _} = F.activate(selected, time(6))

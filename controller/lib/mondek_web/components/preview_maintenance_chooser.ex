@@ -55,10 +55,19 @@ defmodule MondekWeb.PreviewMaintenanceChooser do
           placeholder="Search or filter choices"
         />
         <p class="footnote">
-          {if @filters["kind"] == "target",
-            do:
-              "A selected target covers matching results across runners. Select child targets separately.",
-            else: "A selected check covers all of its results, including results added later."}
+          {case @filters["kind"] do
+            "target" ->
+              "A selected target covers matching results across runners. Select child targets separately."
+
+            "stable_check" ->
+              "A stable check covers all outputs of that source check in the selected environment, including across runner replacements."
+
+            "check_target" ->
+              "A stable check target covers only outputs for that exact target from the selected check and environment, across runner replacements."
+
+            _ ->
+              "A selected check covers all of its results, including results added later on that scheduled instance."
+          end}
         </p>
       </div>
       <form

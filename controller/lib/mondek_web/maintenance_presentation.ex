@@ -25,7 +25,7 @@ defmodule MondekWeb.MaintenancePresentation do
 
   def selections(_), do: []
   def selected_pages(rows), do: max(1, ceil(length(rows) / 25))
-  def selector_identity(row), do: Map.take(row, @scope_fields)
+  def selector_identity(row), do: MaintenanceSelection.identity(row)
 
   def encoded_draft(proposal, origin),
     do: proposal |> Map.put("_origin", origin) |> Jason.encode!()

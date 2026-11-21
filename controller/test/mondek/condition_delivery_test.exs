@@ -42,6 +42,8 @@ defmodule Mondek.ConditionDeliveryTest do
     Conditions,
     ConditionIncident,
     ConditionFact,
+    Maintenance,
+    MaintenanceSelection,
     OccurrenceEvidence,
     NotificationWorker,
     Sweeper,
@@ -320,15 +322,27 @@ defmodule Mondek.ConditionDeliveryTest do
     assert Repo.aggregate(Observation, :count) == 2
   end
 
-  test "partial maintenance cancellation wakes the same group job with its original budget" do
+  test "partial stable check maintenance wakes the same group job with its original budget" do
     {checks, group} = fire_pair()
     critical = occurrence("CRIT")
     warning = occurrence("WARN")
     original_job = job(critical)
     critical_check = Enum.at(checks, 1)
 
-    assert {:ok, _} =
-             reviewed_maintenance_fixture(critical_check.id, 3600, "Volume maintenance", at())
+    selector = %{
+      "scope" => "stable_check",
+      "source_id" => critical_check.source_id,
+      "source_key" => critical_check.source_key,
+      "environment" => critical_check.environment
+    }
+
+    proposal =
+      [selector]
+      |> MaintenanceSelection.proposal(at())
+      |> Map.put("reason", "Volume maintenance")
+
+    assert {:ok, review} = Maintenance.preview(proposal, 1, at())
+    assert {:ok, window} = Maintenance.apply(review["review_token"], review["proposal"], at())
 
     assert {:ok, {:gated, 3600}} =
              NotificationWorker.begin_attempt(critical.id, at(), original_job)
@@ -337,7 +351,7 @@ defmodule Mondek.ConditionDeliveryTest do
     Monitoring.change(original_job, %{state: "scheduled", scheduled_at: DateTime.add(at(), 3600)})
 
     assert {:ok, _} =
-             reviewed_maintenance_fixture(critical_check.id, 0, "Volume work complete", at())
+             Maintenance.cancel(window["id"], window["revision"], "Volume work complete", at())
 
     assert {:ok, {1, _}} = Sweeper.wake_held_notifications(at())
     resumed = Repo.get!(Oban.Job, original_job.id)

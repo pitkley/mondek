@@ -12,6 +12,7 @@ defmodule Mondek.Maintenance do
     Occurrence,
     MaintenanceWindow,
     MaintenanceEvent,
+    MaintenanceSelection,
     Monitoring,
     Repo,
     Runner
@@ -490,7 +491,12 @@ defmodule Mondek.Maintenance do
 
     selectors =
       [check_selector(assignment.id)] ++
-        target_selector(assignment.source_id, incident.environment, stream && stream.target)
+        result_selectors(%{
+          "source_id" => assignment.source_id,
+          "source_key" => assignment.source_key,
+          "environment" => incident.environment,
+          "target" => stream && stream.target
+        })
 
     match =
       dynamic(
@@ -520,6 +526,7 @@ defmodule Mondek.Maintenance do
         %{
           "assignment_id" => a.id,
           "source_id" => a.source_id,
+          "source_key" => a.source_key,
           "environment" => i.environment,
           "target" => (s && s.target) || %{}
         }
@@ -541,6 +548,7 @@ defmodule Mondek.Maintenance do
           matches_row?(w, %{
             "assignment_id" => a.id,
             "source_id" => a.source_id,
+            "source_key" => a.source_key,
             "environment" => i.environment,
             "target" => (s && s.target) || %{}
           })
@@ -726,9 +734,7 @@ defmodule Mondek.Maintenance do
   defp matching_windows(query, rows, assignment_ids) do
     selected =
       (Enum.map(assignment_ids, &check_selector/1) ++
-         Enum.flat_map(rows, fn r ->
-           target_selector(r["source_id"], r["environment"], r["target"])
-         end))
+         Enum.flat_map(rows, &result_selectors/1))
       |> Enum.uniq()
 
     from w in query,
@@ -816,12 +822,13 @@ defmodule Mondek.Maintenance do
   end
 
   defp normalize_selector!(p) when is_map(p) do
-    if Enum.any?(Map.keys(p), &(&1 not in @selector_fields)) or
-         p["scope"] not in ["check", "target"],
-       do: invalid!("Each selection must be an exact check or target without extra fields.")
+    identity = MaintenanceSelection.identity(p)
 
-    validate_selector_shape!(p)
-    Map.new(@selector_fields, &{&1, p[&1]})
+    if not MaintenanceSelection.valid_scope?(p) or
+         Enum.any?(Map.keys(p), &(not Map.has_key?(identity, &1))),
+       do: invalid!("Choose an exact check, stable check or target without extra fields.")
+
+    identity
   end
 
   defp normalize_selector!(_), do: invalid!("Each selection must be an exact check or target.")
@@ -837,15 +844,15 @@ defmodule Mondek.Maintenance do
        do: invalid!("Choose active checks. Saved selections retain retired check instances.")
 
     if is_nil(current) do
-      targets = Enum.filter(selected, &(&1["scope"] == "target"))
+      logical_scopes = Enum.reject(selected, &(&1["scope"] == "check"))
 
       if Enum.any?(
-           Mondek.MaintenanceSelection.describe(targets),
+           MaintenanceSelection.describe(logical_scopes),
            &(&1["matched_results"] == 0)
          ),
          do:
            invalid!(
-             "Create target maintenance from existing results. Saved target windows continue to match future replacements."
+             "Choose stable checks or targets with current results. Saved windows continue to match replacements."
            )
     end
   end
@@ -992,6 +999,11 @@ defmodule Mondek.Maintenance do
         )
       end)
 
+    match =
+      selected
+      |> Enum.filter(&(&1["scope"] == "stable_check"))
+      |> Enum.reduce(match, &MaintenanceSelection.stable_match/2)
+
     from [s, a, r] in query, where: ^match
   end
 
@@ -1024,6 +1036,7 @@ defmodule Mondek.Maintenance do
       "environment_label" => s.environment_label,
       "target" => s.target,
       "source_id" => a.source_id,
+      "source_key" => a.source_key,
       "assignment_revision" => a.revision
     }
 
@@ -1031,6 +1044,13 @@ defmodule Mondek.Maintenance do
 
   defp selector_matches_row?(%{"scope" => "check"} = s, r),
     do: s["assignment_id"] == r["assignment_id"]
+
+  defp selector_matches_row?(%{"scope" => "stable_check"} = s, r),
+    do:
+      s["source_id"] == r["source_id"] and s["source_key"] == r["source_key"] and
+        s["environment"] == r["environment"] and
+        (is_nil(s["target_kind"]) or
+           (s["target_kind"] == r["target"]["kind"] and s["target_key"] == r["target"]["key"]))
 
   defp selector_matches_row?(s, r),
     do:
@@ -1062,13 +1082,40 @@ defmodule Mondek.Maintenance do
 
   defp target_selector(_, _, _), do: []
 
+  defp result_selectors(r) do
+    source = r["source_id"]
+    environment = r["environment"]
+    target = r["target"]
+    targets = target_selector(source, environment, target)
+
+    if source && r["source_key"] do
+      stable =
+        MaintenanceSelection.identity(%{
+          "scope" => "stable_check",
+          "source_id" => source,
+          "source_key" => r["source_key"],
+          "environment" => environment
+        })
+
+      [
+        stable
+        | Enum.map(
+            targets,
+            &%{stable | "target_kind" => &1["target_kind"], "target_key" => &1["target_key"]}
+          )
+      ] ++ targets
+    else
+      targets
+    end
+  end
+
   defp selection_summary(window, rows \\ nil) do
     selected = selectors(window)
 
     contexts =
       selected
-      |> Mondek.MaintenanceSelection.describe()
-      |> Map.new(&{Map.take(&1, @selector_fields), &1})
+      |> MaintenanceSelection.describe()
+      |> Map.new(&{MaintenanceSelection.identity(&1), &1})
 
     Enum.map(selected, fn selector ->
       context = Map.fetch!(contexts, selector)
@@ -1079,14 +1126,19 @@ defmodule Mondek.Maintenance do
           else: context["matched_results"]
 
       labels =
-        if selector["scope"] == "check" do
-          %{
-            "check_label" => context["check_label"] || context["label"],
-            "runner_label" => context["runner_label"],
-            "retired" => not context["available"]
-          }
-        else
-          %{"target_label" => context["label"]}
+        case selector["scope"] do
+          "check" ->
+            %{
+              "check_label" => context["check_label"] || context["label"],
+              "runner_label" => context["runner_label"],
+              "retired" => not context["available"]
+            }
+
+          "stable_check" ->
+            %{"check_label" => context["label"]}
+
+          "target" ->
+            %{"target_label" => context["label"]}
         end
 
       selector |> Map.merge(labels) |> Map.put("matched_results", count)
@@ -1101,6 +1153,8 @@ defmodule Mondek.Maintenance do
     query = matching_windows(MaintenanceWindow, rows, Enum.map(rows, & &1["assignment_id"]))
 
     selected = selectors(candidate)
+
+    logical = Enum.filter(selected, &(&1["scope"] in ["stable_check", "target"]))
 
     query =
       from w in MaintenanceWindow,
@@ -1117,7 +1171,22 @@ defmodule Mondek.Maintenance do
                  w.target_key
                )) or
             (w.scope == "selection" and
-               fragment("? && ?", w.selections, type(^selected, {:array, :map})))
+               fragment("? && ?", w.selections, type(^selected, {:array, :map}))) or
+            fragment(
+              """
+              maintenance_stable_selections_overlap(?, CASE WHEN ?='selection' THEN ? ELSE ARRAY[
+                jsonb_build_object('scope',?,'source_id',?,'environment',?,'target_kind',?,'target_key',?)
+              ] END)
+              """,
+              type(^logical, {:array, :map}),
+              w.scope,
+              w.selections,
+              w.scope,
+              w.source_id,
+              w.environment,
+              w.target_kind,
+              w.target_key
+            )
 
     query =
       from w in query,
@@ -1141,9 +1210,9 @@ defmodule Mondek.Maintenance do
     selected = if p["scope"] == "selection", do: p["selections"], else: [p]
     check_ids = for %{"scope" => "check", "assignment_id" => id} <- selected, do: id
     check_sources = Repo.all(from a in Assignment, where: a.id in ^check_ids, select: a.source_id)
-    target_sources = for %{"scope" => "target", "source_id" => source} <- selected, do: source
+    logical_sources = Enum.map(selected, & &1["source_id"])
 
-    (check_sources ++ target_sources)
+    (check_sources ++ logical_sources)
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
     |> Enum.sort()
@@ -1171,10 +1240,11 @@ defmodule Mondek.Maintenance do
       from [o, i, a, s] in query,
         where:
           fragment(
-            "maintenance_selections_match(?, ?, ?, ?, ?->>'kind', ?->>'key')",
+            "maintenance_selections_match(?, ?, ?, ?, ?, ?->>'kind', ?->>'key')",
             type(^selected, {:array, :map}),
             a.id,
             a.source_id,
+            a.source_key,
             i.environment,
             s.target,
             s.target

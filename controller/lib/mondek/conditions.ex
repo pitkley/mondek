@@ -563,7 +563,7 @@ defmodule Mondek.Conditions do
         join: a in Assignment,
         on: a.id == i.assignment_id,
         where: i.condition_incident_id == ^id and i.status == "open",
-        select: {i, struct(a, [:id, :source_id, :retired_at])}
+        select: {i, struct(a, [:id, :source_id, :source_key, :retired_at])}
     )
   end
 
