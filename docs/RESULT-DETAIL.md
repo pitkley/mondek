@@ -2,6 +2,8 @@
 
 Result detail starts with the monitored target, its environment and the runner that observes it. The main panel presents the last confirmed measurement: its verdict, the check author's summary, the original measurement age and any diagnostic details. Details are expanded by default. Check details support Markdown formatting. Links and images appear as text, and raw HTML stays inert. The fly-over initially shows four previous measurements and can expand older measurements in place. The full result page shows the recent history together.
 
+For a sustaining output, **Qualified health** identifies the severity and observation used for incident handling. **Pending sustain** shows each threshold that is still accumulating fresh evidence. **Latest measurement** shows the reported result, including a failure that is still pending.
+
 ## Health and collection are separate
 
 | Situation | What result detail shows |

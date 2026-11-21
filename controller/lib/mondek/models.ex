@@ -346,6 +346,7 @@ defmodule Mondek.ResultStream do
     field :environment, :string
     field :environment_label, :string
     field :current, :map, default: %{}
+    field :sustain, :map, default: %{}
     field :retired_at, :utc_datetime_usec
     field :retirement_reason, :string
   end

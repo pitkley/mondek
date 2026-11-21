@@ -4371,6 +4371,33 @@
         ],
         "type": "object"
       },
+      "PendingOutputSeverity": {
+        "additionalProperties": false,
+        "properties": {
+          "first_observation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "health": {
+            "enum": [
+              "WARN",
+              "CRIT"
+            ],
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "health",
+          "first_observation_id",
+          "started_at"
+        ],
+        "type": "object"
+      },
       "CaseBatch": {
         "additionalProperties": false,
         "properties": {
@@ -4573,6 +4600,14 @@
           "prepared_generation": {
             "nullable": true,
             "type": "integer"
+          },
+          "qualification": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OutputQualification"
+              }
+            ],
+            "nullable": true
           },
           "result_key": {
             "nullable": true,
@@ -5419,6 +5454,44 @@
             "type": "number"
           }
         },
+        "type": "object"
+      },
+      "OutputQualification": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_seconds": {
+            "maximum": 86400,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "effective_health": {
+            "enum": [
+              "OK",
+              "WARN",
+              "CRIT"
+            ],
+            "nullable": true,
+            "type": "string"
+          },
+          "effective_observation_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "pending": {
+            "items": {
+              "$ref": "#/components/schemas/PendingOutputSeverity"
+            },
+            "maxItems": 2,
+            "type": "array"
+          }
+        },
+        "required": [
+          "duration_seconds",
+          "effective_health",
+          "effective_observation_id",
+          "pending"
+        ],
         "type": "object"
       },
       "IndividualIncidentSummary": {

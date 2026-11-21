@@ -479,7 +479,7 @@ defmodule Mondek.Monitoring do
         assignment_id: a.id,
         generation: generation,
         params: params,
-        definition: Mondek.Inventory.definition(updated),
+        definition: Mondek.Inventory.definition(updated, Mondek.Inventory.sustain_enabled?(a)),
         saved_at: at
       })
 
@@ -833,20 +833,44 @@ defmodule Mondek.Monitoring do
             "complete" => not is_nil(result)
           })
 
+        output =
+          Enum.find(configuration.definition["outputs"] || [], &(&1["key"] == stream.result_key))
+
+        sustained_freshness = configuration.definition["sustain_freshness_seconds"]
+
+        seconds =
+          if sustained_freshness, do: Mondek.Inventory.output_sustain_seconds(output), else: 0
+
+        freshness = if seconds > 0, do: sustained_freshness, else: a.freshness_seconds
+
+        output_assignment = %{a | current: stream.current, expected_keys: [stream.result_key]}
+        output_observation = %{o | payload: payload}
+        {raw_state, raw_measured?} = project(output_assignment, output_observation, at)
+
         {state, measured?} =
-          project(
-            %{a | current: stream.current, expected_keys: [stream.result_key]},
-            %{o | payload: payload},
-            at
-          )
-
-        stream = change(stream, %{current: state})
-
-        if measured? do
-          if Conditions.identity(configuration.definition, stream.result_key) do
-            Conditions.observe!(a, stream, o, configuration.definition, state, at)
+          if freshness == a.freshness_seconds do
+            {raw_state, raw_measured?}
           else
-            transition(a, state["health"], o, at, stream, configuration.definition)
+            project(%{output_assignment | freshness_seconds: freshness}, output_observation, at)
+          end
+
+        {sustain, effective_health} =
+          Mondek.OutputSustain.reduce(stream, state, measured?, o, seconds, freshness, at)
+
+        stream = change(stream, %{current: raw_state, sustain: sustain})
+
+        if effective_health do
+          if Conditions.identity(configuration.definition, stream.result_key) do
+            Conditions.observe!(
+              a,
+              stream,
+              o,
+              configuration.definition,
+              Map.put(state, "health", effective_health),
+              at
+            )
+          else
+            transition(a, effective_health, o, at, stream, configuration.definition)
             nil
           end
         end
@@ -945,7 +969,8 @@ defmodule Mondek.Monitoring do
     {Map.merge(state, confirmed), fresh_measurement?}
   end
 
-  defp confirmed_evidence(current) do
+  @doc false
+  def confirmed_evidence(current) do
     case current["confirmed_observation_id"] do
       nil ->
         # Existing projections from before these fields were introduced can be
@@ -1098,7 +1123,12 @@ defmodule Mondek.Monitoring do
           select: {c.params, c.definition}
       )
       |> Enum.map(fn {params, definition} ->
-        {params, Map.drop(definition, ~w(environment environment_label configuration_origin))}
+        definition =
+          definition
+          |> Map.drop(~w(environment environment_label configuration_origin))
+          |> Map.replace_lazy("outputs", &Mondek.Inventory.canonical_output_sustain/1)
+
+        {params, definition}
       end)
 
     case parameters do
@@ -2142,6 +2172,8 @@ defmodule Mondek.Monitoring do
 
   def public(%Assignment{} = assignment),
     do: public_record(assignment) |> Map.put("retired", not is_nil(assignment.retired_at))
+
+  def public(%ResultStream{} = stream), do: stream |> public_record() |> Map.delete("sustain")
 
   def public(struct), do: public_record(struct)
 

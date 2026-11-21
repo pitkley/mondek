@@ -137,6 +137,21 @@ defmodule MondekWeb.API.Schemas do
             )
           )
         ),
+      "OutputQualification" =>
+        record(
+          %{
+            duration_seconds: %Schema{type: :integer, minimum: 0, maximum: 86_400},
+            effective_health: nullable(enum(~w(OK WARN CRIT))),
+            effective_observation_id: nullable(uuid()),
+            pending: %Schema{type: :array, maxItems: 2, items: ref("PendingOutputSeverity")}
+          },
+          ~w(duration_seconds effective_health effective_observation_id pending)a
+        ),
+      "PendingOutputSeverity" =>
+        record(
+          %{health: enum(~w(WARN CRIT)), first_observation_id: uuid(), started_at: time()},
+          ~w(health first_observation_id started_at)a
+        ),
       "Result" =>
         record(
           Map.merge(
@@ -155,6 +170,7 @@ defmodule MondekWeb.API.Schemas do
               check_group: nullable(object()),
               condition: nullable(object()),
               target: ref("Target"),
+              qualification: nullable(ref("OutputQualification")),
               current: ref("CurrentResult")
             }
           ),

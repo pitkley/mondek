@@ -79,6 +79,26 @@ defmodule MondekWeb.PreviewResultDetail do
             </div>
           </td>
         </tr>
+        <tr :if={@result["qualification"]}>
+          <th scope="row">Qualified health</th>
+          <td id={@id_prefix <> "result-qualified-health"}>
+            <.state
+              :if={@result["qualification"]["effective_health"]}
+              value={@result["qualification"]["effective_health"]}
+            />
+            <span :if={!@result["qualification"]["effective_health"]}>Awaiting qualification</span>
+            <span :if={@result["qualification"]["effective_observation_id"]} class="preview-caption">
+              Supporting observation {@result["qualification"]["effective_observation_id"]}
+            </span>
+          </td>
+        </tr>
+        <tr :for={pending <- get_in(@result, ["qualification", "pending"]) || []}>
+          <th scope="row">Pending sustain</th>
+          <td data-sustain-severity={pending["health"]}>
+            {state_text(pending["health"])} · {@result["qualification"]["duration_seconds"]} s
+            · since <time datetime={pending["started_at"]}>{time(pending["started_at"])}</time>
+          </td>
+        </tr>
         <tr>
           <th scope="row">Finding</th><td>{summary(@result)}</td>
         </tr>

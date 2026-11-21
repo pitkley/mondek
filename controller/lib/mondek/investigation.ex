@@ -5,7 +5,7 @@ defmodule Mondek.Investigation do
   import Ecto.Query
   alias Mondek.{Repo, Monitoring, Inspection, Assignment, ResultStream, Incident}
 
-  @identity ~w(id assignment_id result_key label check_label runner_id runner_label source_id source_key source_revision definition_revision environment environment_label retired retirement_reason params_owner desired_generation authorized_generation prepared_generation active_generation observed_generation check_group condition)
+  @identity ~w(id assignment_id result_key label check_label runner_id runner_label source_id source_key source_revision definition_revision environment environment_label retired retirement_reason params_owner desired_generation authorized_generation prepared_generation active_generation observed_generation check_group condition qualification)
   @current ~w(value health knowledge summary source_at confirmed_observation_id confirmed_generation confirmed_session_id confirmed_evaluated_at observation_id session_id generation started_at evaluated_at received_at complete diagnostic execution_summary reported_health reported_source_at)
   @incident ~w(acknowledgement_revision attention_revision acknowledgement_mode acknowledged_until acknowledgement_note id incident_kind condition_incident_id assignment_id stream_id result_key environment label health status opened_at closed_at closure_reason opening_observation_id latest_observation_id latest_failure_observation_id closing_observation_id opening_generation scope_kind source_id runner_id member_count)
   @member ~w(key stream_id assignment_id label source_id environment knowledge observation_id source_at coverage_id runner_id since_at ready_at)
@@ -257,7 +257,11 @@ defmodule Mondek.Investigation do
       current = Inspection.stream_detail(id, at)
 
       references =
-        [stream.current["observation_id"], stream.current["confirmed_observation_id"]]
+        [
+          stream.current["observation_id"],
+          stream.current["confirmed_observation_id"],
+          get_in(current, ["qualification", "effective_observation_id"])
+        ]
         |> Enum.reject(&is_nil/1)
         |> Enum.uniq()
 
