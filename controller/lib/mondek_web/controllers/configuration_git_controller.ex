@@ -4,6 +4,9 @@ defmodule MondekWeb.ConfigurationGitController do
   use MondekWeb, :controller
   alias Mondek.{ConfigurationGit, ConfigurationGitAccess, ConfigurationRepository}
   @limit 8_388_608
+  @token_header "x-mondek-git-token"
+  # An opaque token in a single field. Excluding commas rejects coalesced fields.
+  @header_token ~r/\A[\x21-\x2b\x2d-\x7e]{32,4096}\z/
 
   plug :no_cache
   plug :authenticate
@@ -82,15 +85,7 @@ defmodule MondekWeb.ConfigurationGitController do
   defp authenticate(conn, _) do
     case ConfigurationGitAccess.token() do
       {:ok, token} ->
-        case Plug.BasicAuth.parse_basic_auth(conn) do
-          {"mondek", password} ->
-            if ConfigurationGitAccess.valid_token?(token, password),
-              do: conn,
-              else: unauthorized(conn)
-
-          _ ->
-            unauthorized(conn)
-        end
+        authenticate_token(conn, token)
 
       :disabled ->
         conn |> send_resp(404, "Not found") |> halt()
@@ -100,12 +95,43 @@ defmodule MondekWeb.ConfigurationGitController do
     end
   end
 
-  defp unauthorized(conn) do
+  defp authenticate_token(conn, expected) do
+    header_auth? = Application.get_env(:mondek, :configuration_git_header_auth, false)
+
+    case {header_auth?, get_req_header(conn, @token_header)} do
+      {true, [provided]} ->
+        if Regex.match?(@header_token, provided) and
+             ConfigurationGitAccess.valid_token?(expected, provided),
+           do: conn,
+           else: unauthorized(conn, :header)
+
+      {true, [_, _ | _]} ->
+        unauthorized(conn, :header)
+
+      _ ->
+        case Plug.BasicAuth.parse_basic_auth(conn) do
+          {"mondek", provided} ->
+            if ConfigurationGitAccess.valid_token?(expected, provided),
+              do: conn,
+              else: unauthorized(conn, :basic)
+
+          _ ->
+            unauthorized(conn, :basic)
+        end
+    end
+  end
+
+  defp unauthorized(conn, :basic) do
     conn
     |> put_resp_header(
       "www-authenticate",
       ~s(Basic realm="Mondek configuration", charset="UTF-8")
     )
+    |> unauthorized(:header)
+  end
+
+  defp unauthorized(conn, :header) do
+    conn
     |> send_resp(401, "Git credentials required")
     |> halt()
   end
