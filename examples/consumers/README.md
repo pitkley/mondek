@@ -89,3 +89,13 @@ After leaving that form, filter Configuration by adoption stage to find desired 
 ## Source-defined discovery review
 
 `mondek_examples.discovery_demo:app` scans a bounded local directory and emits typed candidates with Monitor capacity and Ignore proposals. It demonstrates the generic review API, not a filesystem standard library. Candidate identities and choices are data; a copied prompt asks an agent to prepare reviewed source changes without deploying. The complete isolated runner/controller/browser journey is `devenv shell -- python3 tests/browser/run.py --suite discovery`. It creates real directories in a disposable named volume and mounts them read-only into the runner. See [discovery review](../../docs/DISCOVERY-REVIEW.md).
+
+## Discovered node assignments
+
+[`mondek_examples.node_catalog:app`](src/mondek_examples/node_catalog.py) uses a complete roster to generate one scheduled check and one fixed `health` output per node. Run `devenv shell -- python3 tests/e2e/node_catalog.py` from the repository root for the installed 24-node trial. It uses the example image and an owned read-only input directory. The controller receives an ordinary inventory and measurements. The trial records independent failures, recovery, exact retained evidence, withdrawal, reappearance, replay and rejected discovery under `.local/acceptance/`.
+
+Adapt the discovery callback to load a complete roster with a bounded size. Choose a stable source key and target for each node, such as `node.node-01` and `node:node-01`. Build bindings without I/O so workers can recreate them from their frozen snapshots. In this recipe, `nodes.json` contains a list of up to 32 unique node identifiers. Each `<node>.status` file contains `up` or `down` followed by a newline. The roster contains membership only. Workers read their own node evidence live, so health changes leave the snapshot identity intact. Use atomic replacement for complete inputs.
+
+A failed or oversized scan retains the prior catalog. A successful scan that omits a node keeps a missing binding through a short grace period. Continued absence retires the assignment and preserves its historical result. If the node later returns it receives a new active assignment and needs fresh evidence. Unchanged peers retain their assignment and result IDs through catalog revisions. The 32-node example limit protects this input contract and leaves room for the manager within the runner's check limit.
+
+This pattern fits resources you can collect separately. One shared collection that must emit an execution-time set of results still needs its own membership contract. Size the per-node schedule and runner concurrency for the collection cost and your source's request budget.
