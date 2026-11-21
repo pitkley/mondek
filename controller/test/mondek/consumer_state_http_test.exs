@@ -18,5 +18,6 @@ defmodule Mondek.ConsumerStateHTTPTest do
 
     assert code == 0, output
     assert output =~ "Two real runners shared state"
+    assert output =~ "Partitioned baseline passed"
   end
 end
