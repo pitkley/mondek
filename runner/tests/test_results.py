@@ -214,7 +214,7 @@ class ResultExecutionTests(unittest.IsolatedAsyncioTestCase):
             patch("mondek_runner.worker.emit", side_effect=messages.append),
         ):
             await run_worker(assignment)
-        self.assertEqual(messages[0]["result"]["details"], "Original")
+        self.assertEqual(messages[1]["detail"], {"key": "capacity", "text": "Original"})
         self.assertEqual(messages[0]["result"]["source_at"], SOURCE_AT)
         self.assertFalse(messages[-1]["complete"])
         self.assertIn("16384-byte", messages[-1]["diagnostic"])
@@ -270,11 +270,12 @@ app = App(source_id="details-test", environment=Environment("test"),
         result = outcomes["normal"]["results"][0]
         self.assertEqual(result["details"], "[WARN] Old backup\nStarted: original")
         self.assertEqual(result["source_at"], SOURCE_AT)
-        self.assertFalse(outcomes["large"]["complete"])
-        self.assertIn("64 KiB", outcomes["large"]["diagnostic"])
-        self.assertGreater(len(outcomes["large"]["results"]), 0)
+        self.assertTrue(outcomes["large"]["complete"], outcomes["large"])
+        self.assertIsNone(outcomes["large"]["diagnostic"])
+        self.assertEqual(len(outcomes["large"]["results"]), 5)
         for result in outcomes["large"]["results"]:
-            self.assertEqual(result["details"], "x" * MAX_DETAILS_BYTES)
+            self.assertTrue(result["details"].endswith("[Detail evidence omitted]"))
+            self.assertLessEqual(len(result["details"].encode()), MAX_DETAILS_BYTES)
             self.assertEqual(result["source_at"], SOURCE_AT)
 
 

@@ -207,7 +207,7 @@ app.add(noisy)
         result = json.loads(process.stdout)
         checks = {item["key"]: item for item in result["checks"]}
         self.assertIn("timed out", checks["timeout"]["diagnostic"])
-        self.assertIn("64 KiB", checks["output-limit"]["diagnostic"])
+        self.assertIn("4 KiB stderr", checks["output-limit"]["diagnostic"])
         self.assertEqual(checks["a-group"]["collection"], "complete")
         self.assertEqual(checks["z-critical"]["collection"], "complete")
 
