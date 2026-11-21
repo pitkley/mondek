@@ -42,7 +42,7 @@ defmodule Mondek.Maintenance do
   end
 
   @doc false
-  def series_list_query(params, at), do: filtered(params, at)
+  def series_list_query(params, at, selectors), do: filtered(params, at, selectors)
 
   @doc false
   def public_window(window, at), do: public(window, at)
@@ -663,7 +663,7 @@ defmodule Mondek.Maintenance do
       limit: 100
   end
 
-  defp filtered(params, at) do
+  defp filtered(params, at, selectors) do
     query =
       case params["status"] do
         "all" ->
@@ -695,6 +695,11 @@ defmodule Mondek.Maintenance do
         do: from(w in query, where: w.scope == ^params["scope"]),
         else: query
 
+    if is_nil(selectors), do: query, else: matching_windows(query, selectors)
+  end
+
+  @doc false
+  def series_list_selectors(params) do
     cond do
       is_binary(params["stream_id"]) and uuid(params["stream_id"]) ->
         selected =
@@ -709,7 +714,7 @@ defmodule Mondek.Maintenance do
           )
           |> Enum.map(&row/1)
 
-        matching_windows(query, selected, Enum.map(selected, & &1["assignment_id"]))
+        row_selectors(selected, Enum.map(selected, & &1["assignment_id"]))
 
       is_binary(params["assignment_id"]) ->
         selected =
@@ -724,19 +729,23 @@ defmodule Mondek.Maintenance do
           )
           |> Enum.map(&row/1)
 
-        matching_windows(query, selected, [params["assignment_id"]])
+        row_selectors(selected, [params["assignment_id"]])
 
       true ->
-        query
+        nil
     end
   end
 
-  defp matching_windows(query, rows, assignment_ids) do
-    selected =
-      (Enum.map(assignment_ids, &check_selector/1) ++
-         Enum.flat_map(rows, &result_selectors/1))
-      |> Enum.uniq()
+  defp row_selectors(rows, assignment_ids),
+    do:
+      Enum.uniq(
+        Enum.map(assignment_ids, &check_selector/1) ++ Enum.flat_map(rows, &result_selectors/1)
+      )
 
+  defp matching_windows(query, rows, assignment_ids),
+    do: matching_windows(query, row_selectors(rows, assignment_ids))
+
+  defp matching_windows(query, selected) do
     from w in query,
       where:
         (w.scope in ["check", "target"] and

@@ -219,7 +219,7 @@ defmodule MondekWeb.API.Contract do
         ~w(page status kind search assignment_id source_id environment target_kind target_key)
 
       :maintenance_series ->
-        ~w(occurrence_page result_page page)
+        ~w(occurrence_page result_page history_page page)
 
       :coverage ->
         ~w(page search source_id runner_id environment target_kind target_key status lifecycle)

@@ -6,6 +6,7 @@ defmodule Mondek.MaintenanceRecurrence do
 
   @fields ~w(frequency interval end_mode count until_date)
   @limit 52
+  @initial_open_count 8
 
   @doc "Resolve every proposed window without consulting the clock or changing persistence."
   def expand(proposal, recurrence) when is_map(proposal) and is_map(recurrence) do
@@ -28,6 +29,72 @@ defmodule Mondek.MaintenanceRecurrence do
   end
 
   def expand(_, _), do: invalid("Supply the first window and a bounded weekly repeat rule.")
+
+  @doc "Find the still-relevant part of an open rule and resolve a bounded batch."
+  def extend(proposal, next_index, previous_end, at) do
+    rule = proposal["recurrence"]
+    {:ok, first_start} = naive(proposal["starts_local"])
+    {:ok, first_end} = naive(proposal["ends_local"])
+
+    case at |> MaintenanceTime.local(proposal["timezone"]) |> naive() do
+      {:ok, local_now} ->
+        days = Date.diff(NaiveDateTime.to_date(local_now), NaiveDateTime.to_date(first_start))
+        latest_slot = max(1, div(days, 7 * rule["interval"]) + 1)
+        first = max(next_index, latest_slot - 1)
+        last = latest_slot + @initial_open_count
+        generate(first, last, proposal, rule, first_start, first_end, previous_end, at, [])
+
+      _ ->
+        {[], next_index, previous_end, "Window #{next_index}: the saved timezone is unavailable."}
+    end
+  end
+
+  defp generate(index, last, _, _, _, _, previous_end, _, rows) when index > last,
+    do: {Enum.reverse(rows), index, previous_end, nil}
+
+  defp generate(index, last, proposal, rule, first_start, first_end, previous_end, at, rows) do
+    if index <= last - @initial_open_count and expired?(first_end, rule, index, proposal, at) do
+      generate(index + 1, last, proposal, rule, first_start, first_end, previous_end, at, rows)
+    else
+      generate_window(index, last, proposal, rule, first_start, first_end, previous_end, at, rows)
+    end
+  end
+
+  defp generate_window(
+         index,
+         last,
+         proposal,
+         rule,
+         first_start,
+         first_end,
+         previous_end,
+         at,
+         rows
+       ) do
+    case resolve_window(proposal, rule, first_start, first_end, index, previous_end) do
+      {:ok, row, ends_at} ->
+        rows = if DateTime.after?(ends_at, at), do: [row | rows], else: rows
+        generate(index + 1, last, proposal, rule, first_start, first_end, ends_at, at, rows)
+
+      {:error, {:invalid, message}} ->
+        {Enum.reverse(rows), index, previous_end, message}
+    end
+  end
+
+  defp expired?(first_end, rule, index, proposal, at) do
+    local_end = shift(first_end, (index - 1) * 7 * rule["interval"])
+    fold = proposal["end_fold"]
+
+    case MaintenanceTime.inspect_local(local_end, proposal["timezone"]) do
+      {:ok, instant} -> not DateTime.after?(instant, at)
+      {:ambiguous, first, _} when fold == "earlier" -> not DateTime.after?(first, at)
+      {:ambiguous, _, last} -> not DateTime.after?(last, at)
+      {:gap, _, boundary} -> not DateTime.after?(boundary, at)
+      _ -> false
+    end
+  rescue
+    ArgumentError -> false
+  end
 
   defp normalize(rule) do
     rule =
@@ -56,9 +123,12 @@ defmodule Mondek.MaintenanceRecurrence do
           error -> error
         end
 
+      rule["end_mode"] == "open" and is_nil(rule["count"]) and is_nil(rule["until_date"]) ->
+        {:ok, rule}
+
       true ->
         invalid(
-          "End the schedule after 2–#{@limit} windows or on an inclusive last-start date; choose only one ending."
+          "End the schedule after 2–#{@limit} windows, on an inclusive last-start date, or when canceled."
         )
     end
   end
@@ -91,6 +161,7 @@ defmodule Mondek.MaintenanceRecurrence do
   defp end_date(_), do: invalid("Enter the inclusive last-start date as YYYY-MM-DD.")
 
   defp count(%{"end_mode" => "count", "count" => count}, _), do: {:ok, count}
+  defp count(%{"end_mode" => "open"}, _), do: {:ok, @initial_open_count}
 
   defp count(rule, first_date) do
     {:ok, until_date} = end_date(rule["until_date"])
@@ -106,36 +177,43 @@ defmodule Mondek.MaintenanceRecurrence do
   end
 
   defp windows(proposal, rule, count, first_start, first_end) do
-    Enum.reduce_while(0..(count - 1), {:ok, []}, fn index, {:ok, previous} ->
-      # Naive calendar arithmetic preserves both chosen local endpoint clocks,
-      # including an overnight end date. Each is resolved through its own zone rule.
-      days = index * 7 * rule["interval"]
-      starts = shift(first_start, days)
-      ends = shift(first_end, days)
-
-      with {:ok, start_at} <- resolve(starts, proposal, "start_fold", index + 1, "start"),
-           {:ok, end_at} <- resolve(ends, proposal, "end_fold", index + 1, "end"),
-           :ok <- positive_duration(start_at, end_at, index + 1, starts),
-           :ok <- independent_window(start_at, previous, index + 1, starts) do
-        row = %{
-          "index" => index + 1,
-          "starts_local" => starts,
-          "ends_local" => ends,
-          "starts_at" => DateTime.to_iso8601(start_at),
-          "ends_at" => DateTime.to_iso8601(end_at),
-          "elapsed_seconds" => DateTime.diff(end_at, start_at, :microsecond) / 1_000_000,
-          "touches_previous" => touches?(start_at, previous)
-        }
-
-        {:cont, {:ok, [row | previous]}}
-      else
+    Enum.reduce_while(1..count, {:ok, [], nil}, fn index, {:ok, previous, previous_end} ->
+      case resolve_window(proposal, rule, first_start, first_end, index, previous_end) do
+        {:ok, row, end_at} -> {:cont, {:ok, [row | previous], end_at}}
         error -> {:halt, error}
       end
     end)
     |> case do
-      {:ok, rows} -> {:ok, Enum.reverse(rows)}
+      {:ok, rows, _} -> {:ok, Enum.reverse(rows)}
       error -> error
     end
+  end
+
+  defp resolve_window(proposal, rule, first_start, first_end, index, previous_end) do
+    # Calendar weeks preserve both local endpoints, including an overnight end.
+    days = (index - 1) * 7 * rule["interval"]
+    starts = shift(first_start, days)
+    ends = shift(first_end, days)
+
+    with {:ok, start_at} <- resolve(starts, proposal, "start_fold", index, "start"),
+         {:ok, end_at} <- resolve(ends, proposal, "end_fold", index, "end"),
+         :ok <- positive_duration(start_at, end_at, index, starts),
+         :ok <- independent_window(start_at, previous_end, index, starts) do
+      {:ok,
+       %{
+         "index" => index,
+         "starts_local" => starts,
+         "ends_local" => ends,
+         "starts_at" => DateTime.to_iso8601(start_at),
+         "ends_at" => DateTime.to_iso8601(end_at),
+         "elapsed_seconds" => DateTime.diff(end_at, start_at, :microsecond) / 1_000_000,
+         "touches_previous" =>
+           not is_nil(previous_end) and DateTime.compare(start_at, previous_end) == :eq
+       }, end_at}
+    end
+  rescue
+    ArgumentError ->
+      invalid("Window #{index}: repeated dates and UTC instants must fit years 0001–9999.")
   end
 
   defp shift(value, days) do
@@ -164,24 +242,15 @@ defmodule Mondek.MaintenanceRecurrence do
       else: invalid("Window #{index} (#{local}) must end after its resolved start.")
   end
 
-  defp independent_window(_, [], _, _), do: :ok
+  defp independent_window(_, nil, _, _), do: :ok
 
-  defp independent_window(start_at, [previous | _], index, local) do
-    {:ok, prior_end, _} = DateTime.from_iso8601(previous["ends_at"])
-
+  defp independent_window(start_at, prior_end, index, local) do
     if DateTime.compare(start_at, prior_end) == :lt,
       do:
         invalid(
           "Window #{index} (#{local}) overlaps window #{index - 1}. Shorten each window or increase the repeat interval."
         ),
       else: :ok
-  end
-
-  defp touches?(_, []), do: false
-
-  defp touches?(start_at, [previous | _]) do
-    {:ok, prior_end, _} = DateTime.from_iso8601(previous["ends_at"])
-    DateTime.compare(start_at, prior_end) == :eq
   end
 
   defp invalid(message), do: {:error, {:invalid, message}}

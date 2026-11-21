@@ -113,9 +113,11 @@ defmodule MondekWeb.MaintenancePresentation do
     interval = rule["interval"] || 1
     cadence = if interval == 1, do: "Every week", else: "Every #{interval} weeks"
 
-    if rule["end_mode"] == "date",
-      do: cadence <> " through " <> (rule["until_date"] || "—"),
-      else: cadence <> " for " <> count_label(rule["count"] || 0, "window")
+    case rule["end_mode"] do
+      "date" -> cadence <> " through " <> (rule["until_date"] || "—")
+      "open" -> cadence <> " until canceled"
+      _ -> cadence <> " for " <> count_label(rule["count"] || 0, "window")
+    end
   end
 
   def series_event_label("created"), do: "Series created"
@@ -126,7 +128,8 @@ defmodule MondekWeb.MaintenancePresentation do
   def series_event_label("occurrence_cancelled"), do: "Individual window cancelled"
   def series_event_label(_), do: "Series updated"
 
-  def series_remaining?(series), do: (series["remaining_count"] || 0) > 0
+  def series_remaining?(series),
+    do: (series["remaining_count"] || 0) > 0 or series["generation_enabled"] == true
 
   def series_membership_copy("check"),
     do:

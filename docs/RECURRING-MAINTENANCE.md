@@ -1,12 +1,12 @@
 # Repeating maintenance
 
-A repeating schedule creates a finite **series** of ordinary maintenance **windows**. Each window holds failure notifications for its reviewed interval. Checks keep running, measured health remains visible, and recovery notifications keep their existing eligibility. The [maintenance scope model](MAINTENANCE.md) applies unchanged to selected checks and stable targets.
+A repeating schedule creates a **series** of ordinary maintenance **windows**. Each window holds failure notifications for its saved interval. Checks keep running, measured health remains visible, and recovery notifications keep their existing eligibility. The [maintenance scope model](MAINTENANCE.md) applies to scheduled checks, stable checks and stable targets.
 
 ## Plan the first window and the ending
 
 Choose the first window's local start and end dates, an explicit IANA timezone, and a repeat interval from one through twelve weeks. Both local endpoints repeat by calendar weeks. For example, Sunday 23:00 to Monday 03:00 stays an overnight Sunday-to-Monday window after the clocks change.
 
-End the schedule either **after a number of windows** or **through a date**. The number includes the first window. A through date includes windows whose local start falls on that date; an overnight end may fall on the next date. Every series contains between two and fifty-two windows. A date range producing more windows is rejected, never silently shortened.
+End the schedule **after a number of windows**, **through a date**, or **when canceled**. The number includes the first window. A through date includes windows whose local start falls on that date. An overnight end may fall on the next date. Finite series contain between two and fifty-two windows. A date range producing more windows is rejected.
 
 The review shows the number of windows, final date and each exact interval. Current matching results are shown separately: they explain today's membership, not a prediction that the same observers will still exist on every future date. Check scopes stay with their scheduled instances; stable target scopes include later matching results in the same source and monitored environment.
 
@@ -18,7 +18,13 @@ If any endpoint occurs twice, choose the earlier or later occurrence explicitly.
 
 Repeated windows cannot overlap one another. Touching intervals are permitted, but there is no notification gap between them. Independent windows and other series can still overlap; ending one hold leaves all others in effect.
 
-Saving authorizes the complete reviewed set of UTC intervals in one transaction. Those instants remain fixed after a restart or timezone database update. There is no background process that must create the next occurrence just before it starts. If the first start passes before saving, review a future schedule again.
+Saving a finite series authorizes the complete reviewed set of UTC intervals in one transaction. Those instants remain fixed after a restart or timezone database update. If the first start passes before saving, review a future schedule again.
+
+## Run a schedule until canceled
+
+The review shows the first eight exact windows and the rule that authorizes future dates. Mondek keeps a bounded reserve of upcoming windows. Saved UTC intervals stay fixed. Each later date uses the saved local clocks and fold choices with the timezone database available when it is saved. If an upcoming date cannot be resolved or would overlap the previous rule interval, generation stops at that date. The series detail shows the affected date and reason. Cancel the rule and review a replacement to resume scheduling.
+
+After prolonged downtime, Mondek reconstructs the window currently in effect and the upcoming reserve before notification workers start. Fully elapsed dates outside the catch-up range do not become maintenance windows.
 
 ## Inspect and change individual windows
 
@@ -28,7 +34,7 @@ Open an individual window to adjust or cancel only that date. The ordinary edit 
 
 **Cancel upcoming windows** reviews the exact future windows it will cancel. Active and completed windows remain unchanged. To end active maintenance too, open that active window and use its explicit end action. If a reviewed future window starts or any relevant window changes before the cancellation is saved, the review is invalidated so the operator can inspect the current state.
 
-For a different future pattern, create a new reviewed series and explicitly cancel the old upcoming windows. The original series and its exceptions remain part of the audit trail. This implementation does not silently rewrite past windows, automatically extend a series beyond its chosen end, or support unrestricted calendar expressions.
+For a different future pattern, create a new reviewed series and explicitly cancel the old one. For an open-ended rule, **Cancel future scheduling** stops generation and cancels upcoming windows in one step. The action is available even when there are no upcoming windows. The original series and its exceptions remain part of the audit trail.
 
 ## Notification and history boundaries
 
@@ -38,7 +44,7 @@ Removing or moving monitoring does not rewrite the selected identities or claim 
 
 ## Reviewed HTTP flow
 
-Use the existing maintenance seed and exact scope fields, then add a `recurrence` object to a new-window proposal. Set `start_mode` to `scheduled`. The recurrence fields are `frequency` (`weekly`), integer `interval` (1–12), `end_mode` (`count` or `date`), `count` (2–52 for count mode) and `until_date` (`YYYY-MM-DD` for date mode). The unused ending field is null. Submit the canonical proposal returned by preview unchanged at apply.
+Use the existing maintenance seed and exact scope fields, then add a `recurrence` object to a new-window proposal. Set `start_mode` to `scheduled`. The recurrence fields are `frequency` (`weekly`), integer `interval` (1–12), `end_mode` (`count`, `date`, or `open`), `count` (2–52 for count mode) and `until_date` (`YYYY-MM-DD` for date mode). Unused ending fields are null. Submit the canonical proposal returned by preview unchanged at apply.
 
 | Request | Purpose |
 | --- | --- |
@@ -56,7 +62,7 @@ Dates and current results are paged independently in groups of twenty-five. Crea
 
 The maintenance inventory's `windows` collection can contain `kind: "series"` summary entries alongside ordinary windows. A series entry links to the series inspection route; only its child windows have actual notification intervals. Result and incident inspection keep the exact active window identities. Detail summaries show active children, or the next upcoming child per series, with a link to the complete dates.
 
-Completed series retain their full window and event history until every child is terminal and at least thirty days old. Matching retained incidents protect the series beyond that period. Cleanup removes an eligible series together with its children; it does not prune early dates from a still-running series.
+Finite series retain their window and event history until every child is terminal and at least thirty days old. While an open-ended rule remains in effect, ordinary expired windows can be removed after thirty days. Individually edited or canceled dates and dates protected by matching retained incident evidence remain inspectable. After the rule is canceled, the remaining series history follows the normal completed-series retention policy. Use `history_page` to page series decisions independently of dates and current results.
 
 ## Local commands
 

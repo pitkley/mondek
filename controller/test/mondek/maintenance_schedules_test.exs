@@ -136,6 +136,122 @@ defmodule Mondek.MaintenanceSchedulesTest do
     assert Repo.aggregate(MaintenanceSeriesEvent, :count) == 1
   end
 
+  test "open generation catches up beyond 52 slots and restores a window active at restart" do
+    saved = open_proposal() |> preview() |> save()
+    assert saved["generation_enabled"]
+    assert saved["occurrence_total"] == 8
+    first = hd(saved["occurrences"])
+    restart_at = first["starts_at"] |> dt() |> DateTime.add(60 * 7 * 86_400 + 120)
+
+    assert MaintenanceSchedules.refill_due(restart_at) == 1
+    assert MaintenanceSchedules.refill_due(restart_at) == 0
+    assert {:ok, current} = MaintenanceSchedules.get(saved["id"], %{}, restart_at)
+    assert current["active_count"] == 1
+    active = Enum.find(current["occurrences"], &(&1["status"] == "active"))
+    assert active["index"] == 61
+    assert active["starts_at"] == active["original_starts_at"]
+    assert active["ends_at"] == active["original_ends_at"]
+    assert current["occurrence_total"] == 17
+    assert current["upcoming_count"] == 8
+    assert hd(current["occurrences"])["id"] == first["id"]
+  end
+
+  test "open generation retains its valid prefix at a daylight saving gap and can stop without upcoming dates" do
+    p =
+      Map.merge(open_proposal(), %{
+        "timezone" => "Europe/Berlin",
+        "starts_local" => "2010-01-03T02:30:00",
+        "ends_local" => "2010-01-03T03:30:00"
+      })
+
+    saved = p |> preview() |> save()
+    assert MaintenanceSchedules.refill_due(~U[2010-03-01 00:00:00Z]) == 1
+    after_due = ~U[2010-04-01 00:00:00.000000Z]
+    assert {:ok, blocked} = MaintenanceSchedules.get(saved["id"], %{}, after_due)
+    assert blocked["generation_issue"] =~ "2010-03-28T02:30:00"
+    assert blocked["upcoming_count"] == 0
+    assert blocked["occurrence_total"] == 11
+    assert Enum.any?(Maintenance.list(%{}, after_due)["windows"], &(&1["id"] == saved["id"]))
+
+    later = DateTime.add(after_due, 45, :day)
+    assert {:ok, _} = Sweeper.sweep(later)
+    assert {:ok, empty} = MaintenanceSchedules.get(saved["id"], %{}, later)
+    assert empty["occurrence_total"] == 0
+    filters = %{"assignment_id" => p["assignment_id"]}
+    assert Enum.any?(Maintenance.list(filters, later)["windows"], &(&1["id"] == saved["id"]))
+
+    assert {:ok, cancel} =
+             MaintenanceSchedules.cancel_preview(saved["id"], 1, "Retire the rule", 1, later)
+
+    assert cancel["stops_generation"]
+    assert cancel["upcoming_count"] == 0
+
+    assert {:ok, stopped} =
+             MaintenanceSchedules.cancel(
+               saved["id"],
+               cancel["review_token"],
+               cancel["reason"],
+               later
+             )
+
+    refute stopped["generation_enabled"]
+    assert stopped["occurrence_total"] == 0
+    assert MaintenanceSchedules.refill_due(DateTime.add(later, 90, :day)) == 0
+  end
+
+  test "restart bypasses an unmaterialized elapsed civil gap and restores the current window" do
+    p =
+      Map.merge(open_proposal(), %{
+        "timezone" => "Europe/Berlin",
+        "starts_local" => "2010-01-03T02:30:00",
+        "ends_local" => "2010-01-03T03:30:00"
+      })
+
+    saved = p |> preview() |> save()
+    restart = ~U[2010-04-04 00:45:00.000000Z]
+    assert MaintenanceSchedules.refill_due(restart) == 1
+    assert {:ok, current} = MaintenanceSchedules.get(saved["id"], %{}, restart)
+    assert current["generation_issue"] == nil
+    assert current["active_count"] == 1
+    active = Enum.find(current["occurrences"], &(&1["status"] == "active"))
+    assert active["index"] == 14
+  end
+
+  test "cancel review rechecks generated dates and leaves a started window in effect" do
+    saved = open_proposal() |> preview() |> save()
+    first = hd(saved["occurrences"])
+    first_start = dt(first["starts_at"])
+
+    assert {:ok, old} =
+             MaintenanceSchedules.cancel_preview(saved["id"], 1, "Stop weekly work", 1, at())
+
+    assert MaintenanceSchedules.refill_due(first_start) == 1
+
+    assert {:error, :review_changed} =
+             MaintenanceSchedules.cancel(
+               saved["id"],
+               old["review_token"],
+               old["reason"],
+               first_start
+             )
+
+    assert {:ok, renewed} =
+             MaintenanceSchedules.cancel_preview(saved["id"], 1, old["reason"], 1, first_start)
+
+    assert {:ok, stopped} =
+             MaintenanceSchedules.cancel(
+               saved["id"],
+               renewed["review_token"],
+               renewed["reason"],
+               first_start
+             )
+
+    assert stopped["active_count"] == 1
+    assert stopped["upcoming_count"] == 0
+    refute stopped["generation_enabled"]
+    assert Repo.get!(MaintenanceWindow, first["id"]).cancelled_at == nil
+  end
+
   test "all dates share one scope review and late overlap drift invalidates the whole save" do
     review = preview(proposal())
     third = List.last(review["occurrences"])
@@ -601,6 +717,11 @@ defmodule Mondek.MaintenanceSchedulesTest do
         "until_date" => nil
       }
     })
+  end
+
+  defp open_proposal do
+    p = proposal()
+    update_in(p["recurrence"], &Map.merge(&1, %{"end_mode" => "open", "count" => nil}))
   end
 
   defp preview(p) do

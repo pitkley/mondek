@@ -215,6 +215,13 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
         {repeat_label(@series["recurrence"] || %{})} · {@series["timezone"] ||
           @series["proposal"]["timezone"]}
       </p>
+      <p
+        :if={@series["generation_enabled"] && @series["generation_issue"]}
+        id="maintenance-series-generation-issue"
+      >
+        Future scheduling is blocked. {@series["generation_issue"]}
+      </p>
+      <p :if={@series["generation_stopped_at"]}>Future scheduling was canceled.</p>
       <p :if={(@series["active_count"] || 0) > 0}>
         {count_label(@series["active_count"], "window")} active now.
       </p>
@@ -228,9 +235,13 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
         )}.
       </p>
       <p>
-        {count_label(@series["upcoming_count"] || 0, "upcoming window")}. Final scheduled end: {utc_time(
-          @series["final_ends_at"]
-        )}.
+        {count_label(@series["upcoming_count"] || 0, "upcoming window")}.
+        <span :if={@series["final_ends_at"]}>
+          {if @series["generation_enabled"],
+            do: "Last saved window ends",
+            else: "Final scheduled end:"}
+          {utc_time(@series["final_ends_at"])}.
+        </span>
       </p>
     </div>
     """
@@ -274,11 +285,15 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
             class="button"
           >Copy into a new schedule</.link>
           <button
-            :if={(@series["upcoming_count"] || 0) > 0 && !@cancel_open}
+            :if={
+              ((@series["upcoming_count"] || 0) > 0 || @series["generation_enabled"]) && !@cancel_open
+            }
             id="maintenance-series-cancel"
             class="button danger"
             phx-click="series_cancel_open"
-          >Cancel upcoming windows</button>
+          >{if @series["generation_enabled"],
+            do: "Cancel future scheduling",
+            else: "Cancel upcoming windows"}</button>
         </div>
         <p class="footnote" id="maintenance-series-copy-help">
           Copying leaves this series unchanged. Choose a new first date and review the new series. Cancel any remaining upcoming windows separately if needed.
@@ -291,11 +306,18 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
       style={if !@cancel_open, do: "display: none"}
     >
       <div class="panel-heading">
-        <.dynamic_tag tag_name={"h#{@section_level}"}>Cancel upcoming windows</.dynamic_tag>
+        <.dynamic_tag tag_name={"h#{@section_level}"}>
+          {if @series["generation_enabled"],
+            do: "Cancel future scheduling",
+            else: "Cancel upcoming windows"}
+        </.dynamic_tag>
       </div>
       <div class="panel-body">
         <p>
           Only windows that have not started are cancelled. Active windows keep their saved end time; open an individual window to end it early. Other maintenance and acknowledgements remain in effect.
+        </p>
+        <p :if={@series["generation_enabled"]}>
+          Cancellation also stops the series from scheduling more windows.
         </p>
         <form
           id="maintenance-series-cancel-form"
@@ -514,6 +536,35 @@ defmodule MondekWeb.PreviewMaintenanceDetails do
             event["inserted_at"]
           )} · revision {event["revision"]}</small>
         </article>
+        <nav
+          :if={(@series["history_pages"] || 1) > 1}
+          class="pagination"
+          aria-label="Series history pages"
+        >
+          <.link
+            :if={@series["history_page"] > 1}
+            patch={
+              series_page_path(
+                @series_path || series_path(@series["id"]) <> "?" <> URI.encode_query(@params),
+                "history_page",
+                @series["history_page"] - 1
+              )
+            }
+            class="button small"
+          >Previous history</.link>
+          <span>Page {@series["history_page"]} of {@series["history_pages"]}</span>
+          <.link
+            :if={@series["history_page"] < @series["history_pages"]}
+            patch={
+              series_page_path(
+                @series_path || series_path(@series["id"]) <> "?" <> URI.encode_query(@params),
+                "history_page",
+                @series["history_page"] + 1
+              )
+            }
+            class="button small"
+          >Next history</.link>
+        </nav>
       </div>
     </section>
     """

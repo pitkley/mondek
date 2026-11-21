@@ -379,6 +379,7 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
           After a number of windows
         </option>
         <option value="date" selected={@rule["end_mode"] == "date"}>Through a last-start date</option>
+        <option value="open" selected={@rule["end_mode"] == "open"}>Until canceled</option>
       </select>
     </div>
     <div :if={@rule["end_mode"] == "count"} class="field">
@@ -405,7 +406,7 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
       />
     </div>
     <p class="field full footnote">
-      The first window sets the weekday and local start/end clocks, including overnight dates. Every series has 2–52 windows and a fixed end; it does not renew automatically.
+      The first window sets the weekday and local start and end times, including overnight dates. An open-ended rule keeps scheduling future windows until you cancel it.
     </p>
     <fieldset class="field full maintenance-series-folds">
       <legend>When a local time occurs twice</legend>
@@ -435,14 +436,26 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
   defp series_preview(assigns) do
     ~H"""
     <section id="maintenance-series-preview" class="space-top">
-      <.dynamic_tag tag_name={"h#{@section_level + 1}"}>Review every scheduled date</.dynamic_tag>
+      <.dynamic_tag tag_name={"h#{@section_level + 1}"}>
+        {if @proposal["recurrence"]["end_mode"] == "open",
+          do: "Review the initial dates",
+          else: "Review every scheduled date"}
+      </.dynamic_tag>
       <p id="maintenance-series-preview-summary">
         {count_label(@preview["occurrence_total"] || 0, "window")}, {repeat_label(
           @proposal["recurrence"]
         )}. Timezone: {@proposal["timezone"]}. These UTC intervals are saved together and remain fixed.
       </p>
       <p>
-        First start: {local_time(@preview["first_starts_at"], @proposal["timezone"])}. Final end: {local_time(
+        First start: {local_time(@preview["first_starts_at"], @proposal["timezone"])}. {if @proposal[
+                                                                                             "recurrence"
+                                                                                           ][
+                                                                                             "end_mode"
+                                                                                           ] == "open",
+                                                                                           do:
+                                                                                             "Last date in this review ends",
+                                                                                           else:
+                                                                                             "Final end"} {local_time(
           @preview["final_ends_at"],
           @proposal["timezone"]
         )}.
@@ -452,7 +465,11 @@ defmodule MondekWeb.PreviewMaintenanceEditor do
         class="space-top"
         phx-mounted={JS.ignore_attributes("open")}
       >
-        <summary>Inspect every scheduled date ({@preview["occurrence_total"]})</summary>
+        <summary>
+          {if @proposal["recurrence"]["end_mode"] == "open",
+            do: "Inspect initial dates",
+            else: "Inspect every scheduled date"} ({@preview["occurrence_total"]})
+        </summary>
         <PreviewMaintenanceDetails.occurrence_rows
           rows={@preview["occurrences"] || []}
           timezone={@proposal["timezone"]}

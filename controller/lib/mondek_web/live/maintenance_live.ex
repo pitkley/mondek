@@ -125,7 +125,7 @@ defmodule MondekWeb.MaintenanceLive do
     if socket.assigns.live_action == :series do
       socket = socket |> assign(filters: window_filters(params)) |> refresh_list()
 
-      filters = Map.take(params, ~w(occurrence_page result_page))
+      filters = Map.take(params, ~w(occurrence_page result_page history_page))
 
       case MaintenanceSchedules.get(params["id"], filters) do
         {:ok, series} ->
@@ -135,7 +135,7 @@ defmodule MondekWeb.MaintenanceLive do
            socket
            |> assign(
              series: series,
-             series_params: Map.take(series, ~w(occurrence_page result_page)),
+             series_params: Map.take(series, ~w(occurrence_page result_page history_page)),
              window: nil,
              proposal: nil,
              cancel_reason: if(same, do: socket.assigns.cancel_reason, else: ""),
@@ -778,7 +778,11 @@ defmodule MondekWeb.MaintenanceLive do
          series_cancel_preview: nil,
          cancel_open: false,
          notice:
-           "Upcoming windows cancelled. Active windows, other maintenance and acknowledgements are unchanged.",
+           if(preview["stops_generation"],
+             do: "Future scheduling cancelled. Active windows keep their saved end time.",
+             else:
+               "Upcoming windows cancelled. Active windows, other maintenance and acknowledgements are unchanged."
+           ),
          error: nil
        )}
     else
@@ -1903,7 +1907,7 @@ defmodule MondekWeb.MaintenanceLive do
         pages =
           if kind == :series do
             params
-            |> Map.take(~w(occurrence_page result_page))
+            |> Map.take(~w(occurrence_page result_page history_page))
             |> Map.filter(fn {_, value} -> Regex.match?(~r"\A[1-9][0-9]{0,6}\z", value) end)
           else
             %{}
