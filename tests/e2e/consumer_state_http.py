@@ -18,6 +18,8 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from consumer_state_baseline import verify_partitioned_baseline
+
 from mondek_runner import StateWriteIndeterminate
 from mondek_runner.consumer_state import _StateClient
 
@@ -75,7 +77,7 @@ def wait_for(predicate, description):
 
 def main():
     origin = sys.argv[1]
-    mode = {"state_fail": False, "drop_next": False}
+    mode = {"state_fail": False, "drop_next": None}
 
     class Proxy(BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -97,9 +99,9 @@ def main():
             if (
                 self.path == "/api/v1/runner/state"
                 and mode["drop_next"]
-                and json.loads(body).get("key") == "lost-reply"
+                and json.loads(body).get("key") == mode["drop_next"]
             ):
-                mode["drop_next"] = False
+                mode["drop_next"] = None
                 self.close_connection = True
                 self.connection.shutdown(socket.SHUT_RDWR)
                 return
@@ -163,26 +165,36 @@ def main():
             assert len(rows) == 3, rows
             assert len({r["scope"] for r in rows if r["scope"] != "source"}) == 2
 
-            # The identity is read from this task's journal without opening another session.
-            with sqlite3.connect(
-                f"file:{root / 'reader/runner.sqlite3'}?mode=ro", uri=True
-            ) as db:
-                meta = dict(db.execute("SELECT key,value FROM metadata"))
-                assignments = [
-                    json.loads(row[0])
-                    for row in db.execute("SELECT payload FROM assignments")
-                ]
-            assignment = next(a for a in assignments if a["source_key"] == "peers")
-            identity = {
-                "installation_id": meta["installation_id"],
-                "session_id": meta["session_id"],
-                "boot": int(meta["boot"]),
-                "source_id": assignment["source_id"],
-                "assignment_id": assignment["id"],
-                "generation": assignment["generation"],
-            }
-            client = _StateClient(url, identity, deadline=time.monotonic() + 60)
-            mode["drop_next"] = True
+            def client_for(role):
+                # Read the identity without opening another runner session.
+                journal = root / role / "runner.sqlite3"
+                with sqlite3.connect(f"file:{journal}?mode=ro", uri=True) as db:
+                    meta = dict(db.execute("SELECT key,value FROM metadata"))
+                    assignments = [
+                        json.loads(row[0])
+                        for row in db.execute("SELECT payload FROM assignments")
+                    ]
+                assignment = next(a for a in assignments if a["source_key"] == "peers")
+                identity = {
+                    "installation_id": meta["installation_id"],
+                    "session_id": meta["session_id"],
+                    "boot": int(meta["boot"]),
+                    "source_id": assignment["source_id"],
+                    "assignment_id": assignment["id"],
+                    "generation": assignment["generation"],
+                }
+                return _StateClient(url, identity, deadline=time.monotonic() + 60)
+
+            def drop_reply(key):
+                mode["drop_next"] = key
+
+            def usage():
+                return request(
+                    origin + "/api/v1/consumer-state?source_id=state-http-acceptance"
+                )["meta"]["usage"]
+
+            client = client_for("reader")
+            drop_reply("lost-reply")
             try:
                 client.put("lost-reply", {"committed": True})
             except StateWriteIndeterminate:
@@ -192,6 +204,14 @@ def main():
                     "Dropped mutation reply did not surface as indeterminate"
                 )
             assert client.get("lost-reply").value == {"committed": True}
+
+            verify_partitioned_baseline(
+                client_for("writer"),
+                client_for("reader"),
+                client_for("reader"),
+                usage,
+                drop_reply,
+            )
 
             mode["state_fail"] = True
             wait_for(
