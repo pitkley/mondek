@@ -141,6 +141,41 @@ def validate_impacts(impacts: tuple[Impact, ...]) -> None:
 
 
 @dataclass(frozen=True)
+class DeferredOwner:
+    """The exact check and output that can evaluate a deferred result."""
+
+    check_key: str
+    output_key: str
+
+    def __post_init__(self) -> None:
+        for key in (self.check_key, self.output_key):
+            if not isinstance(key, str) or not key.strip() or "\0" in key:
+                raise ValueError("Deferral requires exact owner check and output keys")
+            if len(key.encode()) > 200:
+                raise ValueError("Deferral owner keys may contain at most 200 bytes")
+
+
+def validate_deferral(result: Mapping[str, Any]) -> None:
+    if "deferral" not in result:
+        return
+    owner = result["deferral"]
+    if not isinstance(owner, dict) or set(owner) != {"check_key", "output_key"}:
+        raise ValueError("Invalid deferred output owner")
+    DeferredOwner(**owner)
+    reason = result.get("summary")
+    if (
+        result.get("health") != "UNKNOWN"
+        or result.get("value") is not None
+        or result.get("source_at") is not None
+        or result.get("impacts")
+        or "discovery" in result
+        or not isinstance(reason, str)
+        or not reason.strip()
+    ):
+        raise ValueError("Deferral requires a reason and carries no measurement")
+
+
+@dataclass(frozen=True)
 class Result:
     key: str
     health: Health
@@ -150,6 +185,7 @@ class Result:
     details: str | None = None
     impacts: tuple[Impact, ...] = ()
     discovery: Discovery | None = None
+    deferral: DeferredOwner | None = None
 
     def __post_init__(self) -> None:
         validate_summary(self.summary)
@@ -163,16 +199,32 @@ class Result:
             self.discovery.to_dict()
         if self.health == "OK" and self.impacts:
             raise ValueError("OK results cannot declare failure impacts")
+        if self.deferral is not None:
+            if not isinstance(self.deferral, DeferredOwner):
+                raise ValueError("deferral requires a DeferredOwner")
+            value = {
+                "health": self.health,
+                "summary": self.summary,
+                "value": self.value,
+                "source_at": self.source_at,
+                "impacts": self.impacts,
+                "deferral": asdict(self.deferral),
+            }
+            if self.discovery is not None:
+                value["discovery"] = self.discovery
+            validate_deferral(value)
 
     def to_dict(self) -> dict[str, Any]:
         self.__post_init__()
         result = {
             field.name: getattr(self, field.name)
             for field in fields(self)
-            if field.name != "discovery"
+            if field.name not in ("discovery", "deferral")
         }
         if self.discovery is not None:
             result["discovery"] = self.discovery.to_dict()
+        if self.deferral is not None:
+            result["deferral"] = asdict(self.deferral)
         validate_invocation_scope(result)
         if self.details is None:
             del result["details"]
@@ -496,6 +548,13 @@ def crit(
         details,
         impacts,
         discovery,
+    )
+
+
+def defer(key: str, reason: str, *, owner_check: str, owner_output: str) -> Result:
+    """Report an output deferred to another check in this runner and environment."""
+    return Result(
+        key, "UNKNOWN", reason, deferral=DeferredOwner(owner_check, owner_output)
     )
 
 

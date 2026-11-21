@@ -268,7 +268,27 @@ defmodule MondekWeb.API.WorkflowSchemas do
         ),
       "LossMember" =>
         obj(
-          "key stream_id assignment_id label source_id environment knowledge observation_id source_at coverage_id runner_id since_at ready_at target"
+          "key stream_id assignment_id label source_id source_key environment knowledge observation_id source_at coverage_id runner_id since_at ready_at target"
+        )
+        |> with_properties(%{
+          deferral: S.ref("DeferredOutputClaim"),
+          deferral_active: S.boolean()
+        }),
+      "LossClosingEvidence" =>
+        S.record(
+          %{
+            stream_id: S.uuid(),
+            coverage_id: S.string(),
+            label: S.string(),
+            source_at: S.time(),
+            generation: S.integer(),
+            health: S.enum(~w(OK WARN CRIT UNKNOWN)),
+            knowledge: S.enum(~w(fresh observed)),
+            observation_id: S.uuid(),
+            environment: n(S.string()),
+            target: S.ref("Target")
+          },
+          [:label, :knowledge]
         ),
       "MonitoringLossIncident" =>
         obj(
@@ -321,6 +341,7 @@ defmodule MondekWeb.API.WorkflowSchemas do
           "id scope_key scope_kind runner_id source_id label display_title check_label result_label environment_label runner_label status opened_at closed_at closure_reason member_count member_snapshot opening_observation_id latest_observation_id closing_observation_id acknowledgement_revision attention_revision acknowledgement_mode acknowledged_until acknowledged_at acknowledgement_note members occurrences controls limits acknowledgement_active maintenance_windows gates"
         )
         |> incident_summary_schema()
+        |> with_properties(%{closing_evidence: S.array(S.ref("LossClosingEvidence"))})
 
       :configuration_revision ->
         obj("head installation_id")

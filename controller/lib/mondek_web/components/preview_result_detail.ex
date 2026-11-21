@@ -109,7 +109,21 @@ defmodule MondekWeb.PreviewResultDetail do
             · {age(@result["current"]["source_at"], @now)}
           </td>
         </tr>
-        <tr :if={get_in(@result, ["current", "knowledge"]) == "unavailable"}>
+        <tr :if={get_in(@result, ["current", "deferral"])} data-output-deferral>
+          <th scope="row">Deferred evaluation</th>
+          <td>
+            {@result["current"]["deferral"]["reason"]}
+            <span class="preview-caption">
+              Owner check {@result["current"]["deferral"]["check_key"]} · output {@result[
+                "current"
+              ]["deferral"]["output_key"]}
+            </span>
+          </td>
+        </tr>
+        <tr :if={
+          get_in(@result, ["current", "knowledge"]) == "unavailable" &&
+            !get_in(@result, ["current", "deferral"])
+        }>
           <th scope="row">Latest collection</th>
           <td>
             {MondekWeb.MonitoringUI.collection_diagnostic(@result["current"]) ||

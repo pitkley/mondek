@@ -178,6 +178,10 @@ This is a native authoring interface inspired by the original Mondek framework. 
 
 An installed persistent runner defaults to `.mondek-state` relative to its working directory and controller `http://127.0.0.1:4000`. Use `--state-dir` and `--controller`, or MONDEK_STATE_DIR and MONDEK_CONTROLLER_URL, for a service or remote server; flags take precedence. Keep the same absolute state directory across service updates. Explicit existing settings are unchanged. Docker Compose supplies its own container paths and controller origin. Local validate/run commands do not create persistent runner state. `mondek-runner init DIRECTORY` generates an ordinary registry-dependent project; the optional --sdk-path override is for editable contributor development.
 
+## Deferred output evaluation
+
+Use `defer(key, reason, owner_check=..., owner_output=...)` to report that another check in the same source, runner and environment is evaluating a declared output. The result keeps its previous measurement age. See [monitoring-loss notification eligibility](../docs/MONITORING-LOSS.md#deferred-output-evaluation).
+
 ## Shared consumer state
 
-Inject `CheckContext` and use `ctx.state` for source-wide JSON or `ctx.state.for_check()` for assignment-local data. See [controller-backed state](../docs/CONSUMER-STATE.md) for the complete API, CAS/TTL/bounds, standalone execution, errors and access limitations. The public types are `CheckContext`, `StateStore`, `StateEntry`, `StateError`, `StateConflict` and `StateWriteIndeterminate`.
+Inject `CheckContext` and use `ctx.state` for source-wide JSON or `ctx.state.for_check()` for assignment-local data. See [controller-backed state](../docs/CONSUMER-STATE.md) for the complete API, CAS, expiry, opt-in stale reads, standalone execution, errors and access limitations.

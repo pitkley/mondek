@@ -87,6 +87,8 @@ defmodule MondekWeb.API.RunnerSchemas do
       "InventoryOutput" => output,
       "InventoryCheck" => check,
       "RunnerAssignment" => assignment,
+      "DeferredOutputOwner" =>
+        S.record(%{check_key: text(200), output_key: text(200)}, [:check_key, :output_key]),
       "CanonicalResult" => %Schema{
         type: :object,
         required: [:key, :health, :summary],
@@ -97,6 +99,7 @@ defmodule MondekWeb.API.RunnerSchemas do
           details: S.nullable(text(16384)),
           value: S.nullable(S.number()),
           source_at: S.time(),
+          deferral: S.ref("DeferredOutputOwner"),
           impacts: %Schema{
             type: :array,
             maxItems: 16,

@@ -47,6 +47,12 @@ The existing durable notification queue provides local webhook or SMTP delivery,
 
 This controller cannot notify while it or its database is completely unavailable. An external observer must detect that case and deliver through an independent path. `/health` establishes HTTP availability only; it is not proof that observations, freshness sweeps or notifications are advancing. The operator has explicitly deferred this external observer; it is outside the active work queue. Do not interpret the new in-controller alerts as coverage of controller failure.
 
+## Deferred output evaluation
+
+An SDK check can use `defer("result-key", "Migration in progress", owner_check="migration", owner_output="progress")` from `mondek_runner`. The owner must be another check in the same source, runner and monitored environment. Its exact result needs a fresh admitted measurement for the current authorized generation and session. The result detail shows the requested owner and reason.
+
+The deferred result retains its last confirmed measurement and qualified health. Deferral breaks a pending sustain interval and leaves the original collection-loss deadline in place. Pending loss notifications wait while each due member is covered by a valid deferral or maintenance. The hold ends after at most five minutes from the original gap, or earlier when the owner loses freshness, changes generation, is withdrawn, or loses runner contact. Replays and repeated deferral do not restart the deadline. Declared coverage that was already missing still requires a real measurement to establish restoration.
+
 ## Verification
 
 Run `devenv shell -- python3 tests/browser/run.py --suite monitoring-loss` for real runner collection failures, grouped outages, local delivery failure/retry, acknowledgement, maintenance and measured restoration. Native PostgreSQL regressions cover grace boundaries, report ordering/replay, concurrency, source coverage adoption, retirement, bounded pagination and retention. See [the acceptance guide](../tests/e2e/README.md).

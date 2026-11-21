@@ -42,12 +42,23 @@ defmodule Mondek.Protocol do
         is_list(p["results"]) and length(p["results"]) <= 16 and
         Enum.all?(p["results"], &result?(&1, now, p["evaluated_at"]))
 
-    if valid and Enum.any?(p["results"], &per_output_environment?/1),
-      do:
+    cond do
+      not valid ->
+        invalid()
+
+      Enum.any?(p["results"], &per_output_environment?/1) ->
         {:error,
          {:unsupported_result_environment,
-          "Results cannot override environment or environment_label. The accepted scheduled check defines their monitored environment; use separate environment bindings."}},
-      else: validate(valid)
+          "Results cannot override environment or environment_label. The accepted scheduled check defines their monitored environment; use separate environment bindings."}}
+
+      not Enum.all?(p["results"], &deferral?/1) ->
+        {:error,
+         {:invalid_result_deferral,
+          "Deferral requires an exact owner and carries no measurement."}}
+
+      true ->
+        :ok
+    end
   end
 
   def report(_, _), do: invalid()
@@ -80,6 +91,16 @@ defmodule Mondek.Protocol do
   end
 
   defp result?(_, _, _), do: false
+
+  defp deferral?(%{"deferral" => %{"check_key" => check, "output_key" => output} = owner} = r) do
+    map_size(owner) == 2 and text?(check, 200, false) and text?(output, 200, false) and
+      String.trim(check) != "" and String.trim(output) != "" and
+      r["health"] == "UNKNOWN" and is_nil(r["source_at"]) and is_nil(r["value"]) and
+      Map.get(r, "impacts", []) == [] and not Map.has_key?(r, "discovery") and
+      String.trim(r["summary"]) != ""
+  end
+
+  defp deferral?(r), do: not Map.has_key?(r, "deferral")
 
   def check_group?(%{"key" => key, "label" => label} = value),
     do: map_size(value) == 2 and stable_key?(key) and bounded_label?(label)

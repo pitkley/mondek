@@ -110,6 +110,19 @@ defmodule MondekWeb.API.Schemas do
       },
       "Target" =>
         record(%{kind: nullable(string()), key: nullable(string()), label: nullable(string())}),
+      "DeferredOutputClaim" =>
+        record(
+          %{
+            check_key: string(),
+            output_key: string(),
+            reason: string(),
+            evaluated_at: time(),
+            owner_stream_id: uuid(),
+            owner_assignment_id: string(),
+            owner_generation: nullable(integer())
+          },
+          [:check_key, :output_key, :reason]
+        ),
       "CurrentResult" =>
         record(
           Map.merge(
@@ -131,7 +144,8 @@ defmodule MondekWeb.API.Schemas do
                   generation: nullable(integer()),
                   confirmed_generation: nullable(integer()),
                   value: nullable(number()),
-                  complete: nullable(boolean())
+                  complete: nullable(boolean()),
+                  deferral: ref("DeferredOutputClaim")
                 }
               )
             )
@@ -299,7 +313,8 @@ defmodule MondekWeb.API.Schemas do
             summary: string(),
             details: nullable(string()),
             value: nullable(number()),
-            source_at: time()
+            source_at: time(),
+            deferral: ref("DeferredOutputOwner")
           },
           [:key, :health, :summary]
         ),

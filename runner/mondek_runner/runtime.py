@@ -22,6 +22,7 @@ from ._text import DETAIL_OMISSION, diagnostic_text
 from .api import (
     Impact,
     timestamp,
+    validate_deferral,
     validate_details,
     validate_impacts,
     validate_invocation_scope,
@@ -62,6 +63,7 @@ def _validate_result_impacts(result: Any) -> None:
     if not isinstance(result, dict):
         raise ValueError("worker result must be an object")
     validate_invocation_scope(result)
+    validate_deferral(result)
     if "impacts" not in result:
         return
     values = result["impacts"]
