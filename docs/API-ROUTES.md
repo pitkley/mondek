@@ -28,6 +28,7 @@ Runner communication and operator workflows use the same experimental same-relea
 | POST | `/api/v1/configuration/rules/apply` | Retained; explicit DTO | `ConfigurationController.rule_apply` |
 | POST | `/api/v1/configuration/rules/preview` | Retained; explicit DTO | `ConfigurationController.rule_preview` |
 | GET | `/api/v1/configuration/rules/seed/:assignment_id` | Retained; explicit DTO | `ConfigurationController.rule_seed` |
+| POST | `/api/v1/configuration/schema-migration/preview` | Retained; explicit DTO | `ConfigurationController.schema_migration_preview` |
 | GET | `/api/v1/consumer-state` | Retained; explicit DTO | `ConsumerStateController.consumer_state` |
 | GET | `/api/v1/consumer-state/:id` | Retained; explicit DTO | `ConsumerStateController.consumer_state_entry` |
 | GET | `/api/v1/coverage` | Retained; explicit DTO | `CoverageController.coverage` |

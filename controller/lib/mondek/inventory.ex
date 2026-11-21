@@ -31,10 +31,7 @@ defmodule Mondek.Inventory do
                 lock: "FOR UPDATE"
             )
 
-          semantic =
-            p
-            |> Map.take(~w(source_id source_revision checks complete coverage catalog_selections))
-            |> Parameters.normalized_json()
+          semantic = persisted_payload(p)
 
           reply =
             cond do
@@ -519,6 +516,16 @@ defmodule Mondek.Inventory do
   end
 
   def validate(_), do: {:error, {:invalid, "Supply a complete source inventory."}}
+
+  @doc false
+  def semantic_payload(inventory),
+    do: inventory |> canonical_sustain_inventory() |> persisted_payload()
+
+  defp persisted_payload(inventory) do
+    inventory
+    |> Map.take(~w(source_id source_revision checks complete coverage catalog_selections))
+    |> Parameters.normalized_json()
+  end
 
   defp per_output_environment?(inventory) do
     declared =

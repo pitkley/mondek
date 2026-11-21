@@ -8,6 +8,9 @@ defmodule MondekWeb.API.V1.ConfigurationController do
   def open_api_operation(:configuration_revision),
     do: MondekWeb.API.Contract.operation(:configuration_revision)
 
+  def open_api_operation(:schema_migration_preview),
+    do: MondekWeb.API.Contract.operation(:schema_migration_preview)
+
   def open_api_operation(:policy_plan), do: MondekWeb.API.Contract.operation(:policy_plan)
   def open_api_operation(:policy_apply), do: MondekWeb.API.Contract.operation(:policy_apply)
   def open_api_operation(:policy_export), do: MondekWeb.API.Contract.operation(:policy_export)
@@ -38,6 +41,9 @@ defmodule MondekWeb.API.V1.ConfigurationController do
 
   def policy_plan(conn, p),
     do: respond(conn, Mondek.ConfigurationPolicy.plan(p["manifest"], p["base_head"]))
+
+  def schema_migration_preview(conn, p),
+    do: respond(conn, Mondek.SchemaMigrationPreview.preview(conn.body_params, p["page"] || 1))
 
   def policy_apply(conn, p),
     do: respond(conn, Mondek.ConfigurationPolicy.apply(p["review_token"], p["manifest"]))

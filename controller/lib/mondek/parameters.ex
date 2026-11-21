@@ -65,6 +65,32 @@ defmodule Mondek.Parameters do
     end
   end
 
+  @doc false
+  def value_findings(%{"fields" => fields} = schema, params) do
+    missing = Map.keys(fields) -- Map.keys(params)
+    removed = Map.keys(params) -- Map.keys(fields)
+
+    invalid =
+      for {name, field} <- fields,
+          Map.has_key?(params, name),
+          not value?(field, params[name]),
+          do: name
+
+    failed_comparisons =
+      Enum.filter(Map.get(schema, "comparisons", []), fn %{"left" => left, "right" => right} = c ->
+        is_number(params[left]) and is_number(params[right]) and
+          not comparison?(c, params)
+      end)
+
+    %{
+      "missing_fields" => Enum.sort(missing),
+      "removed_fields" => Enum.sort(removed),
+      "invalid_fields" => Enum.sort(invalid),
+      "failed_comparisons" => failed_comparisons,
+      "valid" => validate(schema, params) == :ok
+    }
+  end
+
   defp encoded_parameter_size(params) do
     params = normalized_json(params)
     # Python's canonical JSON escapes non-ASCII text. Float spelling differs
@@ -124,14 +150,15 @@ defmodule Mondek.Parameters do
 
     Enum.sort(Map.keys(fields)) == Enum.sort(Map.keys(params)) and
       Enum.all?(fields, fn {name, field} -> value?(field, params[name]) end) and
-      Enum.all?(Map.get(schema, "comparisons", []), fn c ->
-        if c["op"] == "lt",
-          do: compare(params[c["left"]], params[c["right"]]) == :lt,
-          else: compare(params[c["left"]], params[c["right"]]) != :gt
-      end)
+      Enum.all?(Map.get(schema, "comparisons", []), &comparison?(&1, params))
   end
 
   defp values?(_, _), do: false
+
+  defp comparison?(%{"left" => left, "right" => right, "op" => op}, params) do
+    comparison = compare(params[left], params[right])
+    comparison == :lt or (op == "lte" and comparison == :eq)
+  end
 
   defp value?(field, value) do
     typed =

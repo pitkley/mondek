@@ -539,6 +539,9 @@ defmodule MondekWeb.API.Schemas do
         :inventory ->
           ref("InventoryReceipt")
 
+        :schema_migration_preview ->
+          MondekWeb.API.SchemaMigrationSchemas.response()
+
         _ ->
           MondekWeb.API.WorkflowSchemas.response(action)
       end

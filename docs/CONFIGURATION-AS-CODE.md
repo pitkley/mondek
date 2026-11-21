@@ -23,7 +23,7 @@ devenv shell -- uv run --project runner mondek-policy inspect \
   --controller http://localhost:4001 --source YOUR_SOURCE_ID
 ```
 
-Inspection does not execute a check or change settings. It shows the controller's accepted source defaults, saved values, origins, exceptions and desired/measured generations. Use `--page 2` for more checks and `--json` for machine-readable output. It cannot inspect an unpublished edit in your working tree; validate and publish that source through your existing runner workflow, then inspect what the controller accepted. Private datasource settings are not part of the inventory.
+Inspection shows the controller's accepted source defaults, saved values, origins, exceptions and desired/measured generations without executing checks. Use `--page 2` for more checks and `--json` for machine-readable output. To review a draft schema against accepted settings before publishing, [preview its complete candidate inventory](DELEGATED-SCHEMA-MIGRATION-PREVIEW.md). Private datasource settings are not part of the inventory.
 
 ## Author optional policy
 
