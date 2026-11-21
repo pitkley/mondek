@@ -355,6 +355,8 @@ defmodule Mondek.Inventory do
       end
     end
 
+    outgoing = Map.new(active_streams, &{&1.result_key, &1})
+
     for output <- assignment.outputs do
       # Newly inserted assignments cannot already have result streams.
       stream =
@@ -381,6 +383,8 @@ defmodule Mondek.Inventory do
           Repo.insert!(%ResultStream{
             assignment_id: assignment.id,
             admission_generation: assignment.desired_generation,
+            predecessor_stream_id:
+              measurement_predecessor(outgoing[output["key"]], output, assignment),
             result_key: output["key"],
             label: output["label"],
             target: output["target"],
@@ -389,6 +393,17 @@ defmodule Mondek.Inventory do
             environment: assignment.environment,
             environment_label: assignment.environment_label
           })
+    end
+  end
+
+  defp measurement_predecessor(nil, _, _), do: nil
+
+  defp measurement_predecessor(stream, output, assignment) do
+    if stream.admission_generation < assignment.desired_generation and
+         stream.environment == assignment.environment and
+         Map.take(stream.target, ~w(key kind)) == Map.take(output["target"], ~w(key kind)) and
+         condition_identity(stream.condition) != condition_identity(output["condition"]) do
+      stream.id
     end
   end
 

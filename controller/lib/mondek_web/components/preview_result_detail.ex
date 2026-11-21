@@ -330,12 +330,17 @@ defmodule MondekWeb.PreviewResultDetail do
       />
     </details>
     <PreviewDetail.card
-      :if={@history != []}
+      :if={@history != [] || @result["predecessor_stream_id"]}
       level={if @full_page, do: 2, else: 3}
       id={@id_prefix <> "preview-result-history"}
       title="Measurement history"
     >
-      <.measurement_rows rows={@visible_history} label="Previous measurements" />
+      <div :if={@result["predecessor_stream_id"]} class="preview-recorded-actions">
+        <.link navigate={"/results/" <> @result["predecessor_stream_id"] <> "/full"}>
+          View preceding result stream
+        </.link>
+      </div>
+      <.measurement_rows :if={@history != []} rows={@visible_history} label="Previous measurements" />
       <details
         :if={length(@visible_history) < length(@history)}
         id={@id_prefix <> "preview-more-measurements-" <> @result["id"]}
@@ -420,14 +425,17 @@ defmodule MondekWeb.PreviewResultDetail do
   defp result_history(panel) do
     current = get_in(panel.selected, ["current", "confirmed_observation_id"])
 
-    for observation <- panel.inspection["evidence"] || [],
-        observation["id"] != current,
-        result <- get_in(observation, ["payload", "results"]) || [],
-        result["key"] == panel.selected["result_key"] do
+    for measurement <- panel.inspection["measurement_history"] || [],
+        measurement["observation_id"] != current do
       %{
-        at: result["source_at"] || observation["evaluated_at"],
-        health: result["health"],
-        summary: result["summary"]
+        at: measurement["source_at"] || measurement["evaluated_at"],
+        received_at: measurement["received_at"],
+        generation: measurement["generation"],
+        stream_id: measurement["stream_id"],
+        health: measurement["health"],
+        summary: measurement["summary"],
+        predecessor?: measurement["stream_id"] != panel.selected["id"],
+        historical?: measurement["disposition"] == "historical"
       }
     end
   end
@@ -472,8 +480,21 @@ defmodule MondekWeb.PreviewResultDetail do
     ~H"""
     <PreviewDetail.facts label={@label} class="preview-result-history">
       <tr :for={measurement <- @rows}>
-        <th scope="row"><time datetime={measurement.at}>{time(measurement.at)}</time></th>
-        <td><.state value={measurement.health} /> {measurement.summary}</td>
+        <th scope="row">
+          Received <time datetime={measurement.received_at}>{time(measurement.received_at)}</time>
+          <small :if={measurement.at != measurement.received_at}>
+            Measurement time <time datetime={measurement.at}>{time(measurement.at)}</time>
+          </small>
+        </th>
+        <td>
+          <.state value={measurement.health} /> {measurement.summary}
+          <.link
+            :if={measurement.predecessor?}
+            navigate={"/results/" <> measurement.stream_id <> "/full"}
+          >Previous stream · Generation {measurement.generation}</.link>
+          <small :if={!measurement.predecessor?}>Generation {measurement.generation}</small>
+          <small :if={measurement.historical?}>Historical receipt</small>
+        </td>
       </tr>
     </PreviewDetail.facts>
     """

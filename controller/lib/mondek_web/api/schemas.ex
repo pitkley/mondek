@@ -171,10 +171,27 @@ defmodule MondekWeb.API.Schemas do
               condition: nullable(object()),
               target: ref("Target"),
               qualification: nullable(ref("OutputQualification")),
+              predecessor_stream_id: nullable(uuid()),
               current: ref("CurrentResult")
             }
           ),
           [:id, :assignment_id, :current, :target]
+        ),
+      "ResultMeasurementHistoryRow" =>
+        record(
+          %{
+            stream_id: uuid(),
+            observation_id: uuid(),
+            generation: integer(),
+            disposition: enum(~w(current historical)),
+            source_at: time(),
+            evaluated_at: time(),
+            received_at: time(),
+            health: enum(~w(OK WARN CRIT UNKNOWN)),
+            summary: string(),
+            evidence_path: string()
+          },
+          ~w(stream_id observation_id generation disposition source_at evaluated_at received_at health summary evidence_path)a
         ),
       "Incident" => incident_schema(false),
       "IncidentSummary" => incident_schema(true),

@@ -20,7 +20,9 @@ defmodule MondekWeb.API.V1.ResultsController do
             key = detail["stream"]["result_key"]
 
             detail
-            |> Map.take(~w(stream assignment incidents controls occurrences evidence limits))
+            |> Map.take(
+              ~w(stream assignment incidents controls occurrences evidence limits measurement_history)
+            )
             |> Map.update!("stream", &Investigation.result_summary/1)
             |> Map.update!("assignment", &Investigation.safe_assignment/1)
             |> Map.update!("evidence", fn rows ->
