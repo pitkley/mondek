@@ -2910,11 +2910,11 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-## hex:phoenix_live_view 1.2.11
+## hex:phoenix_live_view 1.2.14
 
 License: (MIT). Scope: controller.
 
-Source: https://repo.hex.pm/tarballs/phoenix_live_view-1.2.11.tar (sha256:c4087267cbd4dc4ed7ac36512a97830af8e9c857ca7cb22557f8640fc5f9d306)
+Source: https://repo.hex.pm/tarballs/phoenix_live_view-1.2.14.tar (sha256:1ca75ed52d3916f93299de990f152f3f49202d12849e526bf5f9b89b4ccf25f2)
 
 ### LICENSE.md
 
