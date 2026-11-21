@@ -14,10 +14,6 @@ The packaged controller automatically applies pending Ecto migrations before sta
 
 Subsequent schema changes use normal Ecto migrations. Inspect the release's migrations and version notes before upgrading. Stop conflicting controller versions before changing database contracts. Do not delete volumes or runner state to force a migration or snapshot to succeed.
 
-The stable check maintenance migration extends selector validation and records exact source check keys on existing monitoring gaps where the assignment or coverage declaration identifies them. Saved assignment and target selectors keep their format. To roll back after saving stable check selectors, restore a pre-upgrade database backup with the matching controller.
-
-The open-ended maintenance migration adds generation state and preserves saved finite schedules. The controller catches up due schedules before it starts notification workers. To roll back after enabling open-ended rules, restore a pre-upgrade database backup with the matching controller.
-
 ## Preserve identity and evidence
 
 Keep the same PostgreSQL database, Compose volume bindings and complete runner state directories. Retain installation, source, check, environment, target and output identities. Buffered reports preserve their original IDs, payloads and execution times. Existing configuration Git objects are immutable history; do not rewrite their contents or commit IDs during an update.
@@ -79,6 +75,12 @@ Existing Configuration Git token settings continue to work. When adopting file-b
 After backing up PostgreSQL and complete runner state directories, upgrade the controller and SDK together. Packaged startup applies `20261121110000_add_output_sustain` and `20261121120000_link_condition_measurement_history`. The first adds the per-stream sustain projection. The second backfills unambiguous predecessor links with a retained Condition-change audit record. Existing measurements, stream identities and open incidents keep their original data.
 
 Existing output declarations use immediate incident handling. Upgrade both components before publishing positive `sustain_seconds` values. For rollback, use matching consumer declarations and artifacts together. The warm-worker prototype requires an explicit consumer declaration and a runner setting. See [per-output sustain](OUTPUT-SUSTAIN-DESIGN.md), [measurement lineage](RESULT-MEASUREMENT-LINEAGE.md) and [warm workers](WARM-WORKER-PROTOTYPE.md).
+
+## 0.0.9: stable maintenance and temporary evaluation handoffs
+
+Back up PostgreSQL and each runner's complete state directory, then upgrade the controller and SDK together. Packaged startup applies `20261121130000_add_stable_maintenance_selectors` and `20261121140000_add_open_maintenance_generation`. The first extends selector validation and records source check keys on existing monitoring gaps where their assignment or coverage declaration identifies them. The second adds generation state for open-ended schedules. Existing assignment and target selections and finite schedules keep their saved meaning. The controller catches up due schedules before starting notification workers.
+
+Validate an existing schedule and retained monitoring-loss history after upgrading. Enable the optional runner cache with `MONDEK_CONSUMER_STATE_CACHE=true` when adopting stale reads. Use matching controller and SDK versions before relying on deferred evaluation to hold notifications. To roll back the schema, restore a pre-upgrade backup with its matching controller. See [repeating maintenance](RECURRING-MAINTENANCE.md), [consumer state](CONSUMER-STATE.md#opt-in-to-a-stale-read) and [deferred evaluation](MONITORING-LOSS.md#deferred-output-evaluation).
 
 ## Runtime cases
 
