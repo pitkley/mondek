@@ -48,7 +48,7 @@ The project and rule keys identify resources independently of labels. A rule nam
 
 Optional selectors are `environment` and an exact `target_kind`/`target_key` pair. Omit selectors to cover all compatible environments or targets within the named source and contract. Optional `priority` defaults to zero and `enabled` defaults to true. The source and parameter contract of an existing managed key cannot be reinterpreted; remove that key and use a new one for a different meaning. See [durable rules](CONFIGURATION-RULES.md) for conflicts, schema evolution, complete parameter sets and shared executions.
 
-This slice manages durable parameter rules only. It rejects unknown fields and resource types rather than silently ignoring them. Notification policy and recurring maintenance are separate later increments.
+This document format manages durable parameter rules. Keep recurring schedules in a separate [maintenance project manifest](MAINTENANCE-AS-CODE.md).
 
 ## Validate, review and apply
 

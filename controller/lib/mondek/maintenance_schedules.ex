@@ -97,42 +97,189 @@ defmodule Mondek.MaintenanceSchedules do
 
         verify!(token, "create")
 
-        series =
-          %MaintenanceSeries{
-            id: review["id"],
-            revision: 1,
-            name: p["name"],
-            reason: p["reason"],
-            actor: "Local operator",
-            proposal: p,
-            resolved_windows: windows,
-            tzdata_version: expanded["timezone_version"],
-            inserted_at: at,
-            updated_at: at
-          }
-          |> start_generation(windows)
-          |> Repo.insert!()
-
-        children =
-          Enum.map(
-            windows,
-            &Maintenance.insert_series_window!(Map.delete(p, "recurrence"), &1, series.id, at)
-          )
-
-        event!(
-          series,
-          "created",
-          series.reason,
-          %{"window_ids" => Enum.map(children, & &1.id), "count" => length(children)},
-          at
-        )
-
+        series = create!(review["id"], p, windows, expanded["timezone_version"], at)
         Maintenance.series_wake!(scope)
         detail(series, %{}, at)
       end)
 
     Monitoring.notify()
     result
+  end
+
+  @doc false
+  def managed_preview!(proposal, at) do
+    {canonical, scope, rows, expanded} = prepare!(proposal, false)
+    future!(expanded["windows"], at)
+    {windows, overlaps} = overlaps(scope, expanded["windows"], rows)
+
+    %{
+      proposal: canonical,
+      scope: scope,
+      rows: rows,
+      windows: windows,
+      version: expanded["timezone_version"],
+      impact: %{
+        "dates" => windows,
+        "matches" => length(rows),
+        "sample_results" => Enum.take(rows, 25),
+        "overlaps" => Enum.map(overlaps, &Maintenance.reference/1),
+        "state" => Maintenance.series_state(rows, overlaps),
+        "timezone_version" => expanded["timezone_version"]
+      }
+    }
+  end
+
+  @doc false
+  def managed_create!(prepared, owner, at) do
+    windows = Enum.map(prepared.windows, &Map.put(&1, "id", Ecto.UUID.generate()))
+    create!(Ecto.UUID.generate(), prepared.proposal, windows, prepared.version, at, owner)
+  end
+
+  @doc false
+  def managed_retirement!(series, at) do
+    upcoming =
+      Repo.all(
+        from w in children(series.id),
+          where: w.revision == 1 and is_nil(w.cancelled_at) and w.starts_at > ^at,
+          limit: 129
+      )
+
+    if length(upcoming) > 128,
+      do: invalid!("This maintenance project exceeds the reviewed window limit.")
+
+    protection =
+      protected_windows(from(w in MaintenanceWindow, where: w.series_id == ^series.id), at)
+
+    %{
+      series: series,
+      scope: scope_window(series),
+      upcoming: upcoming,
+      impact: %{
+        "series_id" => series.id,
+        "revision" => series.revision,
+        "next_index" => series.next_index,
+        "stops_generation" => generating?(series),
+        "cancel" => Enum.map(upcoming, &%{"id" => &1.id, "revision" => &1.revision}),
+        "preserve" => Enum.map(protection.windows, & &1["id"]),
+        "preserve_through" => Monitoring.iso(protection.through)
+      }
+    }
+  end
+
+  @doc false
+  def managed_protection!(project, key, at) do
+    history =
+      from e in MaintenanceSeriesEvent,
+        where:
+          e.kind == "created" and fragment("?->>'project' = ?", e.snapshot, ^project) and
+            fragment("?->>'key' = ?", e.snapshot, ^key),
+        select: e.series_id
+
+    protected_windows(
+      from(w in MaintenanceWindow, where: w.series_id in subquery(history)),
+      at
+    )
+  end
+
+  defp protected_windows(query, at) do
+    rows =
+      Repo.all(
+        from w in query,
+          join: e in MaintenanceEvent,
+          on: e.window_id == w.id and e.revision == 1,
+          where:
+            (is_nil(w.cancelled_at) and w.starts_at <= ^at and w.ends_at > ^at) or
+              (w.revision > 1 and
+                 (w.ends_at > ^at or
+                    fragment("(?->>'ends_at')::timestamptz > ?", e.snapshot, ^at)) and
+                 fragment(
+                   """
+                   NOT EXISTS (
+                     SELECT 1 FROM maintenance_series_events retired
+                     WHERE retired.series_id = ? AND retired.kind = 'upcoming_cancelled'
+                       AND retired.snapshot->>'project' IS NOT NULL
+                       AND retired.snapshot->'window_ids' @> jsonb_build_array(?::text)
+                   )
+                   """,
+                   w.series_id,
+                   w.id
+                 )),
+          order_by: [w.series_id, w.series_index],
+          limit: 129,
+          select: {w.id, w.revision, w.ends_at, fragment("?->>'ends_at'", e.snapshot)}
+      )
+
+    if length(rows) > 128,
+      do: invalid!("This maintenance project exceeds its protected window limit.")
+
+    through =
+      rows
+      |> Enum.flat_map(fn {_, _, current_end, original_end} ->
+        [current_end, parse(original_end)]
+      end)
+      |> Enum.max(DateTime, fn -> nil end)
+
+    %{
+      through: through,
+      windows:
+        Enum.map(rows, fn {id, revision, _, _} -> %{"id" => id, "revision" => revision} end)
+    }
+  end
+
+  @doc false
+  def managed_retire!(plan, reason, owner, at) do
+    series = plan.series
+    cancelled = Enum.map(plan.upcoming, &Maintenance.cancel_series_window!(&1, reason, at))
+    attrs = %{revision: series.revision + 1, updated_at: at}
+
+    attrs =
+      if generating?(series),
+        do: Map.merge(attrs, %{refill_at: nil, generation_stopped_at: at}),
+        else: attrs
+
+    series = Monitoring.change(series, attrs)
+
+    event!(
+      series,
+      "upcoming_cancelled",
+      reason,
+      Map.merge(owner, %{
+        "window_ids" => Enum.map(cancelled, & &1.id),
+        "count" => length(cancelled)
+      }),
+      at
+    )
+  end
+
+  defp create!(id, proposal, windows, version, at, owner \\ %{}) do
+    series =
+      %MaintenanceSeries{
+        id: id,
+        revision: 1,
+        name: proposal["name"],
+        reason: proposal["reason"],
+        actor: "Local operator",
+        proposal: proposal,
+        resolved_windows: windows,
+        tzdata_version: version,
+        inserted_at: at,
+        updated_at: at
+      }
+      |> start_generation(windows)
+      |> Repo.insert!()
+
+    ordinary = Map.delete(proposal, "recurrence")
+    children = Enum.map(windows, &Maintenance.insert_series_window!(ordinary, &1, series.id, at))
+
+    event!(
+      series,
+      "created",
+      series.reason,
+      Map.merge(owner, %{"window_ids" => Enum.map(children, & &1.id), "count" => length(children)}),
+      at
+    )
+
+    series
   end
 
   def get(id, params \\ %{}, at \\ Monitoring.now()) do

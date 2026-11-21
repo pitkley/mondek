@@ -137,6 +137,15 @@ defmodule Mondek.Maintenance do
   def series_wake!(window), do: wake!(window)
 
   @doc false
+  def series_wake_many!([]), do: :ok
+
+  def series_wake_many!(windows),
+    do: windows |> Enum.flat_map(&selectors/1) |> Enum.uniq() |> wake_selectors!()
+
+  @doc false
+  def series_lock_assignments!(rows), do: lock_assignments!(rows)
+
+  @doc false
   def series_lock_scope!(window), do: lock_scope!(scope(window))
 
   @doc false
@@ -1233,7 +1242,9 @@ defmodule Mondek.Maintenance do
     Repo.all(from a in Assignment, where: a.id in ^ids, order_by: a.id, lock: "FOR UPDATE")
   end
 
-  defp wake!(w) do
+  defp wake!(w), do: wake_selectors!(selectors(w))
+
+  defp wake_selectors!(selected) do
     query =
       from o in Occurrence,
         join: i in Incident,
@@ -1242,8 +1253,6 @@ defmodule Mondek.Maintenance do
         on: a.id == i.assignment_id,
         left_join: s in ResultStream,
         on: s.id == i.stream_id
-
-    selected = selectors(w)
 
     query =
       from [o, i, a, s] in query,

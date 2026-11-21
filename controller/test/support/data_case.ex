@@ -13,7 +13,7 @@ defmodule Mondek.DataCase do
 
   setup context do
     Mondek.Repo.query!(
-      "TRUNCATE correlation_cases, consumer_state_entries, consumer_state_namespaces, discovery_changes, configuration_revisions, configuration_git_objects, configuration_repository, runners, assignments, oban_jobs, configuration_rules, configuration_policy_projects, configuration_rule_diagnostics, maintenance_windows, maintenance_series, condition_incidents, monitoring_incidents, monitoring_gaps RESTART IDENTITY CASCADE"
+      "TRUNCATE correlation_cases, consumer_state_entries, consumer_state_namespaces, discovery_changes, configuration_revisions, configuration_git_objects, configuration_repository, runners, assignments, oban_jobs, configuration_rules, configuration_policy_projects, configuration_rule_diagnostics, maintenance_projects, maintenance_windows, maintenance_series, condition_incidents, monitoring_incidents, monitoring_gaps RESTART IDENTITY CASCADE"
     )
 
     unless context[:empty_source_fixture], do: Mondek.Fixtures.seed_source_checks()

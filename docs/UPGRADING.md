@@ -82,6 +82,10 @@ Back up PostgreSQL and each runner's complete state directory, then upgrade the 
 
 Validate an existing schedule and retained monitoring-loss history after upgrading. Enable the optional runner cache with `MONDEK_CONSUMER_STATE_CACHE=true` when adopting stale reads. Use matching controller and SDK versions before relying on deferred evaluation to hold notifications. To roll back the schema, restore a pre-upgrade backup with its matching controller. See [repeating maintenance](RECURRING-MAINTENANCE.md), [consumer state](CONSUMER-STATE.md#opt-in-to-a-stale-read) and [deferred evaluation](MONITORING-LOSS.md#deferred-output-evaluation).
 
+## Maintenance projects
+
+Packaged startup adds project ownership and reviewed-apply receipts for recurring schedules. Existing schedules remain operator-owned. Export any newly managed schedules before reverting the migration, since rollback discards project keys and receipts while leaving the materialized series and their history. See [maintenance as code](MAINTENANCE-AS-CODE.md).
+
 ## Runtime cases
 
 The additive correlation migration runs at packaged startup. Existing evidence, controls, jobs and identities remain unchanged. Back up before upgrading. Correlation batching defaults off and case acknowledgements remain explicit; rollback to older code requires a reviewed database rollback and must not discard case history silently.

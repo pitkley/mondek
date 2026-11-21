@@ -159,6 +159,10 @@ defmodule MondekWeb.Router do
          API.V1.MaintenanceController,
          :maintenance_series_cancel
 
+    get "/maintenance-projects/:project", API.V1.MaintenanceController, :maintenance_project
+    post "/maintenance-projects/plan", API.V1.MaintenanceController, :maintenance_project_plan
+    post "/maintenance-projects/apply", API.V1.MaintenanceController, :maintenance_project_apply
+
     get "/configuration/rules", API.V1.ConfigurationController, :rules
     get "/configuration/rules/seed/:assignment_id", API.V1.ConfigurationController, :rule_seed
     post "/configuration/rules/preview", API.V1.ConfigurationController, :rule_preview

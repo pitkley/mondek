@@ -48,6 +48,9 @@ Runner communication and operator workflows use the same experimental same-relea
 | GET | `/api/v1/incidents/monitoring-loss` | `/api/v1/monitoring-incidents` | `IncidentsController.monitoring_incidents` |
 | GET | `/api/v1/incidents/monitoring-loss/:id` | `/api/v1/monitoring-incidents/:id` | `IncidentsController.monitoring_incident` |
 | GET | `/api/v1/maintenance` | Retained; explicit DTO | `MaintenanceController.maintenance_windows` |
+| GET | `/api/v1/maintenance-projects/:project` | Retained; explicit DTO | `MaintenanceController.maintenance_project` |
+| POST | `/api/v1/maintenance-projects/apply` | Retained; explicit DTO | `MaintenanceController.maintenance_project_apply` |
+| POST | `/api/v1/maintenance-projects/plan` | Retained; explicit DTO | `MaintenanceController.maintenance_project_plan` |
 | GET | `/api/v1/maintenance-series/:id` | Retained; explicit DTO | `MaintenanceController.maintenance_series` |
 | POST | `/api/v1/maintenance-series/:id/cancel` | Retained; explicit DTO | `MaintenanceController.maintenance_series_cancel` |
 | POST | `/api/v1/maintenance-series/:id/cancel-preview` | Retained; explicit DTO | `MaintenanceController.maintenance_series_cancel_preview` |

@@ -125,6 +125,16 @@ defmodule MondekWeb.API.WorkflowSchemas do
           },
           [:version, :project, :rules]
         ),
+      "MaintenanceProjectManifest" =>
+        S.record(
+          %{
+            version: S.integer(),
+            project: S.string(),
+            schedules:
+              S.array(S.record(%{key: S.string(), proposal: S.object()}, [:key, :proposal]))
+          },
+          [:version, :project, :schedules]
+        ),
       "MaintenanceSelector" =>
         S.record(
           %{
@@ -414,6 +424,20 @@ defmodule MondekWeb.API.WorkflowSchemas do
 
       :publisher_apply ->
         obj("publisher receipt replayed")
+
+      a when a in [:maintenance_project, :maintenance_project_plan, :maintenance_project_apply] ->
+        S.record(
+          %{
+            revision: S.string(),
+            manifest: S.ref("MaintenanceProjectManifest"),
+            schedules: S.array(S.object()),
+            archived_keys: S.array(S.object()),
+            changes: S.array(S.object()),
+            overlapping_schedules: S.array(S.array(S.string())),
+            review_token: S.string()
+          },
+          [:revision, :manifest, :schedules]
+        )
 
       :maintenance_seed ->
         obj("proposal scope_options assignment_id")

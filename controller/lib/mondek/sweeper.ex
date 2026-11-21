@@ -361,6 +361,9 @@ defmodule Mondek.Sweeper do
           DELETE FROM maintenance_series WHERE id IN (SELECT ms.id FROM maintenance_series ms
           WHERE (ms.next_index IS NULL OR ms.generation_stopped_at < $1)
           AND NOT EXISTS (
+            SELECT 1 FROM managed_maintenance_schedules managed WHERE managed.series_id=ms.id AND managed.active
+          )
+          AND NOT EXISTS (
             SELECT 1 FROM maintenance_windows w WHERE w.series_id=ms.id
               AND COALESCE(w.cancelled_at,w.ends_at) >= $1
           ) AND NOT EXISTS (
