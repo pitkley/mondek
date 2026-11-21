@@ -1,18 +1,17 @@
-# Mondek 0.0.9
+# Mondek 0.0.10
 
-Controller and SDK versions are both `0.0.9`, with Git tag `v0.0.9` and controller image tag `0.0.9`. Mondek remains experimental. Run matching controller and SDK versions.
+Controller and SDK versions are both `0.0.10`, with Git tag `v0.0.10` and controller image tag `0.0.10`. Mondek remains experimental. Run matching controller and SDK versions.
 
-## Maintenance
+## Maintenance and configuration
 
-- Stable check selectors follow runner replacements by exact source, check key and monitored environment. A selector can cover every output of the check or restrict coverage to an exact target. See [maintenance scope](MAINTENANCE.md#choose-the-scope-deliberately).
-- Weekly maintenance can continue until canceled. Mondek reviews an initial set of dates, keeps a bounded reserve and catches up before notification workers start. The series detail shows any future date that cannot be scheduled because of its local clock rules. See [open-ended weekly maintenance](RECURRING-MAINTENANCE.md#run-a-schedule-until-canceled).
+- Keep finite or open-ended weekly schedules in a project manifest. Review the changes through the maintenance project API, then apply them atomically. Replacing schedules preserves started windows and individual exceptions. See [maintenance as code](MAINTENANCE-AS-CODE.md).
+- Preview how a candidate runner inventory would affect delegated parameter defaults, assignment exceptions and scoped rules. The preview is read-only. See [delegated schema migration preview](DELEGATED-SCHEMA-MIGRATION-PREVIEW.md).
 
-## Runner and monitoring
+## Runner
 
-- Checks can opt in to [bounded stale reads](CONSUMER-STATE.md#opt-in-to-a-stale-read) during qualifying transport failures. Cached reads preserve original timestamps and expiry and carry no compare-and-set version. Enable the session-scoped cache explicitly on the runner.
-- A check can [defer evaluation](MONITORING-LOSS.md#deferred-output-evaluation) of one output to an exact owner output on the same source, runner and monitored environment. The owner needs fresh admitted evidence. Deferral preserves the previous confirmed measurement and the original monitoring-loss deadline.
-- Monitoring-loss incident details expose the recorded closing evidence used in restoration notifications.
+- The trivial and Kubernetes GET fixtures passed the [Linux ARM64 warm-worker qualification](WARM-WORKER-QUALIFICATION.md). Warm workers remain opt-in.
+- The [runner storage study](RUNNERS-WITHOUT-PERSISTENT-VOLUMES.md) describes identity, journal recovery and evidence loss when a Pod-local state directory is replaced.
 
 ## Upgrading
 
-Back up PostgreSQL and complete runner state directories before updating both components. Packaged startup applies two migrations for selector validation and recurring generation. See [upgrade guidance](UPGRADING.md#009-stable-maintenance-and-temporary-evaluation-handoffs).
+Back up PostgreSQL and complete runner state directories before updating both components. Packaged startup adds maintenance project storage. Existing schedules retain their operator ownership. See [upgrade guidance](UPGRADING.md#0010-maintenance-projects-and-schema-migration-previews).
