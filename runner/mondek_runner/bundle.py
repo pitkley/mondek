@@ -269,9 +269,10 @@ def prepare_snapshot(
             ).hexdigest()
             checks = canonical_check_metadata(app.metadata(base), base)
             coverage = coverage_inventory(app, checks, entrypoint, files, runtime)
-            revision = sha256(
-                canonical([base, app.source_id, checks, coverage])
-            ).hexdigest()
+            revision_parts = [base, app.source_id, checks, coverage]
+            if app.warm_worker_safe:
+                revision_parts.append({"warm_worker_safe": True})
+            revision = sha256(canonical(revision_parts)).hexdigest()
             inventory = normalize_json_numbers(
                 {
                     "source_id": app.source_id,
@@ -291,6 +292,8 @@ def prepare_snapshot(
             "registered_check_keys": sorted(app.bindings),
             "private_digest": private_digest,
         }
+        if app.warm_worker_safe:
+            manifest["warm_worker_safe"] = True
         validate_membership(app, inventory)
         manifest_bytes = canonical(manifest)
         if len(manifest_bytes) > MAX_INVENTORY:
@@ -387,6 +390,13 @@ def load_snapshot(
     directory: Path, revision: str, *, check_key: str | None = None
 ) -> tuple[Any, dict[str, Any]]:
     manifest, settings = verify_snapshot(directory, revision)
+    app = construct_verified_app(directory, revision, manifest, settings)
+    return validate_loaded_app(app, manifest, settings, revision, check_key)
+
+
+def construct_verified_app(
+    directory: Path, revision: str, manifest: dict[str, Any], settings: dict[str, Any]
+) -> App:
     construction = validate_construction_environment(
         settings.get("construction_environment")
     )
@@ -399,6 +409,21 @@ def load_snapshot(
         validate_registration(
             app, manifest["inventory"], manifest["registered_check_keys"]
         )
+        if app.warm_worker_safe is not manifest.get("warm_worker_safe", False):
+            raise ValueError("consumer warm-worker declaration differs from snapshot")
+        return app
+
+
+def validate_loaded_app(
+    app: App,
+    manifest: dict[str, Any],
+    settings: dict[str, Any],
+    revision: str,
+    check_key: str | None,
+) -> tuple[Any, dict[str, Any]]:
+    if revision != manifest["inventory"]["source_revision"]:
+        raise ValueError("worker revision differs from prepared snapshot")
+    with restored_construction_environment(settings.get("construction_environment")):
         if (
             check_key is not None
             and getattr(app.metadata, "__func__", None) is App.metadata
@@ -459,6 +484,8 @@ def validated_snapshot(
                 "coverage differs from the prepared declaration catalogue"
             )
         revision_parts.append(coverage)
+    if app.warm_worker_safe:
+        revision_parts.append({"warm_worker_safe": True})
     actual_revision = sha256(canonical(revision_parts)).hexdigest()
     if actual_revision != revision:
         raise ValueError("prepared consumer revision no longer matches its source")

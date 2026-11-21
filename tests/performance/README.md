@@ -19,3 +19,17 @@ Every runner must retain its session and advance controller contact. Every activ
 These are bounded local diagnostic workloads, not maximum-throughput tests or deployment capacity guarantees. They exclude expensive consumer code, large inventories, prolonged outages, retention growth and concurrent UI load. Record host architecture and Docker CPU/memory with any numbers; do not extrapolate one/twelve runners on a shared development VM into an AMD64 production sizing promise.
 
 For per-execution CPU, see the [installed Linux runner profile](../../docs/RUNNER-CPU-PROFILE.md). It isolates fresh-worker cost for a trivial result and a Kubernetes GET at concurrency 1 and 3.
+
+## Matched warm-worker comparison
+
+Build the installed consumer and Kubernetes profiling layer from the revision under test using the [installed Linux profile instructions](../../docs/RUNNER-CPU-PROFILE.md#reproduce). Run the comparison on an otherwise idle host and save the JSON outside Git:
+
+```sh
+docker run --rm --pull never --network none --workdir /profile \
+  --mount "type=bind,source=$PWD/tests/performance,target=/profile,readonly" \
+  mondek-runner-cpu:kubernetes python profile_runner_cpu.py --compare-warm
+```
+
+Each workload uses the same installed packages, snapshot, assignment locks and expected results for both backends. At each concurrency (1 and 3), the comparison reports cold broker startup through first successful preparation and a separate sequential preparation pass over all 46 assignments for each backend. Small warm-up bursts precede three measured pairs of synchronized bursts. The first pair runs exec then warm, and each subsequent pair reverses order. Use `--checks 3 --repeats 1` for a smoke test. Declined warm requests, incomplete reports, wrong measurements or broker replacement invalidate the trial.
+
+CPU per validated execution includes driver and reaped subprocess CPU plus the live broker's own and waited-for child CPU from Linux `/proc/PID/stat`. The broker stays alive across each pair, and the fixture HTTP server remains outside the accounting. Per-burst values show repeat variation. Pooled p95 wall time starts at slot admission, and p95 queue time starts at the common burst due time. Driver and broker RSS are quiescent endpoint measurements in KiB. The broker remains resident during matched exec bursts too. These samples do not measure peak worker memory. The trivial workload reports both the matched one-third CPU criterion and absolute budgets of 23.8 ms at concurrency 1 and 26.9 ms at concurrency 3. Evaluate deployment qualification on the target hardware.

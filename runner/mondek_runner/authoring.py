@@ -619,7 +619,11 @@ class App:
         name: str | None = None,
         construction_environment: Mapping[str, str | None] | None = None,
         runner: RunnerContext | None = None,
+        warm_worker_safe: bool = False,
     ):
+        if type(warm_worker_safe) is not bool:
+            raise ValueError("warm_worker_safe requires a boolean")
+        self.warm_worker_safe = warm_worker_safe
         self.source_id = stable_key(source_id, "source id")
         self.name = label(name or source_id)
         self.environment = environment

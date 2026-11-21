@@ -15,6 +15,7 @@ import signal
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -43,15 +44,21 @@ def emit(value: dict[str, Any]) -> None:
     sys.__stdout__.buffer.flush()
 
 
-async def run(assignment: dict[str, Any], prepare: bool = False) -> None:
+async def run(
+    assignment: dict[str, Any],
+    prepare: bool = False,
+    *,
+    preloaded: Callable[[str, str], tuple[Any, dict[str, Any]]] | None = None,
+    execution: dict[str, Any] | None = None,
+) -> None:
     seen: set[str] = set()
     evidence = EvidenceWriter(emit, MAX_DETAILS_BYTES)
     try:
         context = None
-        if not prepare and (
-            raw_context := os.environ.pop("MONDEK_EXECUTION_CONTEXT", None)
-        ):
-            execution = json.loads(raw_context)
+        if not prepare and preloaded is None:
+            raw_context = os.environ.pop("MONDEK_EXECUTION_CONTEXT", None)
+            execution = json.loads(raw_context) if raw_context else None
+        if not prepare and execution is not None:
             context = CheckContext(
                 _StateClient(
                     execution["url"],
@@ -61,11 +68,16 @@ async def run(assignment: dict[str, Any], prepare: bool = False) -> None:
             )
         assignment = validate(assignment)
         with contextlib.redirect_stdout(sys.stderr):
-            app, inventory = load_snapshot(
-                Path(environment.require("MONDEK_BUNDLE_DIR")),
-                assignment["source_revision"],
-                check_key=assignment["source_key"],
-            )
+            if preloaded is None:
+                app, inventory = load_snapshot(
+                    Path(environment.require("MONDEK_BUNDLE_DIR")),
+                    assignment["source_revision"],
+                    check_key=assignment["source_key"],
+                )
+            else:
+                app, inventory = preloaded(
+                    assignment["source_revision"], assignment["source_key"]
+                )
             entry = next(
                 (
                     item
@@ -137,6 +149,24 @@ async def run(assignment: dict[str, Any], prepare: bool = False) -> None:
         evidence.finish(complete, diagnostic)
 
 
+def acquire_execution_lock(path: str | None):
+    if path is None:
+        return None
+    lock = open(path, "a+")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock.close()
+        emit(
+            {
+                "complete": False,
+                "diagnostic": "previous worker still owns execution slot",
+            }
+        )
+        raise
+    return lock
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     mode = parser.add_mutually_exclusive_group()
@@ -157,18 +187,10 @@ def main() -> None:
     assignment = json.loads(raw)
     # The execution lock covers orphaned workers during a supervisor restart.
     # The watchdog bounds their life on macOS as well as Linux.
-    lock = open(args.lock, "a+") if args.lock else None
-    if lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            emit(
-                {
-                    "complete": False,
-                    "diagnostic": "previous worker still owns execution slot",
-                }
-            )
-            return
+    try:
+        lock = acquire_execution_lock(args.lock)
+    except BlockingIOError:
+        return
     if args.parent_pid:
         deadline = time.monotonic() + (
             (

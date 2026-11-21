@@ -216,6 +216,12 @@ Only warning and critical values are delegated. The source fixes the query, targ
 
 The executable `mondek_examples.prometheus_numeric_example:app` uses the parity fixture's queue-depth metric, with `MONDEK_PROMETHEUS_URL` selecting its reachable Prometheus. Its real acceptance scenario crosses both equality boundaries, corroborates source timestamps against Prometheus, recovers the same incident and preserves delegated thresholds through runner restart. For custom checks in an existing app, `make_numeric_check` and `NumericPrometheus` expose the same policy; match their units/direction and use datasource factories when registering several private queries of the same type. Bulk compatibility remains opt-in through an explicit `parameter_contract` describing shared meaning.
 
+## Try the Linux warm-worker prototype
+
+Use `App(..., warm_worker_safe=True)` in a consumer whose imports and application construction are safe to fork. Set `MONDEK_WORKER_BACKEND=warm` in the scheduled runner environment. Each execution still uses its own disposable process and rechecks the snapshot and installed runtime. The default `exec` backend is available for regular operation, unsupported platforms and consumers that have not opted in. A failed warm launch retains its allocated report. Later runs can use exec while the broker recovers.
+
+Runner status includes the requested backend, ready revisions, warm request counts and any fallback diagnostic. Qualify the actual installed consumer and deployment before adopting the prototype. See [warm-worker design and comparison](WARM-WORKER-PROTOTYPE.md).
+
 ## Update or recover a deployment
 
 Validate and locally execute a new locked deployment before starting it with the retained state directory. Stop the previous process first. Failed consumer discovery preserves the last accepted inventory and source snapshot and reports the failure. The UI continues to distinguish retained health from fresh measurements.

@@ -81,32 +81,33 @@ async def run_phase(phase, assignment, directory, workload):
     )
 
     if phase == "execute":
-        summary = "Read namespace" if workload == "kubernetes_get" else "Trivial result"
-        results = report.get("results", [])
-        if (
-            report.get("complete")
-            and len(results) == 1
-            and results[0]["health"] == "OK"
-            and results[0]["summary"] == summary
-        ):
-            return
+        validate_execution(report, workload)
+        return
     elif report.get("prepared"):
         return
     raise RuntimeError(f"{workload} {phase} failed: {report}")
 
 
+def validate_execution(report, workload):
+    summary = "Read namespace" if workload == "kubernetes_get" else "Trivial result"
+    results = report.get("results", [])
+    if (
+        report.get("complete")
+        and len(results) == 1
+        and results[0]["health"] == "OK"
+        and results[0]["summary"] == summary
+    ):
+        return
+    raise RuntimeError(f"{workload} execution failed: {report}")
+
+
 async def measure(phase, assignments, directory, workload, concurrency, repeats):
-    slots = asyncio.Semaphore(concurrency)
-
-    async def one(assignment, due):
-        async with slots:
-            started = time.monotonic()
-            await run_phase(phase, assignment, directory, workload)
-            return (started - due) * 1000, (time.monotonic() - started) * 1000
-
     async def burst(configs):
-        due = time.monotonic()
-        return await asyncio.gather(*(one(assignment, due) for assignment in configs))
+        return await timed_burst(
+            configs,
+            concurrency,
+            lambda config: run_phase(phase, config, directory, workload),
+        )
 
     await burst(assignments[:concurrency])
     cpu_per_run = []
@@ -131,7 +132,168 @@ async def measure(phase, assignments, directory, workload, concurrency, repeats)
     }
 
 
-async def profile_workload(workload, endpoint, count, repeats):
+async def timed_burst(configs, concurrency, run):
+    slots = asyncio.Semaphore(concurrency)
+    due = time.monotonic()
+
+    async def one(config):
+        async with slots:
+            started = time.monotonic()
+            await run(config)
+            return (started - due) * 1000, (time.monotonic() - started) * 1000
+
+    return await asyncio.gather(*(one(config) for config in configs))
+
+
+def proc_sample(pid):
+    # Linux stat starts with (pid, parenthesized comm, state); comm may contain spaces.
+    fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    return {
+        "start_ticks": int(fields[19]),
+        "cpu_seconds": sum(int(ticks) for ticks in fields[11:15])
+        / os.sysconf("SC_CLK_TCK"),
+        "rss_kib": int(fields[21]) * os.sysconf("SC_PAGE_SIZE") // 1024,
+    }
+
+
+async def compare_backends(assignments, directory, workload, concurrency, repeats):
+    from mondek_runner.warm_pool import WarmPool
+
+    pool = WarmPool()
+    revision = assignments[0]["source_revision"]
+    try:
+        before = tree_cpu()
+        started = time.monotonic()
+        if not await pool.prepare(assignments[0], bundle_dir=directory):
+            raise RuntimeError("warm broker declined startup")
+        pid = pool.pid_for(revision)
+        if not pid:
+            raise RuntimeError("warm broker disappeared during startup")
+        initial = proc_sample(pid)
+        cold = {
+            "wall_ms": 1000 * (time.monotonic() - started),
+            "cpu_ms": 1000 * (tree_cpu() - before + initial["cpu_seconds"]),
+            "broker_rss_kib": initial["rss_kib"],
+        }
+
+        def sample():
+            status = pool.status()
+            if (
+                not status["supported"]
+                or status["ready_revisions"] != 1
+                or status["in_flight"] != 0
+                or status["diagnostic"]
+            ):
+                raise RuntimeError(f"unexpected warm pool status: {status}")
+            if pool.pid_for(revision) != pid:
+                raise RuntimeError(
+                    "warm broker restarted or disappeared during benchmark"
+                )
+            broker = proc_sample(pid)
+            if broker["start_ticks"] != initial["start_ticks"]:
+                raise RuntimeError("warm broker process identity changed")
+            return tree_cpu() + broker["cpu_seconds"], broker["rss_kib"]
+
+        async def prepare(config):
+            if not await pool.prepare(config, bundle_dir=directory):
+                raise RuntimeError("warm broker declined assignment preparation")
+
+        async def warm(config):
+            result = await pool.execute(
+                config, bundle_dir=directory, lock_path=directory / config["id"]
+            )
+            if result is None:
+                raise RuntimeError("warm broker declined execution")
+            validate_execution(result, workload)
+
+        preparations = {}
+        for backend, run in (
+            ("exec", lambda config: run_phase("prepare", config, directory, workload)),
+            ("warm", prepare),
+        ):
+            before, _ = sample()
+            started = time.monotonic()
+            for config in assignments:
+                await run(config)
+            preparations[backend] = {
+                "wall_ms": 1000 * (time.monotonic() - started),
+                "cpu_ms": 1000 * (sample()[0] - before),
+                "assignments": len(assignments),
+            }
+
+        backends = {
+            "exec": lambda config: run_phase("execute", config, directory, workload),
+            "warm": warm,
+        }
+        for run in backends.values():
+            await timed_burst(assignments[:concurrency], concurrency, run)
+        bursts = []
+        samples = {backend: [] for backend in backends}
+        for i in range(repeats):
+            order = tuple(backends) if i % 2 == 0 else tuple(reversed(backends))
+            for backend in order:
+                prior_requests = pool.status()["warm_requests"]
+                before, _ = sample()
+                timings = await timed_burst(assignments, concurrency, backends[backend])
+                after, rss = sample()
+                warm_requests = pool.status()["warm_requests"] - prior_requests
+                if warm_requests != (len(assignments) if backend == "warm" else 0):
+                    raise RuntimeError(
+                        "broker dispatch count differs from measured executions"
+                    )
+                samples[backend].extend(timings)
+                bursts.append(
+                    {
+                        "pair": i + 1,
+                        "backend": backend,
+                        "cpu_ms_per_execution": 1000
+                        * (after - before)
+                        / len(assignments),
+                        "driver_rss_kib_after": proc_sample(os.getpid())["rss_kib"],
+                        "warm_requests": warm_requests,
+                        "broker_rss_kib_after": rss,
+                        "wall_p95_ms": p95([wall for _, wall in timings]),
+                        "queue_p95_ms": p95([queue for queue, _ in timings]),
+                    }
+                )
+        summary = {
+            backend: {
+                "cpu_ms_per_execution": statistics.mean(
+                    b["cpu_ms_per_execution"] for b in bursts if b["backend"] == backend
+                ),
+                "wall_p95_ms": p95([wall for _, wall in timings]),
+                "queue_p95_ms": p95([queue for queue, _ in timings]),
+                "validated_executions": len(timings),
+            }
+            for backend, timings in samples.items()
+        }
+        ratio = (
+            summary["warm"]["cpu_ms_per_execution"]
+            / summary["exec"]["cpu_ms_per_execution"]
+        )
+        result = {
+            "concurrency": concurrency,
+            "broker_start_and_first_prepare": cold,
+            "prepare_all": preparations,
+            "bursts": bursts,
+            "steady_state": summary,
+            "warm_to_exec_cpu_ratio": ratio,
+        }
+        if workload == "trivial":
+            limit = {1: 23.8, 3: 26.9}[concurrency]
+            result["cpu_gate"] = {
+                "absolute_limit_ms": limit,
+                "meets_absolute_limit": summary["warm"]["cpu_ms_per_execution"]
+                <= limit,
+                "meets_matched_one_third": ratio <= 1 / 3,
+            }
+        return result
+    finally:
+        await pool.close()
+
+
+async def profile_workload(workload, endpoint, count, repeats, compare_warm):
+    os.environ["MONDEK_CPU_PROFILE_WARM"] = "1" if compare_warm else "0"
     os.environ["MONDEK_CPU_PROFILE_API"] = endpoint
     os.environ["MONDEK_CPU_PROFILE_CHECKS"] = str(count)
     with tempfile.TemporaryDirectory(prefix="mondek-cpu-profile-") as tmp:
@@ -158,6 +320,18 @@ async def profile_workload(workload, endpoint, count, repeats):
         ]
         if len(assignments) != count:
             raise RuntimeError("profiling inventory does not match requested size")
+        if compare_warm:
+            comparisons = [
+                await compare_backends(
+                    assignments, directory, workload, concurrency, repeats
+                )
+                for concurrency in (1, 3)
+            ]
+            return {
+                "workload": workload,
+                "discovery": discovery,
+                "comparison": comparisons,
+            }
         phases = [
             await measure(phase, assignments, directory, workload, concurrency, repeats)
             for concurrency in (1, 3)
@@ -166,7 +340,7 @@ async def profile_workload(workload, endpoint, count, repeats):
     return {"workload": workload, "discovery": discovery, "phases": phases}
 
 
-async def profile(count, repeats):
+async def profile(count, repeats, compare_warm=False):
     packages = {
         item.metadata["Name"]: item.version
         for item in importlib.metadata.distributions()
@@ -187,8 +361,10 @@ async def profile(count, repeats):
         if not endpoint.startswith("http://127.0.0.1:"):
             raise RuntimeError("local profiling server did not start")
         results = [
-            await profile_workload("trivial", "", count, repeats),
-            await profile_workload("kubernetes_get", endpoint, count, repeats),
+            await profile_workload("trivial", "", count, repeats, compare_warm),
+            await profile_workload(
+                "kubernetes_get", endpoint, count, repeats, compare_warm
+            ),
         ]
         if server.returncode is not None:
             raise RuntimeError("profiling server stopped during collection")
@@ -210,6 +386,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checks", type=int, default=46)
     parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument(
+        "--compare-warm", action="store_true", help="run paired warm and exec bursts"
+    )
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.serve:
@@ -219,7 +398,11 @@ def main():
         parser.error("use 3–512 checks and 1–5 repeats")
     if sys.platform != "linux":
         parser.error("run the profile inside the installed Linux consumer image")
-    print(json.dumps(asyncio.run(profile(args.checks, args.repeats)), indent=2))
+    print(
+        json.dumps(
+            asyncio.run(profile(args.checks, args.repeats, args.compare_warm)), indent=2
+        )
+    )
 
 
 if __name__ == "__main__":
