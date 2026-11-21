@@ -53,6 +53,7 @@ defmodule Mondek.MaintenanceSchedules do
       %{
         "proposal" => p,
         "recurrence" => p["recurrence"],
+        "timezone" => p["timezone"],
         "review_token" => token || sign(review),
         "timezone_version" => expanded["timezone_version"],
         "first_starts_at" => hd(windows)["starts_at"],
@@ -165,6 +166,7 @@ defmodule Mondek.MaintenanceSchedules do
         "revision" => series.revision,
         "name" => series.name,
         "reason" => reason,
+        "timezone" => series.proposal["timezone"],
         "review_token" => token || sign(review),
         "upcoming_count" => length(upcoming),
         "active_count" => Enum.count(rows, &active?(&1, at)),
@@ -588,6 +590,8 @@ defmodule Mondek.MaintenanceSchedules do
     |> Map.drop(@scope_fields)
     |> Map.merge(%{
       "index" => window.series_index,
+      "original_starts_local" => original["starts_local"],
+      "original_ends_local" => original["ends_local"],
       "original_starts_at" => original["starts_at"],
       "original_ends_at" => original["ends_at"],
       "elapsed_seconds" =>

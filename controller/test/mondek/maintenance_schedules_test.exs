@@ -453,6 +453,135 @@ defmodule Mondek.MaintenanceSchedulesTest do
     assert {:error, :not_found} = MaintenanceSchedules.get(nil, %{}, at())
   end
 
+  test "HTTP series exposes planned, edited and cancelled dates across daylight saving" do
+    march_end = Date.new!(Date.utc_today().year + 2, 3, 31)
+    spring = Date.add(march_end, -rem(Date.day_of_week(march_end), 7))
+    winter = Date.add(spring, -7)
+    first = Date.add(spring, -25 * 7)
+
+    p =
+      Map.merge(proposal(26), %{
+        "timezone" => "Europe/Berlin",
+        "starts_local" => "#{first}T09:00:00",
+        "ends_local" => "#{first}T10:00:00"
+      })
+
+    preview_path = "/api/v1/maintenance-series/preview"
+    preview = post_json(preview_path, %{"proposal" => p}) |> json_response(200)
+    review = Map.take(preview, ~w(proposal review_token))
+    assert preview["timezone"] == "Europe/Berlin"
+    assert preview["occurrence_total"] == 26
+    assert preview["occurrence_pages"] == 2
+    assert length(preview["occurrences"]) == 25
+    assert preview["result_page"] == 1
+    assert length(preview["rows"]) == 1
+
+    before_shift = List.last(preview["occurrences"])
+    assert before_shift["index"] == 25
+    assert before_shift["starts_local"] == "#{winter}T09:00:00"
+    assert before_shift["starts_at"] == "#{winter}T08:00:00.000000Z"
+
+    second =
+      post_json(preview_path, Map.put(review, "occurrence_page", 2))
+      |> json_response(200)
+
+    assert second["review_token"] == preview["review_token"]
+    assert second["occurrence_page"] == 2
+    assert second["result_page"] == 1
+    assert second["rows"] == preview["rows"]
+    assert [planned] = second["occurrences"]
+    assert planned["index"] == 26
+    assert planned["starts_local"] == "#{spring}T09:00:00"
+    assert planned["ends_local"] == "#{spring}T10:00:00"
+    assert planned["starts_at"] == "#{spring}T07:00:00.000000Z"
+    assert planned["ends_at"] == "#{spring}T08:00:00.000000Z"
+
+    saved = post_json("/api/v1/maintenance-series/apply", review) |> json_response(200)
+    assert saved["timezone"] == "Europe/Berlin"
+
+    assert Enum.map(saved["occurrences"], & &1["id"]) ==
+             Enum.map(preview["occurrences"], & &1["id"])
+
+    series_path = "/api/v1/maintenance-series/#{saved["id"]}"
+    second_page_path = series_path <> "?occurrence_page=2"
+
+    detail = get(build_conn(), second_page_path) |> json_response(200)
+    assert detail["occurrence_page"] == 2
+    assert detail["result_page"] == 1
+    assert length(detail["rows"]) == 1
+    assert [child] = detail["occurrences"]
+    assert child["status"] == "upcoming"
+
+    assert Map.take(child, ~w(id index starts_local ends_local elapsed_seconds)) ==
+             Map.take(planned, ~w(id index starts_local ends_local elapsed_seconds))
+
+    for endpoint <- ~w(starts_at ends_at) do
+      assert {:ok, current, 0} = DateTime.from_iso8601(child[endpoint])
+      assert {:ok, original, 0} = DateTime.from_iso8601(planned[endpoint])
+      assert DateTime.compare(current, original) == :eq
+    end
+
+    child_detail = get(build_conn(), "/api/v1/maintenance/#{child["id"]}") |> json_response(200)
+
+    edit =
+      Map.merge(child_detail["proposal"], %{
+        "starts_local" => "#{spring}T11:00:00",
+        "ends_local" => "#{spring}T12:00:00"
+      })
+
+    prepared =
+      post_json("/api/v1/maintenance/preview", %{"proposal" => edit}) |> json_response(200)
+
+    edited =
+      post_json("/api/v1/maintenance/apply", Map.take(prepared, ~w(proposal review_token)))
+      |> json_response(200)
+
+    cancel_params = %{"revision" => saved["revision"] + 1, "reason" => "Postpone plan"}
+    cancel_path = series_path <> "/cancel-preview"
+    cancel = post_json(cancel_path, cancel_params) |> json_response(200)
+    assert cancel["timezone"] == "Europe/Berlin"
+    assert cancel["upcoming_count"] == 26
+    assert cancel["pages"] == 2
+
+    cancel_page =
+      post_json(
+        cancel_path,
+        Map.merge(cancel_params, %{"page" => 2, "review_token" => cancel["review_token"]})
+      )
+      |> json_response(200)
+
+    assert cancel_page["review_token"] == cancel["review_token"]
+    assert cancel_page["page"] == 2
+    assert [exception] = cancel_page["rows"]
+    assert exception["exception"]
+    assert exception["id"] == child["id"]
+
+    assert Map.take(exception, ~w(starts_local ends_local starts_at ends_at)) ==
+             Map.take(edited, ~w(starts_local ends_local starts_at ends_at))
+
+    assert exception["original_starts_local"] == planned["starts_local"]
+    assert exception["original_ends_local"] == planned["ends_local"]
+    assert exception["original_starts_at"] == planned["starts_at"]
+    assert exception["original_ends_at"] == planned["ends_at"]
+
+    cancelled =
+      post_json(series_path <> "/cancel", Map.take(cancel, ~w(review_token reason)))
+      |> json_response(200)
+
+    assert cancelled["cancelled_count"] == 26
+    assert hd(cancelled["occurrences"])["status"] == "cancelled"
+
+    cancelled_detail = get(build_conn(), second_page_path) |> json_response(200)
+    assert [cancelled_child] = cancelled_detail["occurrences"]
+    assert cancelled_child["status"] == "cancelled"
+    assert cancelled_child["cancellation_reason"] == cancel["reason"]
+
+    assert Map.take(cancelled_child, ~w(starts_local ends_local starts_at ends_at
+             original_starts_local original_ends_local original_starts_at original_ends_at)) ==
+             Map.take(exception, ~w(starts_local ends_local starts_at ends_at
+             original_starts_local original_ends_local original_starts_at original_ends_at))
+  end
+
   defp proposal(count \\ 3) do
     {:ok, seed} = Maintenance.seed("10000000-0000-4000-8000-000000000001", nil, at())
 

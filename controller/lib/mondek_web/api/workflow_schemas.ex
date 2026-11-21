@@ -149,6 +149,39 @@ defmodule MondekWeb.API.WorkflowSchemas do
         obj(
           "id revision name reason scope assignment_id source_id environment target_kind target_key selections selection_count timezone starts_local ends_local start_fold end_fold tzdata_version actor inserted_at updated_at cancelled_at cancelled_by cancellation_reason status kind exception cadence weekdays duration_seconds starts_on ends_on local_time occurrence_count next_occurrence recurrence active_count upcoming_count ended_count cancelled_count remaining_count occurrence_total next_starts_at final_ends_at"
         ),
+      "PlannedMaintenanceOccurrence" =>
+        maintenance_occurrence(%{
+          overlap_count: S.integer(),
+          touches_previous: S.boolean()
+        }),
+      "SavedMaintenanceOccurrence" =>
+        maintenance_occurrence(%{
+          series_id: S.uuid(),
+          series_index: S.integer(),
+          revision: S.integer(),
+          name: S.string(),
+          reason: S.string(),
+          actor: S.string(),
+          kind: S.enum(["window"]),
+          status: S.enum(~w(upcoming active ended cancelled)),
+          exception: S.boolean(),
+          timezone: S.string(),
+          tzdata_version: n(S.string()),
+          start_fold: S.string(),
+          end_fold: S.string(),
+          original_starts_local: S.string(),
+          original_ends_local: S.string(),
+          original_starts_at: S.time(),
+          original_ends_at: S.time(),
+          inserted_at: S.time(),
+          updated_at: S.time(),
+          cancelled_at: S.time(),
+          cancelled_by: n(S.string()),
+          cancellation_reason: n(S.string()),
+          check_label: n(S.string()),
+          runner_label: n(S.string()),
+          selection_count: n(S.integer())
+        }),
       "Publisher" =>
         obj(
           "id runner_id runner_label source_id revision source_revision received_at inventory_revision last_seen_at code_revision runtime_revision coverage_revision coverage_received_at coverage_confirmed coverage_context runner_context audit_status lifecycle_status lifecycle_revision retired_at retirement_reason replacement_id resume_after_revision declared_count selected_count excluded_count unresolved_count declaration_count selected_result_count capability_count check_count"
@@ -381,14 +414,31 @@ defmodule MondekWeb.API.WorkflowSchemas do
         merge_ref(
           "MaintenanceSeries",
           obj(
-            "proposal scope_options occurrences occurrence_page occurrence_pages occurrence_total rows result_page result_pages result_total current_matches match_count history history_count limits selection_summary counts page_size recurrence timezone_version"
+            "proposal scope_options rows current_matches match_count history history_count limits selection_summary counts page_size recurrence timezone_version check_label runner_label"
           )
+          |> with_properties(series_pagination("SavedMaintenanceOccurrence"))
         )
 
-      a when a in [:maintenance_series_preview, :maintenance_series_cancel_preview] ->
+      :maintenance_series_preview ->
         obj(
-          "proposal review_token fingerprint rows selection_summary counts page page_size total pages overlaps starts_at ends_at occurrences occurrence_page results result_page series reason revision matched_checks"
+          "proposal recurrence timezone review_token rows selection_summary counts page_size overlaps"
         )
+        |> with_properties(series_pagination("PlannedMaintenanceOccurrence"))
+        |> with_properties(%{
+          timezone_version: S.string(),
+          first_starts_at: S.time(),
+          final_ends_at: S.time(),
+          overlap_total: S.integer(),
+          overlap_omitted: S.integer()
+        })
+
+      :maintenance_series_cancel_preview ->
+        obj("id revision name reason timezone review_token page page_size total pages")
+        |> with_properties(%{
+          rows: S.array(S.ref("SavedMaintenanceOccurrence")),
+          active_count: S.integer(),
+          upcoming_count: S.integer()
+        })
 
       :save ->
         S.ref("AssignmentConfiguration")
@@ -454,6 +504,32 @@ defmodule MondekWeb.API.WorkflowSchemas do
         obj("status")
     end
   end
+
+  defp maintenance_occurrence(properties) do
+    dates = %{
+      id: S.uuid(),
+      index: S.integer(),
+      starts_local: S.string(),
+      ends_local: S.string(),
+      starts_at: %{S.time() | nullable: false},
+      ends_at: %{S.time() | nullable: false},
+      elapsed_seconds: S.number()
+    }
+
+    S.record(
+      Map.merge(dates, properties),
+      ~w(id index starts_local ends_local starts_at ends_at elapsed_seconds)a
+    )
+  end
+
+  defp series_pagination(occurrence) do
+    "occurrence_page occurrence_pages occurrence_total result_page result_pages result_total"
+    |> S.fields(S.integer())
+    |> Map.put(:occurrences, S.array(S.ref(occurrence)))
+  end
+
+  defp with_properties(schema, properties),
+    do: %{schema | properties: Map.merge(schema.properties, properties)}
 
   defp merge_ref(name, extra),
     do: %{extra | properties: Map.merge(definitions()[name].properties, extra.properties)}

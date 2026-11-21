@@ -50,6 +50,8 @@ Use the existing maintenance seed and exact scope fields, then add a `recurrence
 
 Creation and cancellation reviews expire after fifteen minutes. Reuse the original `review_token` when paging a preview. Invalid input returns 422; expired, stale or changed review authority returns 409. An exact duplicate creation request cannot create a second series. Each child remains inspectable and editable through the ordinary `/api/v1/maintenance/:id` routes.
 
+Series responses include the series `timezone` and occurrence endpoints as local civil times (`starts_local`, `ends_local`) and UTC timestamps (`starts_at`, `ends_at`). Planned occurrences include the IDs that apply will save. Saved occurrences include their status and the original local and UTC endpoints, even after an individual window is changed. Cancellation preview returns the upcoming saved occurrences in `rows`, paged with `page`.
+
 Dates and current results are paged independently in groups of twenty-five. Creation retains the existing 512-selector and 4,096-current-result limits. Combined generated window intent and original event snapshots are bounded to 8 MiB, and a review supports at most 1,024 distinct overlapping windows. An oversized proposal is rejected before any series is saved; shortening the series or splitting its selected scope makes the intended bounds explicit.
 
 The maintenance inventory's `windows` collection can contain `kind: "series"` summary entries alongside ordinary windows. A series entry links to the series inspection route; only its child windows have actual notification intervals. Result and incident inspection keep the exact active window identities. Detail summaries show active children, or the next upcoming child per series, with a link to the complete dates.

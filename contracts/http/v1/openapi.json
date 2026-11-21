@@ -1521,6 +1521,148 @@
         ],
         "type": "object"
       },
+      "SavedMaintenanceOccurrence": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "cancellation_reason": {
+            "nullable": true,
+            "type": "string"
+          },
+          "cancelled_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "cancelled_by": {
+            "nullable": true,
+            "type": "string"
+          },
+          "check_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "elapsed_seconds": {
+            "type": "number"
+          },
+          "end_fold": {
+            "type": "string"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "nullable": false,
+            "type": "string"
+          },
+          "ends_local": {
+            "type": "string"
+          },
+          "exception": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "inserted_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "window"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "original_ends_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "original_ends_local": {
+            "type": "string"
+          },
+          "original_starts_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "original_starts_local": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "runner_label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "selection_count": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "series_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "series_index": {
+            "type": "integer"
+          },
+          "start_fold": {
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "nullable": false,
+            "type": "string"
+          },
+          "starts_local": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "upcoming",
+              "active",
+              "ended",
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "tzdata_version": {
+            "nullable": true,
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "index",
+          "starts_local",
+          "ends_local",
+          "starts_at",
+          "ends_at",
+          "elapsed_seconds"
+        ],
+        "type": "object"
+      },
       "CorrelationMember": {
         "additionalProperties": false,
         "properties": {
@@ -1948,6 +2090,53 @@
           "key",
           "label",
           "target"
+        ],
+        "type": "object"
+      },
+      "PlannedMaintenanceOccurrence": {
+        "additionalProperties": false,
+        "properties": {
+          "elapsed_seconds": {
+            "type": "number"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "nullable": false,
+            "type": "string"
+          },
+          "ends_local": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "overlap_count": {
+            "type": "integer"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "nullable": false,
+            "type": "string"
+          },
+          "starts_local": {
+            "type": "string"
+          },
+          "touches_previous": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "index",
+          "starts_local",
+          "ends_local",
+          "starts_at",
+          "ends_at",
+          "elapsed_seconds"
         ],
         "type": "object"
       },
@@ -8192,13 +8381,12 @@
                           "nullable": true,
                           "type": "string"
                         },
+                        "runner_label": {
+                          "nullable": true,
+                          "type": "string"
+                        },
                         "occurrence_total": {
-                          "allOf": [
-                            {
-                              "$ref": "#/components/schemas/JSONValue"
-                            }
-                          ],
-                          "nullable": true
+                          "type": "integer"
                         },
                         "scope_options": {
                           "items": {
@@ -8216,20 +8404,10 @@
                           "type": "string"
                         },
                         "result_total": {
-                          "allOf": [
-                            {
-                              "$ref": "#/components/schemas/JSONValue"
-                            }
-                          ],
-                          "nullable": true
+                          "type": "integer"
                         },
                         "occurrence_page": {
-                          "allOf": [
-                            {
-                              "$ref": "#/components/schemas/JSONValue"
-                            }
-                          ],
-                          "nullable": true
+                          "type": "integer"
                         },
                         "updated_at": {
                           "format": "date-time",
@@ -8246,20 +8424,10 @@
                           "type": "integer"
                         },
                         "result_page": {
-                          "allOf": [
-                            {
-                              "$ref": "#/components/schemas/JSONValue"
-                            }
-                          ],
-                          "nullable": true
+                          "type": "integer"
                         },
                         "result_pages": {
-                          "allOf": [
-                            {
-                              "$ref": "#/components/schemas/JSONValue"
-                            }
-                          ],
-                          "nullable": true
+                          "type": "integer"
                         },
                         "target_kind": {
                           "nullable": true,
@@ -8362,6 +8530,10 @@
                           "nullable": true,
                           "type": "string"
                         },
+                        "check_label": {
+                          "nullable": true,
+                          "type": "string"
+                        },
                         "ended_count": {
                           "allOf": [
                             {
@@ -8395,7 +8567,7 @@
                         },
                         "occurrences": {
                           "items": {
-                            "$ref": "#/components/schemas/Notification"
+                            "$ref": "#/components/schemas/SavedMaintenanceOccurrence"
                           },
                           "type": "array"
                         },
@@ -8523,12 +8695,7 @@
                           "type": "integer"
                         },
                         "occurrence_pages": {
-                          "allOf": [
-                            {
-                              "$ref": "#/components/schemas/JSONValue"
-                            }
-                          ],
-                          "nullable": true
+                          "type": "integer"
                         },
                         "next_occurrence": {
                           "allOf": [
@@ -11589,13 +11756,12 @@
                       "nullable": true,
                       "type": "string"
                     },
+                    "runner_label": {
+                      "nullable": true,
+                      "type": "string"
+                    },
                     "occurrence_total": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                      "type": "integer"
                     },
                     "scope_options": {
                       "items": {
@@ -11613,20 +11779,10 @@
                       "type": "string"
                     },
                     "result_total": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                      "type": "integer"
                     },
                     "occurrence_page": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                      "type": "integer"
                     },
                     "updated_at": {
                       "format": "date-time",
@@ -11643,20 +11799,10 @@
                       "type": "integer"
                     },
                     "result_page": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                      "type": "integer"
                     },
                     "result_pages": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                      "type": "integer"
                     },
                     "target_kind": {
                       "nullable": true,
@@ -11759,6 +11905,10 @@
                       "nullable": true,
                       "type": "string"
                     },
+                    "check_label": {
+                      "nullable": true,
+                      "type": "string"
+                    },
                     "ended_count": {
                       "allOf": [
                         {
@@ -11792,7 +11942,7 @@
                     },
                     "occurrences": {
                       "items": {
-                        "$ref": "#/components/schemas/Notification"
+                        "$ref": "#/components/schemas/SavedMaintenanceOccurrence"
                       },
                       "type": "array"
                     },
@@ -11920,12 +12070,7 @@
                       "type": "integer"
                     },
                     "occurrence_pages": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                      "type": "integer"
                     },
                     "next_occurrence": {
                       "allOf": [
@@ -12222,13 +12367,12 @@
                       "nullable": true,
                       "type": "string"
                     },
+                    "runner_label": {
+                      "nullable": true,
+                      "type": "string"
+                    },
                     "occurrence_total": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                      "type": "integer"
                     },
                     "scope_options": {
                       "items": {
@@ -12246,20 +12390,10 @@
                       "type": "string"
                     },
                     "result_total": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                      "type": "integer"
                     },
                     "occurrence_page": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                      "type": "integer"
                     },
                     "updated_at": {
                       "format": "date-time",
@@ -12276,20 +12410,10 @@
                       "type": "integer"
                     },
                     "result_page": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                      "type": "integer"
                     },
                     "result_pages": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                      "type": "integer"
                     },
                     "target_kind": {
                       "nullable": true,
@@ -12392,6 +12516,10 @@
                       "nullable": true,
                       "type": "string"
                     },
+                    "check_label": {
+                      "nullable": true,
+                      "type": "string"
+                    },
                     "ended_count": {
                       "allOf": [
                         {
@@ -12425,7 +12553,7 @@
                     },
                     "occurrences": {
                       "items": {
-                        "$ref": "#/components/schemas/Notification"
+                        "$ref": "#/components/schemas/SavedMaintenanceOccurrence"
                       },
                       "type": "array"
                     },
@@ -12553,12 +12681,7 @@
                       "type": "integer"
                     },
                     "occurrence_pages": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                      "type": "integer"
                     },
                     "next_occurrence": {
                       "allOf": [
@@ -14440,46 +14563,23 @@
                 "schema": {
                   "additionalProperties": false,
                   "properties": {
-                    "counts": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
-                    },
-                    "ends_at": {
-                      "format": "date-time",
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "fingerprint": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "matched_checks": {
-                      "nullable": true,
+                    "active_count": {
                       "type": "integer"
                     },
-                    "occurrence_page": {
-                      "allOf": [
+                    "id": {
+                      "anyOf": [
                         {
-                          "$ref": "#/components/schemas/JSONValue"
+                          "type": "string"
+                        },
+                        {
+                          "type": "integer"
                         }
                       ],
                       "nullable": true
                     },
-                    "occurrences": {
-                      "items": {
-                        "$ref": "#/components/schemas/Notification"
-                      },
-                      "type": "array"
-                    },
-                    "overlaps": {
-                      "items": {
-                        "$ref": "#/components/schemas/MaintenanceWindow"
-                      },
-                      "type": "array"
+                    "name": {
+                      "nullable": true,
+                      "type": "string"
                     },
                     "page": {
                       "nullable": true,
@@ -14493,30 +14593,9 @@
                       "nullable": true,
                       "type": "integer"
                     },
-                    "proposal": {
-                      "additionalProperties": true,
-                      "nullable": true,
-                      "type": "object"
-                    },
                     "reason": {
                       "nullable": true,
                       "type": "string"
-                    },
-                    "result_page": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
-                    },
-                    "results": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
                     },
                     "review_token": {
                       "nullable": true,
@@ -14528,33 +14607,19 @@
                     },
                     "rows": {
                       "items": {
-                        "additionalProperties": true,
-                        "type": "object"
+                        "$ref": "#/components/schemas/SavedMaintenanceOccurrence"
                       },
                       "type": "array"
                     },
-                    "selection_summary": {
-                      "items": {
-                        "additionalProperties": true,
-                        "type": "object"
-                      },
-                      "type": "array"
-                    },
-                    "series": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
-                    },
-                    "starts_at": {
-                      "format": "date-time",
+                    "timezone": {
                       "nullable": true,
                       "type": "string"
                     },
                     "total": {
                       "nullable": true,
+                      "type": "integer"
+                    },
+                    "upcoming_count": {
                       "type": "integer"
                     }
                   },
@@ -19868,32 +19933,36 @@
                       ],
                       "nullable": true
                     },
-                    "ends_at": {
+                    "final_ends_at": {
                       "format": "date-time",
                       "nullable": true,
                       "type": "string"
                     },
-                    "fingerprint": {
+                    "first_starts_at": {
+                      "format": "date-time",
                       "nullable": true,
                       "type": "string"
                     },
-                    "matched_checks": {
-                      "nullable": true,
+                    "occurrence_page": {
                       "type": "integer"
                     },
-                    "occurrence_page": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                    "occurrence_pages": {
+                      "type": "integer"
+                    },
+                    "occurrence_total": {
+                      "type": "integer"
                     },
                     "occurrences": {
                       "items": {
-                        "$ref": "#/components/schemas/Notification"
+                        "$ref": "#/components/schemas/PlannedMaintenanceOccurrence"
                       },
                       "type": "array"
+                    },
+                    "overlap_omitted": {
+                      "type": "integer"
+                    },
+                    "overlap_total": {
+                      "type": "integer"
                     },
                     "overlaps": {
                       "items": {
@@ -19901,15 +19970,7 @@
                       },
                       "type": "array"
                     },
-                    "page": {
-                      "nullable": true,
-                      "type": "integer"
-                    },
                     "page_size": {
-                      "nullable": true,
-                      "type": "integer"
-                    },
-                    "pages": {
                       "nullable": true,
                       "type": "integer"
                     },
@@ -19918,33 +19979,26 @@
                       "nullable": true,
                       "type": "object"
                     },
-                    "reason": {
-                      "nullable": true,
-                      "type": "string"
+                    "recurrence": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/JSONValue"
+                        }
+                      ],
+                      "nullable": true
                     },
                     "result_page": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                      "type": "integer"
                     },
-                    "results": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
+                    "result_pages": {
+                      "type": "integer"
+                    },
+                    "result_total": {
+                      "type": "integer"
                     },
                     "review_token": {
                       "nullable": true,
                       "type": "string"
-                    },
-                    "revision": {
-                      "nullable": true,
-                      "type": "integer"
                     },
                     "rows": {
                       "items": {
@@ -19960,22 +20014,12 @@
                       },
                       "type": "array"
                     },
-                    "series": {
-                      "allOf": [
-                        {
-                          "$ref": "#/components/schemas/JSONValue"
-                        }
-                      ],
-                      "nullable": true
-                    },
-                    "starts_at": {
-                      "format": "date-time",
+                    "timezone": {
                       "nullable": true,
                       "type": "string"
                     },
-                    "total": {
-                      "nullable": true,
-                      "type": "integer"
+                    "timezone_version": {
+                      "type": "string"
                     }
                   },
                   "type": "object"
