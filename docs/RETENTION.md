@@ -8,7 +8,30 @@ Consumer state has [separate quotas and TTL/lifecycle cleanup](CONSUMER-STATE.md
 
 Set MONDEK_RETENTION_RECEIPT_DAYS (default 7), MONDEK_RETENTION_HISTORY_DAYS (default 30), and MONDEK_RETENTION_MAX_OBSERVATIONS (default 100000) in the controller environment. Environment settings are read at startup; restart the controller to apply changes. Days accept integers from 1 to 36500; the count accepts 1 to 1000000000. Empty, zero, negative, malformed or out-of-range values stop startup with the setting name. There is no unbounded mode.
 
-Overview displays the effective policy under History retention; inspection API summaries use the same values. Increasing a limit cannot recover already-pruned history. Reducing it makes eligible unprotected records available to the next bounded cleanup pass. A count limit can shorten history below the configured age; references remain protected regardless. Incident opening, latest-failure and closing references protect their observations while the incident is retained; keeping an older failure is independent of the current result or a later recovery. Back up before a deliberate policy reduction.
+The Overview API returns the effective policy in its retention summary. Increasing a limit cannot recover already-pruned history. Reducing it makes eligible unprotected records available to the next bounded cleanup pass. A count limit can shorten history below the configured age; references remain protected regardless. Incident opening, latest-failure and closing references protect their observations while the incident is retained; keeping an older failure is independent of the current result or a later recovery. Back up before a deliberate policy reduction.
+
+## Size a fourteen-day lookback
+
+At 32,600–57,600 receipts per day, fourteen days of ordinary history contain about 456,400–806,400 receipts. Use receipts from all runners and all executions in the installation, including executions that report unchanged or unhealthy results. An execution report can contain multiple results in one receipt. Multiply your expected peak daily receipt volume by the desired days and round up for bursts, added checks and runner growth. At 57,600 per day, a count of 1,000,000 leaves room for 193,600 additional receipts, about 24% above the fourteen-day estimate.
+
+For this workload, add these settings to the packaged controller's private environment file:
+
+```dotenv
+MONDEK_RETENTION_RECEIPT_DAYS=14
+MONDEK_RETENTION_MAX_OBSERVATIONS=1000000
+```
+
+The packaged Compose recipe injects these settings from the controller service's `env_file`, selected by `MONDEK_ENV_FILE` and defaulting to `.env`. With the default recipe, `.env` also supplies Compose interpolation values. If you use a separate controller file, put the retention values in that file. Shell exports and Compose's `--env-file` can supply interpolation values such as `MONDEK_ENV_FILE`. Compose does not forward retention values from interpolation alone.
+
+From the installation directory, recreate the controller using the same Compose options you used to start it:
+
+```sh
+docker compose up -d --wait --no-deps --force-recreate controller
+```
+
+Request `GET /api/v1/overview` through your usual controller access path. The `data.retention` string should report that ordinary measurements expire after 14 days or beyond the newest 1000000 receipts.
+
+An ordinary receipt becomes eligible for trimming when it is older than the age limit or falls outside the newest configured count. The first limit reached determines the lookback for unprotected receipts. Protected receipts can survive both limits, including receipts referred to by current measurements, incidents or retained delivery work. The database can therefore hold more than 1,000,000 receipts even when cleanup has caught up.
 
 ## Bounded passes
 
