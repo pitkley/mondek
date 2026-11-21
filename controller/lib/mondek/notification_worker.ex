@@ -35,6 +35,9 @@ defmodule Mondek.NotificationWorker do
       {:ok, :delivered} ->
         :ok
 
+      {:ok, :delivery_disabled} ->
+        {:snooze, 30}
+
       {:ok, {:gated, seconds}} ->
         {:snooze, seconds}
 
@@ -70,9 +73,19 @@ defmodule Mondek.NotificationWorker do
       eligibility = Monitoring.delivery_context_eligibility(occurrence, context, at)
 
       eligibility =
-        if eligibility == :eligible,
-          do: Mondek.CorrelationDelivery.gate!(occurrence, case_id, at),
-          else: eligibility
+        cond do
+          eligibility in [:delivered, :superseded] ->
+            eligibility
+
+          not Mondek.NotificationDelivery.enabled?() ->
+            :delivery_disabled
+
+          eligibility == :eligible ->
+            Mondek.CorrelationDelivery.gate!(occurrence, case_id, at)
+
+          true ->
+            eligibility
+        end
 
       if job && job.id && not match?({:gated, _, _}, eligibility),
         do:
@@ -87,6 +100,9 @@ defmodule Mondek.NotificationWorker do
         :superseded ->
           Monitoring.change(occurrence, %{status: "superseded"})
           :superseded
+
+        :delivery_disabled ->
+          :delivery_disabled
 
         {:gated, _gates, until} ->
           if job && job.id do

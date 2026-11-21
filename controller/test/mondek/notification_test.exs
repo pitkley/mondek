@@ -25,6 +25,69 @@ defmodule Mondek.NotificationTest do
     Repo.one!(Occurrence)
   end
 
+  test "off holds a queued native attempt and permits an admitted send to finish" do
+    receiver(204, controlled: true)
+    occurrence = fire()
+    job = Repo.one!(Oban.Job)
+    set_notification_adapter(:off)
+
+    assert {:snooze, 30} = Worker.perform(job)
+    refute_receive {:webhook_waiting, _}
+    refute Repo.exists?(Attempt)
+    assert Repo.get!(Mondek.CorrelationCredit, occurrence.id).spent == 0
+    assert Repo.get!(Occurrence, occurrence.id).status == "pending"
+
+    Application.put_env(:mondek, :notification_adapter, :webhook)
+    running = Task.async(fn -> Worker.perform(job) end)
+    assert_receive {:webhook_waiting, receiver}, 1000
+    Application.put_env(:mondek, :notification_adapter, :off)
+    send(receiver, {:respond, 204})
+    assert :ok = Task.await(running)
+
+    assert Repo.get!(Mondek.CorrelationCredit, occurrence.id).spent == 1
+    assert Repo.one!(Attempt).status == "accepted"
+    assert disposition(ingest(measurement("OK", 2))) == "current"
+    assert Repo.one!(Incident).status == "closed"
+    assert Repo.one!(Occurrence).status == "delivered"
+
+    assert disposition(ingest(measurement("CRIT", 3))) == "current"
+    assert Repo.exists?(from i in Incident, where: i.status == "open")
+    assert Repo.aggregate(Occurrence, :count) == 1
+    assert Repo.aggregate(Oban.Job, :count) == 1
+  end
+
+  test "off pauses frozen native terminal work and rejects manual retry without renewing credit" do
+    receiver(204)
+    firing = fire()
+    assert :ok = Worker.perform(Repo.one!(Oban.Job))
+    assert_receive {:webhook, %{"kind" => "firing"}, true}
+
+    assert disposition(ingest(measurement("OK", 2))) == "current"
+    terminal = Repo.get_by!(Occurrence, kind: "resolved")
+    job = Repo.one!(from j in Oban.Job, order_by: [desc: j.id], limit: 1)
+    set_notification_adapter(:off)
+
+    assert {:snooze, 30} = Worker.perform(job)
+    assert Repo.get!(Mondek.CorrelationCredit, terminal.id).spent == 0
+    refute_receive {:webhook, %{"kind" => "resolved"}, _}
+
+    Monitoring.change(terminal, %{status: "exhausted"})
+    Monitoring.change(job, %{state: "discarded"})
+    credit = Repo.get!(Mondek.CorrelationCredit, terminal.id)
+    assert {:error, :delivery_disabled} = Monitoring.retry_notification(terminal.id, "Retry")
+    assert Repo.get!(Mondek.CorrelationCredit, terminal.id) == credit
+    assert Repo.aggregate(Oban.Job, :count) == 2
+    refute Repo.exists?(from c in Mondek.Control, where: c.kind == "notification_retry")
+
+    Application.put_env(:mondek, :notification_adapter, :webhook)
+    assert {:ok, _} = Monitoring.retry_notification(terminal.id, "Retry")
+    replacement = Repo.one!(from j in Oban.Job, order_by: [desc: j.id], limit: 1)
+    assert :ok = Worker.perform(replacement)
+    assert_receive {:webhook, payload, true}
+    assert payload == terminal.payload
+    assert Repo.get!(Occurrence, firing.id).status == "delivered"
+  end
+
   for exhausted? <- [false, true] do
     @exhausted? exhausted?
     test "an older #{if exhausted?, do: "exhausted", else: "retryable"} failure preserves accepted delivery" do

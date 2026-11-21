@@ -177,19 +177,23 @@ notification_adapter =
        ) do
     "smtp" -> :smtp
     "webhook" -> :webhook
-    _ -> raise "MONDEK_NOTIFICATION_ADAPTER must be smtp or webhook"
+    "off" -> :off
+    _ -> raise "MONDEK_NOTIFICATION_ADAPTER must be smtp, webhook or off"
   end
 
-case env.("MONDEK_WEBHOOK_CONFIG_FILE", nil) do
-  nil ->
-    if deployment? and notification_adapter == :webhook,
-      do: raise("MONDEK_WEBHOOK_CONFIG_FILE is required for deployment webhooks")
+if notification_adapter != :off do
+  case env.("MONDEK_WEBHOOK_CONFIG_FILE", nil) do
+    nil ->
+      if deployment? and notification_adapter == :webhook,
+        do: raise("MONDEK_WEBHOOK_CONFIG_FILE is required for deployment webhooks")
 
-  path ->
-    config :mondek, :webhook, Mondek.WebhookNotification.load!(path)
+    path ->
+      config :mondek, :webhook, Mondek.WebhookNotification.load!(path)
+  end
 end
 
-if notification_adapter == :smtp or env.("MONDEK_SMTP_HOST", nil) not in [nil, ""] do
+if notification_adapter != :off and
+     (notification_adapter == :smtp or env.("MONDEK_SMTP_HOST", nil) not in [nil, ""]) do
   integer_env! = fn name, default ->
     case Integer.parse(env.(name, default)) do
       {value, ""} -> value

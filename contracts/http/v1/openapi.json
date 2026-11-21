@@ -4492,9 +4492,13 @@
           },
           "batching_enabled": {
             "type": "boolean"
+          },
+          "delivery_enabled": {
+            "type": "boolean"
           }
         },
         "required": [
+          "delivery_enabled",
           "batching_enabled",
           "acknowledgement",
           "batch_page",
@@ -4908,6 +4912,10 @@
           "health": {
             "nullable": true,
             "type": "string"
+          },
+          "delivery_enabled": {
+            "nullable": true,
+            "type": "boolean"
           },
           "kind": {
             "nullable": true,
@@ -7645,6 +7653,10 @@
                             "$ref": "#/components/schemas/Attempt"
                           },
                           "type": "array"
+                        },
+                        "delivery_enabled": {
+                          "nullable": true,
+                          "type": "boolean"
                         },
                         "jobs": {
                           "items": {

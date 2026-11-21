@@ -41,6 +41,30 @@ defmodule MondekWeb.NotificationsLiveTest do
     end
   end
 
+  test "delivery off keeps history visible and hides retry in both detail routes" do
+    occurrence = notice()
+    set_notification_adapter(:off)
+
+    {:ok, list, _} = live(build_conn(), "/notifications")
+    assert has_element?(list, "#notification-delivery-off", "Notification delivery is off")
+    assert has_element?(list, "#notification-row-#{occurrence.id}")
+
+    for {suffix, surface} <- [{"", "#overview-panel"}, {"/full", "#notification-page"}] do
+      {:ok, view, _} = live(build_conn(), "/notifications/#{occurrence.id}#{suffix}")
+      assert has_element?(view, surface <> " [data-notification-delivery-off]")
+      refute has_element?(view, surface <> " #retry-notification-#{occurrence.id}")
+    end
+
+    conn =
+      build_conn()
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+      |> post("/api/v1/notifications/#{occurrence.id}/retry", Jason.encode!(%{reason: "Retry"}))
+
+    assert json_response(conn, 409)["error"]["code"] == "delivery_disabled"
+    response = get(build_conn(), "/api/v1/notifications/#{occurrence.id}") |> json_response(200)
+    assert %{"delivery_enabled" => false, "can_retry" => false} = response["data"]["occurrence"]
+  end
+
   test "retry draft survives related result, page presentation and return; inactive action is rejected" do
     occurrence = notice()
     {:ok, view, _} = live(build_conn(), "/notifications/#{occurrence.id}")

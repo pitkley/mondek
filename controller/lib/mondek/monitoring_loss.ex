@@ -376,7 +376,7 @@ defmodule Mondek.MonitoringLoss do
             member_snapshot: snapshot
           })
 
-        occurrence!(incident, "firing", at)
+        if Mondek.NotificationDelivery.enabled?(), do: occurrence!(incident, "firing", at)
 
       count > 0 ->
         if episode.member_count != count or episode.member_snapshot != snapshot or withdrew? do
@@ -444,7 +444,9 @@ defmodule Mondek.MonitoringLoss do
     )
 
     wake!(incident.id)
-    if previous_attempt?, do: occurrence!(incident, "resolved", at)
+
+    if previous_attempt? and Mondek.NotificationDelivery.enabled?(),
+      do: occurrence!(incident, "resolved", at)
   end
 
   defp occurrence!(incident, kind, at) do

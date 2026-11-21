@@ -218,6 +218,9 @@ defmodule MondekWeb.NotificationsLive do
               "notification_backlog"
             ]["total"] || 0} outstanding</span>
           </header>
+          <p :if={@snapshot["delivery_enabled"] == false} id="notification-delivery-off">
+            Notification delivery is off for this installation.
+          </p>
           <div class="notification-matching-count preview-caption">
             {@page["total"]} matching notifications
           </div>

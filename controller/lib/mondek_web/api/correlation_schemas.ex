@@ -101,6 +101,7 @@ defmodule MondekWeb.API.CorrelationSchemas do
       "CaseDelivery" =>
         S.record(
           %{
+            delivery_enabled: S.boolean(),
             batching_enabled: S.boolean(),
             acknowledgement: S.ref("CaseAcknowledgement"),
             batch_page:
@@ -111,7 +112,7 @@ defmodule MondekWeb.API.CorrelationSchemas do
               ]),
             batches: S.array(S.ref("CaseBatch"))
           },
-          [:batching_enabled, :acknowledgement, :batch_page, :batches]
+          [:delivery_enabled, :batching_enabled, :acknowledgement, :batch_page, :batches]
         ),
       "CaseAcknowledgement" =>
         S.record(

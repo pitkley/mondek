@@ -45,6 +45,9 @@ defmodule MondekWeb.NotificationDetail do
           id={@id_prefix <> "notification-delivery"}
           title="Delivery status"
         >
+          <p :if={@notice["delivery_enabled"] == false} data-notification-delivery-off>
+            Notification delivery is off for this installation.
+          </p>
           <PreviewDetail.facts label="Notification delivery">
             <tr>
               <th scope="row">Status</th><td><.status value={@notice["status"]} /></td>

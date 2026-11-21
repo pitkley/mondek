@@ -249,7 +249,7 @@ defmodule MondekWeb.API.WorkflowSchemas do
         ),
       "Notification" =>
         obj(
-          "id assignment_id incident_id monitoring_incident_id condition_incident_id condition_fact_id covered_warn_fact_id gate_revision stream_id result_key kind status health label summary payload destination inserted_at delivered_at updated_at attempts_count next_retry_at gated_until gates attempt_count latest_attempt waiting_on_gates occurrence_id can_retry check_label incident_status gated_indefinitely maintenance_windows"
+          "id assignment_id incident_id monitoring_incident_id condition_incident_id condition_fact_id covered_warn_fact_id gate_revision stream_id result_key kind status health label summary payload destination inserted_at delivered_at updated_at attempts_count next_retry_at gated_until gates attempt_count latest_attempt waiting_on_gates occurrence_id can_retry check_label incident_status gated_indefinitely maintenance_windows delivery_enabled"
         ),
       "Attempt" => obj("id occurrence_id started_at finished_at status http_status error"),
       "Control" =>
@@ -454,7 +454,7 @@ defmodule MondekWeb.API.WorkflowSchemas do
 
       :notifications ->
         obj(
-          "occurrences notification_page attempts notification_attempts jobs notification_backlog"
+          "occurrences notification_page attempts notification_attempts jobs notification_backlog delivery_enabled"
         )
 
       :incident ->
@@ -632,7 +632,7 @@ defmodule MondekWeb.API.WorkflowSchemas do
       key in ~w(member_snapshot) ->
         S.array(S.ref("LossMember"))
 
-      key in ~w(can_retry gated_indefinitely waiting_on_gates enabled changed replayed superseded exception can_apply acknowledged acknowledgement_active retired selected scope_resolved coverage_confirmed) ->
+      key in ~w(can_retry gated_indefinitely waiting_on_gates delivery_enabled enabled changed replayed superseded exception can_apply acknowledged acknowledgement_active retired selected scope_resolved coverage_confirmed) ->
         n(S.boolean())
 
       key in ~w(id revision series_index target_generation generation sequence http_status gate_revision desired_generation authorized_generation prepared_generation active_generation observed_generation boot lifecycle_revision resume_after_revision coverage_revision publication_count active_publication_count publications_omitted check_count retired_check_count selected_count excluded_count unresolved_count declared_count declaration_count selected_result_count capability_count member_count attention_revision acknowledgement_revision attempt_count attempts_count affected_results matched_checks match_count conflict_count selection_count history_count total page page_size pages total_matching eligible_count selected_result_count changed_count unchanged_count project_revision applied_project_revision current_project_revision expires_in_seconds original_result_count omitted_result_count version priority occurrence_count inventory_revision code_variants runtime_variants definition_variants) ->
