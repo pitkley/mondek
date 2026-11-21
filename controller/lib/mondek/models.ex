@@ -338,6 +338,7 @@ defmodule Mondek.ResultStream do
     field :assignment_id, :string
     field :admission_generation, :integer, default: 1
     field :retirement_generation, :integer
+    field :predecessor_stream_id, :binary_id
     field :result_key, :string
     field :label, :string
     field :target, :map

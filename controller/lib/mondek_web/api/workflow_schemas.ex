@@ -489,6 +489,14 @@ defmodule MondekWeb.API.WorkflowSchemas do
 
       :result_inspection ->
         obj("stream assignment incidents controls occurrences evidence limits")
+        |> with_properties(%{
+          stream: S.ref("Result"),
+          measurement_history: %Schema{
+            type: :array,
+            maxItems: 12,
+            items: S.ref("ResultMeasurementHistoryRow")
+          }
+        })
 
       :snapshot ->
         obj(

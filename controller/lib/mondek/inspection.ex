@@ -1777,6 +1777,7 @@ defmodule Mondek.Inspection do
   def stream_inspection(id, at) do
     with stream when not is_nil(stream) <- stream_detail(id, at) do
       assignment_id = stream["assignment_id"]
+      result_stream = Repo.get!(ResultStream, id)
 
       incident_query =
         from i in Incident, where: i.stream_id == ^id
@@ -1822,7 +1823,7 @@ defmodule Mondek.Inspection do
 
       recent =
         Repo.all(
-          from o in stream_evidence_query(Repo.get!(ResultStream, id)),
+          from o in stream_evidence_query(result_stream),
             order_by: [desc: o.received_at, desc: o.id],
             limit: 12
         )
@@ -1834,6 +1835,7 @@ defmodule Mondek.Inspection do
 
       %{
         "stream" => stream,
+        "measurement_history" => measurement_history(result_stream),
         "assignment" => Monitoring.assignment_detail(assignment_id, at),
         "incidents" => Enum.map(incidents, &Monitoring.public/1),
         "controls" => Enum.map(controls, &Monitoring.public/1),
@@ -1862,6 +1864,61 @@ defmodule Mondek.Inspection do
     if stream.retirement_generation,
       do: from(o in query, where: o.generation < ^stream.retirement_generation),
       else: query
+  end
+
+  defp measurement_history(stream) do
+    fields =
+      ~w(id assignment_id result_key admission_generation retirement_generation predecessor_stream_id)a
+
+    backwards =
+      from s in ResultStream,
+        join: successor in "measurement_lineage",
+        on:
+          s.id == successor.predecessor_stream_id and
+            s.assignment_id == successor.assignment_id and
+            s.result_key == successor.result_key and
+            s.retirement_generation == successor.admission_generation and
+            s.admission_generation < successor.admission_generation,
+        select: map(s, ^fields)
+
+    lineage =
+      from(s in ResultStream, where: s.id == ^stream.id, select: map(s, ^fields))
+      |> union_all(^backwards)
+
+    from(o in Observation,
+      join: owner in "measurement_lineage",
+      on:
+        o.assignment_id == owner.assignment_id and o.generation >= owner.admission_generation and
+          (is_nil(owner.retirement_generation) or o.generation < owner.retirement_generation),
+      where:
+        fragment(
+          "(?->'results') @> jsonb_build_array(jsonb_build_object('key', ?::text))",
+          o.payload,
+          ^stream.result_key
+        ),
+      order_by: [desc: o.received_at, desc: o.id],
+      limit: 12,
+      select: {o, type(owner.id, Ecto.UUID)}
+    )
+    |> recursive_ctes(true)
+    |> with_cte("measurement_lineage", as: ^lineage)
+    |> Repo.all()
+    |> Enum.map(fn {observation, owner} ->
+      result = Enum.find(observation.payload["results"], &(&1["key"] == stream.result_key))
+
+      %{
+        "stream_id" => owner,
+        "observation_id" => observation.id,
+        "generation" => observation.generation,
+        "disposition" => observation.disposition,
+        "received_at" => Monitoring.iso(observation.received_at),
+        "evaluated_at" => Monitoring.iso(observation.evaluated_at),
+        "source_at" => result["source_at"],
+        "health" => result["health"],
+        "summary" => result["summary"],
+        "evidence_path" => "/api/v1/results/#{owner}/evidence/#{observation.id}"
+      }
+    end)
   end
 
   def delivery_inspection(filters, at) do

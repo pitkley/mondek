@@ -3189,6 +3189,72 @@
         },
         "type": "object"
       },
+      "ResultMeasurementHistoryRow": {
+        "additionalProperties": false,
+        "properties": {
+          "disposition": {
+            "enum": [
+              "current",
+              "historical"
+            ],
+            "type": "string"
+          },
+          "evaluated_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "evidence_path": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "health": {
+            "enum": [
+              "OK",
+              "WARN",
+              "CRIT",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "observation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "source_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "stream_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stream_id",
+          "observation_id",
+          "generation",
+          "disposition",
+          "source_at",
+          "evaluated_at",
+          "received_at",
+          "health",
+          "summary",
+          "evidence_path"
+        ],
+        "type": "object"
+      },
       "ParameterValues": {
         "additionalProperties": {
           "anyOf": [
@@ -4594,6 +4660,11 @@
             "type": "integer"
           },
           "params_owner": {
+            "nullable": true,
+            "type": "string"
+          },
+          "predecessor_stream_id": {
+            "format": "uuid",
             "nullable": true,
             "type": "string"
           },
@@ -6416,6 +6487,13 @@
                           ],
                           "nullable": true
                         },
+                        "measurement_history": {
+                          "items": {
+                            "$ref": "#/components/schemas/ResultMeasurementHistoryRow"
+                          },
+                          "maxItems": 12,
+                          "type": "array"
+                        },
                         "occurrences": {
                           "items": {
                             "$ref": "#/components/schemas/Notification"
@@ -6423,12 +6501,7 @@
                           "type": "array"
                         },
                         "stream": {
-                          "allOf": [
-                            {
-                              "$ref": "#/components/schemas/Result"
-                            }
-                          ],
-                          "nullable": true
+                          "$ref": "#/components/schemas/Result"
                         }
                       },
                       "type": "object"

@@ -2,7 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Mondek.ConditionMetadataTest do
   use Mondek.DataCase, async: false
+  import Phoenix.ConnTest
+  import Phoenix.LiveViewTest
   alias Mondek.{Configuration, Protocol, ResultStream, SourceInventory}
+  alias Mondek.Repo.Migrations.LinkConditionMeasurementHistory
+
+  @endpoint MondekWeb.Endpoint
+
+  unless Code.ensure_loaded?(LinkConditionMeasurementHistory) do
+    Code.require_file(
+      Path.expand(
+        "../../priv/repo/migrations/20261121120000_link_condition_measurement_history.exs",
+        __DIR__
+      )
+    )
+  end
 
   @condition %{
     "namespace" => "infrastructure",
@@ -88,6 +102,190 @@ defmodule Mondek.ConditionMetadataTest do
     assert is_nil(stream(old).condition)
     refute stream(old).id == current.id
     assert Repo.get!(Incident, new_incident.id).closure_reason == "condition_changed"
+  end
+
+  test "timeline follows Condition addition, change, removal and reintroduction on the same output" do
+    assert {:ok, _} = Monitoring.inventory(inventory(nil), at())
+    original = stream(assignment())
+    activate(assignment())
+    first = timeline_sample(assignment(), "Originally ungrouped", 1, 0)
+    assert disposition(ingest(first, at())) == "current"
+
+    assert {:ok, _} = Monitoring.inventory(inventory(@condition, 2), at())
+    grouped = stream(assignment())
+    assert grouped.predecessor_stream_id == original.id
+    grouped_assignment = assignment()
+    activate(grouped_assignment)
+    second = timeline_sample(grouped_assignment, "Original Condition", 2, 1)
+    assert disposition(ingest(second, DateTime.add(at(), 1))) == "current"
+
+    renamed = Map.put(@condition, "label", "Readable label")
+    assert {:ok, _} = Monitoring.inventory(inventory(renamed, 3), at())
+    assert stream(assignment()).id == grouped.id
+
+    changed = Map.put(@condition, "key", "orders:availability")
+    assert {:ok, _} = Monitoring.inventory(inventory(changed, 4), at())
+    changed_stream = stream(assignment())
+    assert changed_stream.predecessor_stream_id == grouped.id
+    activate(assignment())
+    third = timeline_sample(assignment(), "Changed Condition", 3, 2)
+    assert disposition(ingest(third, DateTime.add(at(), 2))) == "current"
+
+    later = timeline_sample(grouped_assignment, "Delayed historical receipt", 4, 3)
+    assert disposition(ingest(later, DateTime.add(at(), 3))) == "historical"
+
+    assert {:ok, _} = Monitoring.inventory(inventory(nil, 5), at())
+    ungrouped = stream(assignment())
+    assert ungrouped.predecessor_stream_id == changed_stream.id
+    assert {:ok, _} = Monitoring.inventory(inventory(@condition, 6), at())
+    current = stream(assignment())
+    assert current.predecessor_stream_id == ungrouped.id
+
+    detail = Monitoring.stream_inspection(current.id, DateTime.add(at(), 4))
+    assert detail["incidents"] == []
+    assert detail["controls"] == []
+    assert detail["evidence"] == []
+
+    assert Enum.map(
+             detail["measurement_history"],
+             &{&1["stream_id"], &1["observation_id"], &1["generation"]}
+           ) ==
+             [
+               {grouped.id, later["id"], 2},
+               {changed_stream.id, third["id"], 4},
+               {grouped.id, second["id"], 2},
+               {original.id, first["id"], 1}
+             ]
+
+    assert Mondek.Inspection.stream_inspection(original.id, at())["measurement_history"]
+           |> Enum.map(& &1["observation_id"]) == [first["id"]]
+
+    conn = get(build_conn(), "/api/v1/results/#{current.id}/inspection")
+
+    assert json_response(conn, 200)["data"]["measurement_history"] ==
+             detail["measurement_history"]
+
+    previous = hd(detail["measurement_history"])
+    assert previous["disposition"] == "historical"
+
+    assert json_response(get(build_conn(), previous["evidence_path"]), 200)["data"]["id"] ==
+             later["id"]
+
+    scoped = get(build_conn(), "/api/v1/results/#{current.id}/evidence/#{later["id"]}")
+    assert scoped.status == 404
+
+    for path <- ["/results/#{current.id}", "/results/#{current.id}/full"] do
+      {:ok, view, _} = live(build_conn(), path)
+      assert has_element?(view, "[id$='preview-result-history']", "Delayed historical receipt")
+      assert has_element?(view, "[id$='preview-result-history']", "Historical receipt")
+
+      for {ancestor, generation} <- [{grouped.id, 2}, {changed_stream.id, 4}] do
+        assert has_element?(
+                 view,
+                 "[id$='preview-result-history'] a[href='/results/#{ancestor}/full']",
+                 "Previous stream · Generation #{generation}"
+               )
+      end
+
+      assert has_element?(
+               view,
+               "[id$='preview-result-history'] a[href='/results/#{ungrouped.id}/full']",
+               "View preceding result stream"
+             )
+    end
+  end
+
+  test "rebinds and output withdrawal break measurement continuity" do
+    initial = inventory(@condition) |> with_sibling()
+    assert {:ok, _} = Monitoring.inventory(initial, at())
+    original = timeline_stream()
+
+    changed = Map.put(@condition, "key", "change-with-target")
+
+    rebound =
+      inventory(changed, 2)
+      |> with_sibling()
+      |> put_in(["checks", Access.at(0), "outputs", Access.at(0), "target", "key"], "new-target")
+
+    assert {:ok, _} = Monitoring.inventory(rebound, at())
+    target_stream = timeline_stream()
+    refute target_stream.predecessor_stream_id
+    refute target_stream.id == original.id
+
+    changed = Map.put(changed, "key", "change-with-environment")
+
+    environment =
+      rebound
+      |> Map.put("inventory_revision", 3)
+      |> put_in(["checks", Access.at(0), "outputs", Access.at(0), "condition"], changed)
+      |> put_in(["checks", Access.at(0), "environment"], "staging")
+
+    assert {:ok, _} = Monitoring.inventory(environment, at())
+    environment_stream = timeline_stream()
+    refute environment_stream.predecessor_stream_id
+    refute environment_stream.id == target_stream.id
+
+    removed =
+      environment
+      |> Map.put("inventory_revision", 4)
+      |> update_in(["checks", Access.at(0), "outputs"], &tl/1)
+
+    assert {:ok, _} = Monitoring.inventory(removed, at())
+    assert {:ok, _} = Monitoring.inventory(Map.put(environment, "inventory_revision", 5), at())
+    refute timeline_stream().predecessor_stream_id
+    refute timeline_stream().id == environment_stream.id
+  end
+
+  test "sibling-only receipts cannot consume the measurement timeline budget" do
+    assert {:ok, _} = Monitoring.inventory(with_sibling(inventory(nil)), at())
+    current = assignment()
+    activate(current)
+    stream = timeline_stream()
+    first = timeline_sample(current, "Still inspectable after sibling activity", 1, 0, false)
+    assert disposition(ingest(first)) == "current"
+
+    for id <- 2..16 do
+      receipt = DateTime.add(at(), id)
+
+      sibling =
+        timeline_sample(current, "Sibling only", id, id, false)
+        |> put_in(["results", Access.at(0), "key"], "side")
+
+      assert disposition(ingest(sibling, receipt)) == "current"
+    end
+
+    detail = Monitoring.stream_inspection(stream.id, DateTime.add(at(), 17))
+    assert Enum.map(detail["measurement_history"], & &1["observation_id"]) == [first["id"]]
+    assert length(detail["evidence"]) > length(detail["measurement_history"])
+  end
+
+  test "backfill requires adjacent scope plus recorded Condition-change audit" do
+    assert {:ok, _} = Monitoring.inventory(inventory(nil), at())
+    original = timeline_stream()
+    assert {:ok, _} = Monitoring.inventory(inventory(@condition, 2), at())
+    continuous = timeline_stream()
+
+    rebound =
+      inventory(nil, 3)
+      |> put_in(["checks", Access.at(0), "outputs", Access.at(0), "target", "key"], "unrelated")
+
+    assert {:ok, _} = Monitoring.inventory(rebound, at())
+    unrelated = timeline_stream()
+    Repo.update_all(ResultStream, set: [predecessor_stream_id: nil])
+
+    Repo.query!(LinkConditionMeasurementHistory.backfill_sql())
+    assert Repo.get!(ResultStream, continuous.id).predecessor_stream_id == original.id
+    refute Repo.get!(ResultStream, unrelated.id).predecessor_stream_id
+
+    Repo.update_all(ResultStream, set: [predecessor_stream_id: nil])
+
+    Repo.delete_all(
+      from c in Mondek.Control,
+        where: c.stream_id == ^original.id and c.kind == "condition_changed"
+    )
+
+    Repo.query!(LinkConditionMeasurementHistory.backfill_sql())
+    refute Repo.get!(ResultStream, continuous.id).predecessor_stream_id
   end
 
   test "database constraints reject malformed condition identity without losing existing streams" do
@@ -217,6 +415,31 @@ defmodule Mondek.ConditionMetadataTest do
         "assignment_id" => a.id,
         "generation" => a.desired_generation
       })
+
+  defp timeline_stream do
+    owner = assignment()
+
+    Repo.one!(
+      from s in ResultStream,
+        where:
+          s.assignment_id == ^owner.id and s.result_key == "capacity" and is_nil(s.retired_at)
+    )
+  end
+
+  defp timeline_sample(owner, summary, sequence, offset, complete \\ true) do
+    stamp = at() |> DateTime.add(offset) |> DateTime.to_iso8601()
+
+    sample(owner, "OK", sequence)
+    |> Map.merge(%{"complete" => complete, "started_at" => stamp, "evaluated_at" => stamp})
+    |> put_in(["results", Access.at(0), "source_at"], stamp)
+    |> put_in(["results", Access.at(0), "summary"], summary)
+  end
+
+  defp with_sibling(inventory) do
+    update_in(inventory, ["checks", Access.at(0), "outputs"], fn [first] ->
+      [first, first |> Map.delete("condition") |> Map.put("key", "side")]
+    end)
+  end
 
   defp inventory(condition, revision \\ 1) do
     output = %{
