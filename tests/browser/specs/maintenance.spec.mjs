@@ -288,8 +288,10 @@ test('one explicit selection survives unsent reconnect, reviews overlap drift an
   await expect(page.locator('#maintenance-preview-button')).toBeDisabled();
   await expect(page.locator('#maintenance-name')).toHaveValue('Selected service work');
   await searchFilters(page, '', {id: 'maintenance-choice-search'});
-  await (await selectedChoice(page, (item) => item.scope === 'check' && item.assignment_id === httpId)).check();
   await (await selectedChoice(page, (item) => item.scope === 'check' && item.assignment_id === filesystemId)).check();
+  await setFilter(page, 'kind', 'stable_check', {id: 'maintenance-choice-search'});
+  await (await selectedChoice(page, (item) => item.scope === 'stable_check' && item.source_key === httpCheck.source_key && item.environment === httpCheck.environment)).check();
+  await expect(page.locator('#maintenance-check-chooser')).toContainText('across runner replacements');
   await setFilter(page, 'kind', 'target', {id: 'maintenance-choice-search'});
   await (await selectedChoice(page, (item) => item.scope === 'target' && item.target_key === httpTarget.key && item.target_kind === httpTarget.kind)).check();
   await expect(page.locator('#maintenance-selected-count')).toHaveText('3 selected');
@@ -311,7 +313,8 @@ test('one explicit selection survives unsent reconnect, reviews overlap drift an
   await expect(page.locator('#maintenance-reason')).toHaveValue('Both forms changed while the live connection was down');
   await expect(page.locator('#maintenance-choice-search-chip-kind')).toContainText('Monitored targets');
   const recovered = JSON.parse(await page.locator('#maintenance-form input[name="_proposal"]').inputValue());
-  expect(recovered.selections.filter((item) => item.scope === 'check').map((item) => item.assignment_id).sort()).toEqual([filesystemId, httpId].sort());
+  expect(recovered.selections.filter((item) => item.scope === 'check').map((item) => item.assignment_id)).toEqual([filesystemId]);
+  expect(recovered.selections.filter((item) => item.scope === 'stable_check').map((item) => item.source_key)).toEqual([httpCheck.source_key]);
   expect(recovered.selections.filter((item) => item.scope === 'target').map((item) => item.target_key).sort()).toEqual([httpTarget.key, fileTarget.key].sort());
   await page.locator('#maintenance-preview-button').click();
   await expect(page.locator('#maintenance-preview-summary')).toContainText('2 results across 2 scheduled checks');
@@ -351,6 +354,7 @@ test('one explicit selection survives unsent reconnect, reviews overlap drift an
   const shared = await currentWindow(page, request);
   expect(shared.scope).toBe('selection');
   expect(shared.selections).toHaveLength(4);
+  expect(shared.selections.find((item) => item.scope === 'stable_check').source_key).toBe(httpCheck.source_key);
   expect(shared.match_count).toBe(2);
   await expect(page.locator('#maintenance-saved')).toContainText('One window covering 4 selected checks or targets');
   await expect(inspector).not.toHaveAttribute('open');
@@ -632,8 +636,8 @@ test('chooser and shared window editor retain selections, drafts and actions acr
   await page.locator('#maintenance-timezone').fill('UTC');
   const start = new Date(Date.now() + 2 * 86400_000);
   const end = new Date(start.getTime() + 3600_000);
-  await page.locator('#maintenance-start').fill(start.toISOString().slice(0, 19));
-  await page.locator('#maintenance-end').fill(end.toISOString().slice(0, 19));
+  await page.locator('#maintenance-start').fill(start.toISOString().slice(0, 16));
+  await page.locator('#maintenance-end').fill(end.toISOString().slice(0, 16));
   await page.locator('#maintenance-preview-button').click();
   await expect(page.locator('#maintenance-preview-summary')).toBeVisible();
   await page.locator('#maintenance-save').click();

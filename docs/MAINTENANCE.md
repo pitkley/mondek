@@ -16,6 +16,12 @@ In the maintenance chooser, search and chips narrow the table. Checkboxes and bu
 
   Covers results with the exact target kind and stable ID, within the same monitoring source and monitored environment. It follows matching results across runners and includes later arrivals during the window. It does not include another environment, another monitoring project or another target with the same display name. A missing environment is an exact “no monitored environment” scope, not a wildcard. In a check producing several targets, unrelated results remain eligible for notifications.
 
+- **Stable checks** and **Stable check targets** in the chooser.
+
+  Match the exact source, source check key and monitored environment across runner replacements. A stable check covers all its results in that environment. A stable check target also requires the exact target kind and key. A saved selector can temporarily have zero current results and then match a replacement. To follow a renamed source check key, schedule a window with the new key.
+
+  A grouped fact is held when every active supporter is covered. A monitoring-loss episode is held when every current gap is covered. The exact check and environment also match declared coverage gaps without a selected runner.
+
 A target window survives a period with no matching results. Zero matches mean there is currently no matching monitoring coverage; they do not establish health. This scope does not merge incidents, elect an observer or transfer an existing incident to another runner. Removing a source still retains its historical incidents with the existing source-removal closure reason.
 
 A single target selection can cover several scheduled checks, provided their results declare that exact target within the same source and monitored environment. A host selection does not automatically include separately identified disks or services on that host. Add their exact targets or the relevant scheduled checks explicitly; names do not establish containment or a common incident.
@@ -78,6 +84,8 @@ All writes use JSON. New windows start from a source-declared check or result; t
 The proposal includes `name`, `reason`, `scope`, its exact identity fields, `timezone`, `start_mode` (`now` or `scheduled`), `starts_local`, `ends_local`, `start_fold` and `end_fold`. Fold choices are `reject`, `earlier` or `later`; `reject` is the ordinary default and only blocks ambiguous clock readings. Use the scope fields returned by the seed together; changing only `scope` does not fill its target identity. The timezone database version and civil-time interpretation are retained with the saved window. Edits carry its `id` and `revision`.
 
 For a composite window, set `scope` to `selection`, set the parent `assignment_id`, `source_id`, `environment`, `target_kind` and `target_key` to `null`, and provide `selections` with one to 512 ordinary check or target scopes. Each selector contains the six fields `scope`, `assignment_id`, `source_id`, `environment`, `target_kind` and `target_key`. Check selectors use only `assignment_id`; target selectors use source, environment, kind and key. Unused fields are `null`. Preview canonicalizes and deduplicates the array; submit its returned proposal unchanged when applying. `selection_summary` explains each selector's current match count, including zero matches. Existing single-check and single-target requests remain supported.
+
+Composite selectors also accept `scope: "stable_check"`. Provide `source_id`, `source_key` and the exact `environment` (or `null`). Set both target fields to `null` for all outputs in the environment, or set both to match one exact target. Leave `assignment_id` null. New selectors require a current matching result.
 
 Reviews expire after fifteen minutes. Pagination of one review must retain its original `review_token`, so a “Start now” interval does not move while reading additional matches. Invalid proposals return 422; stale or changed reviews return 409. A duplicate apply does not silently overwrite a newer revision.
 

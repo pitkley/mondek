@@ -123,6 +123,7 @@ defmodule Mondek.MonitoringLoss do
           "assignment_id" => assignment.id,
           "label" => stream.label || assignment.label,
           "source_id" => assignment.source_id,
+          "source_key" => assignment.source_key,
           "environment" => stream.environment,
           "target" => stream.target,
           "knowledge" => reason,
@@ -188,6 +189,7 @@ defmodule Mondek.MonitoringLoss do
         "coverage_id" => key,
         "label" => Enum.join(Enum.uniq([s["check_label"], s["result_label"]]), " — "),
         "source_id" => s["source_id"],
+        "source_key" => s["source_key"],
         "assignment_id" => nil,
         "environment" => s["environment"],
         "target" => %{
@@ -213,7 +215,11 @@ defmodule Mondek.MonitoringLoss do
       else
         if scope["status"] != "missing" do
           Monitoring.change(gap, %{
-            details: Map.put(gap.details, "knowledge", "awaiting_coverage_measurement")
+            details:
+              Map.merge(gap.details, %{
+                "knowledge" => "awaiting_coverage_measurement",
+                "source_key" => scope["source_key"]
+              })
           })
         end
       end

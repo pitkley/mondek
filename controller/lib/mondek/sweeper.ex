@@ -321,6 +321,7 @@ defmodule Mondek.Sweeper do
               'source_id',w.source_id,'environment',w.environment,
               'target_kind',w.target_kind,'target_key',w.target_key)] END,
           evidence.details->>'assignment_id',evidence.details->>'source_id',
+          evidence.details->>'source_key',
           evidence.details->>'environment',evidence.details->'target'->>'kind',
           evidence.details->'target'->>'key')
       )
@@ -339,7 +340,7 @@ defmodule Mondek.Sweeper do
                 OR (w.scope='target' AND w.source_id=a.source_id
                   AND w.environment IS NOT DISTINCT FROM i.environment
                   AND w.target_kind=s.target->>'kind' AND w.target_key=s.target->>'key')
-                OR (w.scope='selection' AND maintenance_selections_match(w.selections,a.id,a.source_id,i.environment,s.target->>'kind',s.target->>'key'))
+                OR (w.scope='selection' AND maintenance_selections_match(w.selections,a.id,a.source_id,a.source_key,i.environment,s.target->>'kind',s.target->>'key'))
             )
             AND NOT (#{monitoring_maintenance_match})
           ORDER BY w.ends_at,w.id LIMIT $2)
@@ -367,7 +368,7 @@ defmodule Mondek.Sweeper do
               OR (w.scope='target' AND w.source_id=a.source_id
                 AND w.environment IS NOT DISTINCT FROM i.environment
                 AND w.target_kind=s.target->>'kind' AND w.target_key=s.target->>'key')
-              OR (w.scope='selection' AND maintenance_selections_match(w.selections,a.id,a.source_id,i.environment,s.target->>'kind',s.target->>'key'))
+              OR (w.scope='selection' AND maintenance_selections_match(w.selections,a.id,a.source_id,a.source_key,i.environment,s.target->>'kind',s.target->>'key'))
             )
           )
           AND NOT EXISTS (

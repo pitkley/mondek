@@ -46,7 +46,7 @@ defmodule Mondek.ConditionInspection do
           AND ((w.scope='check' AND w.assignment_id=?)
             OR (w.scope='target' AND w.source_id=? AND w.environment IS NOT DISTINCT FROM ?
               AND w.target_kind=?->>'kind' AND w.target_key=?->>'key')
-            OR (w.scope='selection' AND maintenance_selections_match(w.selections,?,?,?,?,?))))
+            OR (w.scope='selection' AND maintenance_selections_match(w.selections,?,?,?,?,?,?))))
         """,
         unquote(at),
         unquote(at),
@@ -57,6 +57,7 @@ defmodule Mondek.ConditionInspection do
         unquote(s).target,
         unquote(a).id,
         unquote(a).source_id,
+        unquote(a).source_key,
         unquote(i).environment,
         fragment("?->>'kind'", unquote(s).target),
         fragment("?->>'key'", unquote(s).target)

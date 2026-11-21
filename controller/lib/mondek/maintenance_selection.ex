@@ -152,6 +152,7 @@ defmodule Mondek.MaintenanceSelection do
     selections = normalize(selections)
     checks = for %{"scope" => "check", "assignment_id" => id} <- selections, do: id
     targets = Enum.filter(selections, &(&1["scope"] == "target"))
+    stable_checks = Enum.filter(selections, &(&1["scope"] == "stable_check"))
 
     check_rows =
       check_query(from(a in Assignment, where: a.id in ^checks, select: a.id)) |> Repo.all()
@@ -161,7 +162,16 @@ defmodule Mondek.MaintenanceSelection do
     target_rows =
       target_query(from([s, a, r] in active_results(), where: ^target_match)) |> Repo.all()
 
-    found = Map.new(check_rows ++ target_rows, fn row -> {key(row), decorate(row)} end)
+    stable_rows =
+      stable_checks
+      |> Enum.group_by(&(!is_nil(&1["target_kind"])))
+      |> Enum.flat_map(fn {restricted?, selectors} ->
+        match = Enum.reduce(selectors, dynamic(false), &stable_match/2)
+        Repo.all(stable_query(from([s, a, r] in active_results(), where: ^match), restricted?))
+      end)
+
+    found =
+      Map.new(check_rows ++ target_rows ++ stable_rows, fn row -> {key(row), decorate(row)} end)
 
     selections
     |> Enum.map(fn selector ->
@@ -219,6 +229,13 @@ defmodule Mondek.MaintenanceSelection do
     active_results()
     |> result_filters(params)
     |> target_query()
+  end
+
+  defp candidate_query(%{"kind" => kind} = params)
+       when kind in ["stable_check", "check_target"] do
+    active_results()
+    |> result_filters(params)
+    |> stable_query(kind == "check_target")
   end
 
   defp candidate_query(params) do
@@ -307,6 +324,54 @@ defmodule Mondek.MaintenanceSelection do
       }
   end
 
+  defp stable_query(selected, restricted?) do
+    identities =
+      from [s, a, r] in selected,
+        where:
+          not is_nil(a.source_key) and
+            (not (^restricted?) or
+               (not is_nil(fragment("?->>'kind'", s.target)) and
+                  not is_nil(fragment("?->>'key'", s.target)))),
+        distinct: true,
+        select: %{
+          source: a.source_id,
+          source_key: a.source_key,
+          environment: s.environment,
+          kind: fragment("CASE WHEN ? THEN ?->>'kind' END", ^restricted?, s.target),
+          key: fragment("CASE WHEN ? THEN ?->>'key' END", ^restricted?, s.target)
+        }
+
+    from [s, a, r] in active_results(),
+      join: t in subquery(identities),
+      on:
+        a.source_id == t.source and a.source_key == t.source_key and
+          fragment("? IS NOT DISTINCT FROM ?", s.environment, t.environment) and
+          (is_nil(t.kind) or
+             (fragment("?->>'kind'", s.target) == t.kind and
+                fragment("?->>'key'", s.target) == t.key)),
+      group_by: [t.source, t.source_key, t.environment, t.kind, t.key],
+      order_by: [
+        asc: min(a.label),
+        asc: t.source,
+        asc: t.source_key,
+        asc: t.environment,
+        asc: t.kind,
+        asc: t.key
+      ],
+      select: %{
+        "scope" => "stable_check",
+        "source_id" => t.source,
+        "source_key" => t.source_key,
+        "environment" => t.environment,
+        "target_kind" => t.kind,
+        "target_key" => t.key,
+        "label" => min(a.label),
+        "matched_results" => count(s.id),
+        "observer_count" => count(a.runner_id, :distinct),
+        "available" => true
+      }
+  end
+
   defp result_filters(query, params) do
     query =
       if present?(params["search"]) do
@@ -355,14 +420,50 @@ defmodule Mondek.MaintenanceSelection do
     )
   end
 
+  @doc false
+  def stable_match(selector, acc) do
+    restriction =
+      if selector["target_kind"] do
+        dynamic(
+          [s, a, r],
+          fragment("?->>'kind'", s.target) == ^selector["target_kind"] and
+            fragment("?->>'key'", s.target) == ^selector["target_key"]
+        )
+      else
+        dynamic(true)
+      end
+
+    dynamic(
+      [s, a, r],
+      ^acc or
+        (a.source_id == ^selector["source_id"] and a.source_key == ^selector["source_key"] and
+           fragment(
+             "? IS NOT DISTINCT FROM ?",
+             s.environment,
+             type(^selector["environment"], :string)
+           ) and
+           ^restriction)
+    )
+  end
+
   defp decorate(row) do
     scope = identity(row)
 
     context =
-      if scope["scope"] == "check" do
-        "#{row["runner_label"] || row["runner_id"] || "Observer unavailable"} · #{row["check_environment"] || "No declared environment"} · source #{row["check_source"] || "built-in checks"} · check #{scope["assignment_id"]}"
-      else
-        "#{scope["target_kind"]}: #{scope["target_key"]} · #{scope["environment"] || "No declared environment"} · source #{scope["source_id"]} · all matching observers"
+      case scope["scope"] do
+        "check" ->
+          "#{row["runner_label"] || row["runner_id"] || "Observer unavailable"} · #{row["check_environment"] || "No declared environment"} · source #{row["check_source"] || "built-in checks"} · check #{scope["assignment_id"]}"
+
+        "stable_check" ->
+          target =
+            if scope["target_kind"],
+              do: "#{scope["target_kind"]}: #{scope["target_key"]}",
+              else: "All outputs"
+
+          "#{scope["source_key"]} · #{target} · #{scope["environment"] || "No declared environment"} · source #{scope["source_id"]} · all matching observers"
+
+        "target" ->
+          "#{scope["target_kind"]}: #{scope["target_key"]} · #{scope["environment"] || "No declared environment"} · source #{scope["source_id"]} · all matching observers"
       end
 
     row
@@ -372,22 +473,36 @@ defmodule Mondek.MaintenanceSelection do
     |> Map.put("label", row["label"] || fallback_label(scope))
   end
 
-  defp identity(scope), do: Map.new(@fields, &{&1, Map.get(scope, &1)})
+  def identity(%{"scope" => "stable_check"} = scope),
+    do: Map.new(["source_key" | @fields], &{&1, Map.get(scope, &1)})
+
+  def identity(scope), do: Map.new(@fields, &{&1, Map.get(scope, &1)})
+
   defp fallback_label(%{"scope" => "check"} = scope), do: "Check #{scope["assignment_id"]}"
+  defp fallback_label(%{"scope" => "stable_check"} = scope), do: scope["source_key"]
   defp fallback_label(scope), do: "#{scope["target_kind"]}: #{scope["target_key"]}"
 
-  defp valid_scope?(%{"scope" => "check"} = scope),
+  def valid_scope?(%{"scope" => "check"} = scope),
     do:
       Mondek.Protocol.assignment_id?(scope["assignment_id"]) and
-        Enum.all?(~w(source_id environment target_kind target_key), &is_nil(scope[&1]))
+        Enum.all?(~w(source_id source_key environment target_kind target_key), &is_nil(scope[&1]))
 
-  defp valid_scope?(%{"scope" => "target"} = scope),
+  def valid_scope?(%{"scope" => "target"} = scope),
     do:
-      is_nil(scope["assignment_id"]) and text?(scope["source_id"], 200) and
+      is_nil(scope["assignment_id"]) and is_nil(scope["source_key"]) and
+        text?(scope["source_id"], 200) and
         text?(scope["target_kind"], 64) and text?(scope["target_key"], 200) and
         (is_nil(scope["environment"]) or text?(scope["environment"], 128))
 
-  defp valid_scope?(_), do: false
+  def valid_scope?(%{"scope" => "stable_check"} = scope),
+    do:
+      is_nil(scope["assignment_id"]) and text?(scope["source_id"], 200) and
+        text?(scope["source_key"], 200) and
+        (is_nil(scope["environment"]) or text?(scope["environment"], 128)) and
+        ((is_nil(scope["target_kind"]) and is_nil(scope["target_key"])) or
+           (text?(scope["target_kind"], 64) and text?(scope["target_key"], 200)))
+
+  def valid_scope?(_), do: false
 
   defp text?(value, max),
     do:

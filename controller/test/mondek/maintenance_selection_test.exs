@@ -5,12 +5,95 @@ defmodule Mondek.MaintenanceSelectionTest do
 
   alias Mondek.{
     Maintenance,
+    MaintenanceSelection,
     MaintenanceWindow,
     MaintenanceEvent,
     ResultStream,
     NotificationWorker,
     Sweeper
   }
+
+  test "stable selectors follow an exact check through replacement and exclude lookalikes" do
+    {input, [first, sibling]} = inventory(2, "maintenance.selection", "production")
+    broad = stable_check(first)
+
+    narrow =
+      Map.merge(stable_check(first), %{"target_kind" => "volume", "target_key" => "orders"})
+
+    for {kind, selector, count} <- [{"stable_check", broad, 2}, {"check_target", narrow, 1}] do
+      listing = MaintenanceSelection.list(%{"kind" => kind, "search" => first.source_key})
+
+      assert [choice] =
+               Enum.filter(listing["items"], &(&1["target_key"] == selector["target_key"]))
+
+      assert MaintenanceSelection.identity(choice) == MaintenanceSelection.identity(selector)
+      assert choice["matched_results"] == count
+    end
+
+    broad_window = save(proposal([broad]))
+    narrow_window = save(proposal([narrow]))
+    assert Maintenance.for_assignment(sibling.id, at()) == []
+
+    assert {:ok, _} =
+             Monitoring.inventory(%{input | "inventory_revision" => 2, "checks" => []}, at())
+
+    for window <- [broad_window, narrow_window] do
+      assert {:ok, detail} = Maintenance.get(window["id"], at())
+      assert detail["match_count"] == 0
+
+      edited = Map.put(detail["proposal"], "reason", "Expected observer replacement")
+      assert {:ok, review} = Maintenance.preview(edited, 1, at())
+      assert length(review["overlaps"]) == 1
+      assert {:ok, %{"revision" => 2}} = Maintenance.apply(review["review_token"], edited, at())
+    end
+
+    {_input, [replacement]} = inventory(1, first.source_id, first.environment)
+    {_input, [other_environment]} = inventory(1, first.source_id, "staging")
+    {_input, [other_source]} = inventory(1, "maintenance.other", first.environment)
+
+    assert replacement.id != first.id
+    assert Maintenance.for_assignment(other_environment.id, at()) == []
+    assert Maintenance.for_assignment(other_source.id, at()) == []
+
+    matches =
+      Map.new(
+        Maintenance.for_assignment(replacement.id, at()),
+        &{&1["id"], &1["matching_stream_ids"]}
+      )
+
+    assert length(matches[broad_window["id"]]) == 2
+    assert length(matches[narrow_window["id"]]) == 1
+  end
+
+  test "monitoring loss requires maintenance for every declared check even without a runner" do
+    {_input, [first, second]} = inventory(2, "maintenance.selection", "production")
+    first_window = save(proposal([stable_check(first)]))
+
+    for {key, assignment} <- [{"first", first}, {"second", second}] do
+      Repo.insert!(%Mondek.MonitoringGap{
+        key: key,
+        scope_key: "coverage:" <> assignment.source_id,
+        details: %{
+          "key" => key,
+          "source_id" => assignment.source_id,
+          "source_key" => assignment.source_key,
+          "environment" => assignment.environment,
+          "assignment_id" => nil,
+          "target" => %{"kind" => "volume", "key" => "orders"}
+        },
+        since_at: at(),
+        ready_at: at()
+      })
+    end
+
+    incident = %Mondek.MonitoringIncident{scope_key: "coverage:" <> first.source_id}
+    assert Mondek.MonitoringLoss.maintenance_windows(incident, at()) == []
+
+    second_window = save(proposal([stable_check(second)]))
+
+    assert MapSet.new(Mondek.MonitoringLoss.maintenance_windows(incident, at()), & &1.id) ==
+             MapSet.new([first_window["id"], second_window["id"]])
+  end
 
   test "a canonical selection is one deduplicated union with per-selector counts and one audit" do
     {_input, [first, second]} = inventory(2)
@@ -602,6 +685,14 @@ defmodule Mondek.MaintenanceSelectionTest do
   end
 
   defp check(a), do: %{"scope" => "check", "assignment_id" => a.id}
+
+  defp stable_check(a),
+    do: %{
+      "scope" => "stable_check",
+      "source_id" => a.source_id,
+      "source_key" => a.source_key,
+      "environment" => a.environment
+    }
 
   defp target(a),
     do: %{
