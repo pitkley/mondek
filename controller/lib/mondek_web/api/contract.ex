@@ -330,6 +330,17 @@ defmodule MondekWeb.API.Contract do
       :observations ->
         S.ref("ObservationEnvelope")
 
+      :maintenance_project_plan ->
+        S.record(%{manifest: S.ref("MaintenanceProjectManifest"), base_revision: S.string()}, [
+          :manifest
+        ])
+
+      :maintenance_project_apply ->
+        S.record(%{manifest: S.ref("MaintenanceProjectManifest"), review_token: S.string()}, [
+          :manifest,
+          :review_token
+        ])
+
       :save ->
         S.record(%{revision: S.integer(), params: S.object()}, [:revision, :params])
 

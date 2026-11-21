@@ -2,6 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.API.V1.MaintenanceController do
   use MondekWeb.API.Controller
+  alias Mondek.MaintenanceProjects
+
+  def open_api_operation(action)
+      when action in [:maintenance_project, :maintenance_project_plan, :maintenance_project_apply],
+      do: MondekWeb.API.Contract.operation(action)
 
   def open_api_operation(:maintenance_windows),
     do: MondekWeb.API.Contract.operation(:maintenance_windows)
@@ -35,6 +40,15 @@ defmodule MondekWeb.API.V1.MaintenanceController do
 
   def open_api_operation(:maintenance_series_cancel),
     do: MondekWeb.API.Contract.operation(:maintenance_series_cancel)
+
+  def maintenance_project(conn, %{"project" => project}),
+    do: respond(conn, MaintenanceProjects.export(project))
+
+  def maintenance_project_plan(conn, params),
+    do: respond(conn, MaintenanceProjects.plan(params["manifest"], params["base_revision"]))
+
+  def maintenance_project_apply(conn, params),
+    do: respond(conn, MaintenanceProjects.apply(params["review_token"], params["manifest"]))
 
   def maintenance_windows(conn, p), do: reply(conn, Mondek.Maintenance.list(p))
 
