@@ -22,7 +22,7 @@ Prepared execution requires the current authenticated snapshot format and comple
 
 ## Verification and recovery
 
-After a coordinated update, verify stable runner installation IDs, higher boot/session counters, unchanged scheduled-check identities and fresh measurements at the adopted revision. Verify retained incidents, rules/exceptions, configuration history and held/retrying notifications. A healthy controller or recent runner contact alone does not prove fresh monitoring.
+After a coordinated update, verify stable runner installation IDs, higher boot/session counters, unchanged scheduled-check identities and fresh measurements at the adopted revision. Verify retained incidents, rules/exceptions, configuration history and held/retrying notifications. A healthy controller or recent runner contact alone does not prove fresh monitoring. The [installed dependency rollout acceptance](../tests/e2e/README.md#installed-dependency-rollout) verifies that an established gap keeps its deadline through adoption and clears after fresh authorized evidence.
 
 Restore a coordinated backup with its matching controller, consumer and locked Python environment if recovery is required. Restoring controller and runner state independently can change evidence or notification behavior; review those consequences before restarting.
 

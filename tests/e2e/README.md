@@ -39,3 +39,16 @@ The [browser suite](../browser/README.md) covers the real UI, including exact co
 ## Packaged consumer-state upgrade and gateway
 
 Run `devenv shell -- python3 tests/e2e/consumer_state_packaged.py --image LOCAL_CANDIDATE` after building the local candidate controller. It upgrades the existing published 0.0.4 schema through the normal image entrypoint, compares retained monitoring/configuration rows, checks exact state and quota persistence across recreation, and exercises installed SDK workers through an owned HTTPS gateway with rejected-credential controls. It uses only its unique project/volume and a synthetic local SMTP receiver, and retains evidence under `.local/acceptance/`. See [the qualification report](../../docs/CONSUMER-STATE-PACKAGED-QUALIFICATION.md) for baseline prerequisites, tested image IDs and platform limits. This deliberate manual qualification does not pull either controller image or publish artifacts.
+
+## Installed dependency rollout
+
+Run `dependency_rollout.py` with two locally available installed consumer images built from the same SDK revision. Use the [packaged CPU profile build commands](../../docs/RUNNER-CPU-PROFILE.md#reproduce) to produce the base and Kubernetes-client images, then build the local controller and run the isolated case:
+
+```sh
+docker build -f controller/Dockerfile -t mondek-rollout:controller .
+devenv shell -- python3 tests/e2e/dependency_rollout.py \
+  --controller mondek-rollout:controller \
+  --baseline mondek-runner-cpu:base --candidate mondek-runner-cpu:kubernetes
+```
+
+The fixture retains one runner journal while adding and then removing the installed dependency. Control contact stays online. The fixture independently withholds preparation acknowledgements and the upstream measurement. It checks the persisted gap identity and deadline through authorization and activation, then checks restoration with evidence measured after the hold is released. The brief path must clear before its saved deadline. The prolonged path must open one episode at or after its original deadline and restore that same episode. The scenario disables external delivery and removes only its own Compose project.
