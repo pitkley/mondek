@@ -118,6 +118,7 @@ def main() -> None:
             args.controller,
             max_concurrency=int(environment.get("MONDEK_MAX_CONCURRENCY", "3")),
             consumer=args.consumer,
+            worker_backend=environment.get("MONDEK_WORKER_BACKEND", "exec"),
         )
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):

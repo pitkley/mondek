@@ -13,8 +13,9 @@ import shutil
 import signal
 import sys
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import environment
 from ._text import DETAIL_OMISSION, diagnostic_text
@@ -41,9 +42,14 @@ from .worker_evidence import (
 )
 from .worker_limits import PREPARATION_TIMEOUT_SECONDS
 
+if TYPE_CHECKING:
+    from .warm_pool import WarmPool
+
+
 MAX_ASSIGNMENT = 4 * 1024 * 1024
 DISCOVERY_RETRY_SECONDS = 60
 SNAPSHOT_RETRY_SECONDS = 15
+WARM_RECHECK_SECONDS = 15
 
 
 class OutputLimit(Exception):
@@ -111,12 +117,55 @@ async def execute(
         start_new_session=True,
         env=worker_env,
     )
+    assert process.stdout is not None and process.stderr is not None
+
+    async def send_assignment() -> None:
+        assert process.stdin is not None
+        process.stdin.write(encoded_assignment)
+        await process.stdin.drain()
+        process.stdin.close()
+
+    def terminate() -> None:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    try:
+        return await capture_worker(
+            assignment,
+            stdout=process.stdout,
+            stderr=process.stderr,
+            start=send_assignment,
+            wait=process.wait,
+            terminate=terminate,
+            timeout=PREPARATION_TIMEOUT_SECONDS
+            if checking
+            else assignment["timeout_seconds"],
+            checking=checking,
+        )
+    finally:
+        terminate()
+        await process.wait()
+
+
+async def capture_worker(
+    assignment: dict[str, Any],
+    *,
+    stdout: asyncio.StreamReader,
+    stderr: asyncio.StreamReader,
+    start: Callable[[], Awaitable[None]],
+    wait: Callable[[], Awaitable[int]],
+    terminate: Callable[[], None],
+    timeout: float,
+    checking: bool = False,
+    liveness: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    """Capture one bounded launch and preserve complete frames through failure."""
     output = bytearray()
     captured = 0
     stderr_bytes = 0
     diagnostic = None
-    readers: list[asyncio.Task[None]] = []
-    assert process.stdout is not None and process.stderr is not None
 
     async def read(stream: asyncio.StreamReader, *, stdout: bool) -> None:
         nonlocal captured, stderr_bytes
@@ -138,18 +187,14 @@ async def execute(
                     raise OutputLimit("worker output exceeded 64 KiB capture budget")
                 raise OutputLimit("worker output exceeded 60 KiB stdout allowance")
 
-    async def communicate() -> None:
-        assert process.stdin is not None
-        process.stdin.write(encoded_assignment)
-        await process.stdin.drain()
-        process.stdin.close()
-        readers.extend(
-            [
-                asyncio.create_task(read(process.stdout, stdout=True)),
-                asyncio.create_task(read(process.stderr, stdout=False)),
-            ]
-        )
-        await asyncio.gather(*readers, process.wait())
+    async def communicate() -> int:
+        await start()
+        return await wait()
+
+    async def watch_broker() -> None:
+        while liveness is not None and liveness():
+            await asyncio.sleep(0.05)
+        raise ConnectionError("worker broker disconnected")
 
     async def drain(stream: asyncio.StreamReader, *, retain: bool) -> None:
         while chunk := await stream.read(4096):
@@ -157,16 +202,32 @@ async def execute(
                 remaining = MAX_COLLECTION_STDOUT_BYTES - len(output)
                 output.extend(chunk[: max(0, remaining)])
 
+    readers = [
+        asyncio.create_task(read(stdout, stdout=True)),
+        asyncio.create_task(read(stderr, stdout=False)),
+    ]
+    owner = asyncio.create_task(communicate())
+    completion = asyncio.gather(*readers, owner)
+    watcher = asyncio.create_task(watch_broker()) if liveness else None
     try:
-        await asyncio.wait_for(
-            communicate(),
-            timeout=PREPARATION_TIMEOUT_SECONDS
-            if checking
-            else assignment["timeout_seconds"],
-        )
-        if process.returncode != 0:
-            detail = "no collection attempted" if checking else "collection incomplete"
-            diagnostic = f"worker crashed (exit {process.returncode}); {detail}"
+        async with asyncio.timeout(timeout):
+            if watcher:
+                done, _ = await asyncio.wait(
+                    (completion, watcher), return_when=asyncio.FIRST_COMPLETED
+                )
+                if watcher in done:
+                    # Prefer an explicit refusal already read from the control
+                    # channel over the passive observation that its broker exited.
+                    if owner.done() and not owner.cancelled():
+                        owner.result()
+                    await watcher
+            await completion
+            code = owner.result()
+            if code != 0:
+                detail = (
+                    "no collection attempted" if checking else "collection incomplete"
+                )
+                diagnostic = f"worker crashed (exit {code}); {detail}"
     except TimeoutError:
         diagnostic = (
             f"worker preparation timed out after {PREPARATION_TIMEOUT_SECONDS}s; "
@@ -176,31 +237,48 @@ async def execute(
         )
     except OutputLimit as error:
         diagnostic = str(error)
+    except (OSError, EOFError) as error:
+        reason = "worker communication failed"
+        if liveness and type(error) is ConnectionError:
+            # These are fixed protocol diagnostics. Never surface arbitrary
+            # socket error strings, filesystem paths or consumer output here.
+            if str(error) in {
+                "snapshot verification failed",
+                "consumer is not fork-safe",
+                "worker deadline elapsed",
+                "worker broker disconnected",
+                "worker launch failed",
+                "warm broker launch failed",
+                "warm broker failed before acknowledging launch",
+                "warm broker lost while collecting",
+                "invalid warm worker process group",
+                "incomplete warm broker dispatch",
+            }:
+                reason = str(error)
+        diagnostic = (
+            reason
+            + "; "
+            + ("no collection attempted" if checking else "collection incomplete")
+        )
     finally:
-        # Kill the process group even after the leader exits: inherited pipes and
-        # descendants must never outlive the bounded execution slot.
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        for reader in readers:
-            reader.cancel()
-        await asyncio.gather(*readers, return_exceptions=True)
-        if diagnostic is not None or process.returncode is None:
-            # The other pipe can report its overflow before already-flushed result
-            # frames have reached the stdout reader. Keep bounded space for those.
+        terminate()
+        if watcher:
+            watcher.cancel()
+        completion.cancel()
+        for task in (*readers, owner):
+            task.cancel()
+        await asyncio.gather(completion, owner, *readers, return_exceptions=True)
+        if watcher:
+            await asyncio.gather(watcher, return_exceptions=True)
+        if diagnostic is not None:
+            # Keep already-flushed complete frames even if another pipe failed first.
             try:
-                await asyncio.wait_for(
-                    asyncio.gather(
-                        drain(process.stdout, retain=not checking),
-                        drain(process.stderr, retain=False),
-                        process.wait(),
-                    ),
-                    timeout=0.25,
-                )
-            except TimeoutError:
+                async with asyncio.timeout(0.25):
+                    await asyncio.gather(
+                        drain(stdout, retain=not checking), drain(stderr, retain=False)
+                    )
+            except (TimeoutError, OSError):
                 pass
-        await process.wait()
 
     results: dict[str, dict[str, Any]] = {}
     terminal: dict[str, Any] = {}
@@ -301,12 +379,22 @@ class Runner:
         worker=execute,
         transport=post_json,
         consumer: str,
+        worker_backend: str = "exec",
     ):
         self.state = state
         self.controller_url = controller_url.rstrip("/")
         self.max_concurrency = max(1, min(max_concurrency, 16))
         self.monotonic, self.wall_clock = monotonic, wall_clock
         self.worker, self.transport = worker, transport
+        if worker_backend not in {"exec", "warm"}:
+            raise ValueError("MONDEK_WORKER_BACKEND must be exec or warm")
+        self.worker_backend = worker_backend
+        self.warm_pool: WarmPool | None = None
+        if worker_backend == "warm" and sys.platform == "linux":
+            from .warm_pool import WarmPool
+
+            self.warm_pool = WarmPool()
+        self.preparing_revision: str | None = None
         self.connection_events = ConnectionEvents(clock=monotonic)
         self.connection_diagnostics: dict[str, str] = {}
         self.active = state.assignments()
@@ -356,6 +444,12 @@ class Runner:
     def status(self) -> dict[str, Any]:
         status = self.state.status(sorted(self.running))
         status["scheduler"] = self.scheduler_status()
+        if self.worker_backend == "warm":
+            status["worker_backend"] = (
+                self.warm_pool.status()
+                if self.warm_pool
+                else {"backend": "exec", "reason": "warm workers require Linux"}
+            )
         if self.inventory:
             status["inventory"] = inventory_summary(self.inventory)
         if self.inventory_refresh_status:
@@ -427,13 +521,13 @@ class Runner:
             report = self.state.allocate(
                 frozen, self.wall_clock() + interval, timestamp()
             )
+            if frozen.get("source_revision"):
+                self.running_revisions[id_] = frozen["source_revision"]
             task = asyncio.create_task(self.collect(frozen, report))
             self.running[id_] = task
 
     async def collect(self, assignment: dict, report: dict) -> None:
         id_ = assignment["id"]
-        if assignment.get("source_revision"):
-            self.running_revisions[id_] = assignment["source_revision"]
         try:
             options = (
                 {
@@ -453,11 +547,20 @@ class Runner:
                 if assignment["kind"] == "python"
                 else {}
             )
-            outcome = await self.worker(
-                assignment,
-                lock_path=self.state.directory / f"{id_}.worker.lock",
-                **options,
-            )
+            lock_path = self.state.directory / f"{id_}.worker.lock"
+            outcome = None
+            pool = self.warm_pool if assignment["kind"] == "python" else None
+            if pool:
+                outcome = await pool.execute(
+                    assignment,
+                    lock_path=lock_path,
+                    bundle_dir=self.bundle_dir,
+                    execution_context=options["execution_context"],
+                )
+            if pool and pool.should_prepare(assignment["source_revision"]):
+                self.preparation_needed.set()
+            if outcome is None:
+                outcome = await self.worker(assignment, lock_path=lock_path, **options)
             report.update(outcome, evaluated_at=timestamp())
             self.state.complete(report)
         except asyncio.CancelledError:
@@ -618,9 +721,25 @@ class Runner:
 
     async def prepare(self) -> None:
         while not self.stopped.is_set():
-            await self.preparation_needed.wait()
+            pool = self.warm_pool
+            if pool and self.active:
+                # Backoff can expire between scheduled collections or while the
+                # controller is offline. Readiness never gates an allocation.
+                try:
+                    await asyncio.wait_for(
+                        self.preparation_needed.wait(), WARM_RECHECK_SECONDS
+                    )
+                except TimeoutError:
+                    pass
+            else:
+                await self.preparation_needed.wait()
+            desired = (
+                list(self.desired.items()) if self.preparation_needed.is_set() else []
+            )
             self.preparation_needed.clear()
-            for id_, assignment in list(self.desired.items()):
+            if pool:
+                await pool.prune(self.retained_revisions())
+            for id_, assignment in desired:
                 if (
                     self.desired.get(id_) != assignment
                     or self.prepared.get(id_) == assignment
@@ -634,11 +753,16 @@ class Runner:
                         if candidate["kind"] == "python"
                         else {}
                     )
-                    outcome = await self.worker(candidate, prepare=True, **options)
-                    if not outcome["prepared"]:
-                        raise ValueError(
-                            outcome.get("diagnostic") or "preparation failed"
-                        )
+                    self.preparing_revision = candidate.get("source_revision")
+                    if pool and candidate["kind"] == "python":
+                        async with asyncio.timeout(PREPARATION_TIMEOUT_SECONDS):
+                            warmed = await pool.prepare(
+                                candidate, bundle_dir=self.bundle_dir
+                            )
+                            if not warmed:
+                                await self.prepare_exec(candidate, options)
+                    else:
+                        await self.prepare_exec(candidate, options)
                     if self.desired.get(id_) == candidate:
                         self.prepared[id_] = candidate
                         self.preparation_errors.pop(id_, None)
@@ -647,6 +771,40 @@ class Runner:
                         self.preparation_errors[id_] = diagnostic_text(
                             f"{id_} preparation failed: {error}", 512
                         )
+
+                finally:
+                    self.preparing_revision = None
+
+            # Saved or already-authorized assignments may need a replacement broker.
+            # Their authorization and due times remain independent of readiness.
+            if pool:
+                tried: set[str] = set()
+                for assignment in list(self.active.values()):
+                    revision = assignment.get("source_revision")
+                    if (
+                        not revision
+                        or assignment["kind"] != "python"
+                        or self.active.get(assignment["id"]) != assignment
+                        or revision in tried
+                        or revision in self.blocked_revisions
+                        or not pool.should_prepare(revision)
+                    ):
+                        continue
+                    tried.add(revision)
+                    self.preparing_revision = revision
+                    try:
+                        async with asyncio.timeout(PREPARATION_TIMEOUT_SECONDS):
+                            await pool.prepare(assignment, bundle_dir=self.bundle_dir)
+                    except (OSError, ValueError, TimeoutError, RuntimeError):
+                        # Broker status owns readiness errors. Exec remains available.
+                        pass
+                    finally:
+                        self.preparing_revision = None
+
+    async def prepare_exec(self, candidate: dict, options: dict) -> None:
+        outcome = await self.worker(candidate, prepare=True, **options)
+        if not outcome["prepared"]:
+            raise ValueError(outcome.get("diagnostic") or "preparation failed")
 
     def control_wait_seconds(self) -> int:
         """Longer idle wait only after complete adoption and accepted publication."""
@@ -853,16 +1011,25 @@ class Runner:
             != self.inventory_refresh_revision
         )
 
-    def prune_bundles(self) -> None:
+    def retained_revisions(self) -> set[str]:
         retained = {
-            entry.get("source_revision")
+            entry["source_revision"]
             for entry in [
                 *self.active.values(),
                 *self.desired.values(),
                 *self.prepared.values(),
             ]
+            if entry.get("source_revision")
         }
         retained.update(self.running_revisions.values())
+        if self.preparing_revision:
+            retained.add(self.preparing_revision)
+        return retained
+
+    def prune_bundles(self) -> None:
+        retained = self.retained_revisions()
+        if self.warm_pool:
+            retained.update(self.warm_pool.references())
         if self.inventory:
             retained.add(self.inventory["source_revision"])
         for path in self.bundle_dir.iterdir():
@@ -964,3 +1131,5 @@ class Runner:
             for task in pending:
                 task.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
+            if self.warm_pool:
+                await self.warm_pool.close()

@@ -32,12 +32,15 @@ else:
         return ok("sample", "Trivial result")
 
 
+WARM = os.environ.get("MONDEK_CPU_PROFILE_WARM", "0")
 app = App(
     source_id="runner-cpu-profile",
     environment=Environment("isolated-profile"),
     construction_environment={
         "MONDEK_CPU_PROFILE_CHECKS": str(COUNT),
         "MONDEK_CPU_PROFILE_API": API_URL,
+        "MONDEK_CPU_PROFILE_WARM": WARM,
     },
+    **({"warm_worker_safe": True} if WARM == "1" else {}),
     checks=[Binding(sample, key=f"sample-{index:03}") for index in range(COUNT)],
 )
