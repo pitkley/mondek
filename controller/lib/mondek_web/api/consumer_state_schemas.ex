@@ -38,6 +38,7 @@ defmodule MondekWeb.API.ConsumerStateSchemas do
           %{
             version: %Schema{type: :integer, enum: [1]},
             status: S.enum(~w(found missing stored deleted conflict)),
+            observed_at: S.time(),
             entry: S.nullable(S.ref("ConsumerStateEntry"))
           },
           [:version, :status]

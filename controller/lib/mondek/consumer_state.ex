@@ -221,7 +221,9 @@ defmodule Mondek.ConsumerState do
 
   defp live?(nil, _), do: false
   defp live?(e, at), do: is_nil(e.expires_at) or DateTime.compare(e.expires_at, at) == :gt
-  defp perform(%{"operation" => "get"}, _, _, current, _, _), do: receipt(current, "found")
+
+  defp perform(%{"operation" => "get"}, _, _, current, _, at),
+    do: Map.put(receipt(current, "found"), "observed_at", Mondek.Monitoring.iso(at))
 
   defp perform(p, ns, old, current, scope, at) do
     expected = p["expected_version"]

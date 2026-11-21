@@ -46,6 +46,8 @@ class PublicApiTests(unittest.TestCase):
             expected = {
                 'CheckContext', 'StateStore', 'StateEntry', 'StateError',
                 'StateConflict', 'StateWriteIndeterminate',
+                'FreshState', 'StaleState', 'StateUnavailable', 'StateRead',
+                'read_state',
                 'App', 'Binding', 'Capability', 'CheckGroup', 'Condition', 'Consumer',
                 'Datasource', 'DatasourceFactory', 'Environment', 'FromFactory',
                 'Discovery', 'DiscoveryCandidate', 'DiscoveryChoice',

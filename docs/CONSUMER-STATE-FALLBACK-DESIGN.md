@@ -1,0 +1,7 @@
+# Consumer-state fallback design
+
+An explicit SDK read returns a fresh entry or authoritative miss, a stale value with its original timestamps and cache age, or unavailable after a defined transport failure. Stale values carry no compare-and-set version. Requests that fail validation, budgets, authentication, admission or receipt validation keep their existing errors. Ordinary `StateStore` callers and structural implementations keep their existing API.
+
+The runner can opt in to a private bounded SQLite cache in its persistent state directory. It shares cached reads among disposable workers during the same runner session. The cache starts empty at runner startup. Identity includes the controller URL and admitted installation, session, boot, source, assignment and generation. A cached value is eligible only while it meets the caller's cache-age bound and the original expiry. For expiry, use the controller's sampled database clock anchored conservatively at the request start on the runner's monotonic clock.
+
+Invalidate the server address before a mutation is dispatched. A short SQLite transaction increments the cache epoch, evicts the affected address and increments a session-wide pending count. Confirmed mutations and definite rejections decrement it. A lost reply or killed worker leaves the count elevated and disables fallback for the runner session. Cache reads and fills require a matching epoch with no pending mutation. An authoritative miss evicts before a later worker can fall back. Network calls happen outside SQLite transactions.

@@ -35,6 +35,7 @@ from .authoring import validate_params
 from .bundle import load_snapshot, verify_snapshot
 from .config import validate
 from .consumer_state import CheckContext, _StateClient
+from .consumer_state_cache import StateCache
 from .worker_evidence import EvidenceWriter, encode_record
 from .worker_limits import PREPARATION_TIMEOUT_SECONDS, WATCHDOG_GRACE_SECONDS
 
@@ -59,11 +60,13 @@ async def run(
             raw_context = os.environ.pop("MONDEK_EXECUTION_CONTEXT", None)
             execution = json.loads(raw_context) if raw_context else None
         if not prepare and execution is not None:
+            cache_path = execution.get("state_cache")
             context = CheckContext(
                 _StateClient(
                     execution["url"],
                     execution["identity"],
                     deadline=execution["deadline"],
+                    cache=StateCache(Path(cache_path)) if cache_path else None,
                 )
             )
         assignment = validate(assignment)
