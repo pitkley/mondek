@@ -1,12 +1,12 @@
 # Runtime incident correlation proposal
 
-Status: design proposal, 2026-11-16. No runtime behavior or public API described here has been implemented. This extends the current [shared-condition contract](GROUPED-INCIDENTS.md) with a separate correlation layer; it deliberately introduces the causal notification inhibition excluded from that increment.
+Original design proposal, 16 November 2026. [Manual cases](RUNTIME-INCIDENT-CORRELATION.md) and [exact batch delivery](EXACT-BATCH-DELIVERY.md) document shipped behavior. The newer draft on [correlation hints, relationships and decisions](INCIDENT-CORRELATION-DECISIONS-DESIGN.md) sets the direction for hints, secondary links, rules and provider integration. The delivery extensions below describe historical proposals.
 
 ## Recommendation
 
 Keep `Condition` as a declaration of equivalent evidence, with one condition per output. Add runtime correlation between existing health incident episodes, including shared-condition episodes, without changing their evidence ownership or lifetimes. Give the correlated collection its own durable episode, called a **correlation case** in this proposal. A case has an optional anchor incident representing the suspected upstream problem, independently measured member incidents, audited membership and its own operator attention scope.
 
-This supports a cluster network failure with dozens of app incidents underneath one operator incident. It also permits an external model such as Jev to propose the same decisions an operator could make. Mondek owns validation, concurrency, notification eligibility and history; the model supplies a bounded decision, never execution or delivery authority.
+This supports a cluster network failure with dozens of app incidents underneath one operator incident. It also permits an external decision provider to propose the same decisions an operator could make. Mondek owns validation, concurrency, notification eligibility and history; a provider supplies bounded advisory decisions.
 
 Use one primary notification-owning case per member episode initially. Support multiple noninhibiting relationship dimensions alongside it. Arbitrary nested suppression graphs, multiple notification parents and automatic remediation are outside the first implementation.
 
@@ -62,15 +62,7 @@ For a shared condition episode, no first contributor owns hint policy. Build a d
 
 ## Decision protocol and bounded waiting
 
-User direction: follow the OpenAI Decisions API for the Jev integration. Align the adapter and request/result lifecycle with that API before defining a Mondek-specific transport. The worker claim/submit and lease sketch below is provisional internal fencing design, not a requirement to introduce a competing public decision protocol. Verify the actual API contract during implementation; this proposal does not assume its endpoint shapes or capabilities.
-
-On incident opening, atomically persist an evaluation request alongside existing native incident/notification work. A configured controller policy may place eligible failure work behind a short correlation hold. Correlation is disabled by default; a proposed initial enabled default is ten seconds, with a hard installation maximum of thirty seconds and zero supported. The deadline is persisted from first controller detection, not an untrusted source timestamp. Job retry, controller restart, candidate arrival and repeated `undecided` responses cannot extend it.
-
-The decision input contains the incident identity/revision, scoped selected-output investigation evidence, current controls, accepted hints, bounded open candidates, candidate revisions, truncation and deadline. The output is `attach(parent_episode_ref)`, `standalone` or `undecided`, plus reason, nullable confidence and decider/version identity. A confidence threshold is an operator policy; a model cannot grant itself attachment authority. Run deterministic policies first, then optionally a configured external decider. Persist work in Oban; network/model I/O happens outside database transactions. Consumer Python and arbitrary executable callbacks never run inside the controller.
-
-An external worker claims a bounded lease through a proposed HTTP decision-request API and submits a result with request identity, lease and reviewed revisions. A response after deadline, after closure, after an operator override or against stale membership is recorded but cannot apply as the old request. A fresh later decision can attach an episode under current policy without holding its alerts again. Candidate changes can invalidate an attachment; do not require every irrelevant candidate to remain unchanged.
-
-At the exact deadline, timeout, unavailable decider, invalid output or repeated undecided result releases the original work as standalone. Correlation holds consume no receiver attempts. A lease timeout is bounded by the same deadline; automatic request retries are separately bounded and never renew it. This gives Jev an integration point without making incident detection or notification availability depend on an LLM.
+See [correlation hints, relationships and decisions](INCIDENT-CORRELATION-DECISIONS-DESIGN.md) for the proposed provider-neutral request and result model, expiry, disclosure, revalidation and review. The first slices leave standalone delivery on its existing schedule. Any future correlation hold requires separate review of the combined wait and delivery budgets.
 
 ## Notification semantics
 
@@ -127,9 +119,7 @@ Case fly-over and full page must render one shared entity body with LiveView par
 
 1. **Native model and investigation:** schema/migrations, typed references, membership/audit, manual reviewed controls and HTTP/MCP reads. Ship with correlation notification inhibition disabled. Preserve existing installation history and update startup upgrade guidance.
 2. **Notification handover:** case attention/facts, precise acknowledgement scope, reservations, immutable coverage, budget accounting, dispatch gates, fallback and terminal-obligation custody through moves. Resolve the lock prototype, finish an exhaustive transition table and qualify crash/restart behavior before enabling this feature.
-3. **Deterministic automation and SDK hints:** accepted-generation hints, bounded candidate search, late-parent reconciliation and time-bounded requests. Preserve old declarations unchanged; update SDK exports, inventory/snapshot validators, protocol fixtures and authoring guides together.
-4. **External decider:** integrate Jev following the OpenAI Decisions API, retaining Mondek-owned deadlines, stale-response fences and reviewed mutation semantics. Reconcile the provisional worker/lease sketch with that API rather than establishing a competing protocol. Start in shadow mode with proposals and operator acceptance; automatic attachment is a separate operator policy. Jev stays external and replaceable.
-5. **Additional dimensions/selectors:** noninhibiting relationship facets first; promote attribute-based candidate rules only with explicit identity/scoping and bounded query contracts. Do not quietly introduce multiple suppression parents.
+3. **Hints, relationships and decisions:** see the implementation slices in [correlation hints, relationships and decisions](INCIDENT-CORRELATION-DECISIONS-DESIGN.md). Start with bounded candidate inspection, then build independent secondary links, opt-in deterministic attachment and advisory decisions through a configured provider. Review notification holds separately.
 
 Required meaningful tests include both parent/child arrival orders; concurrent opposite attachments and merges; per-episode recurrence; anchor recovery with failing children; condition members; exact hold expiry; stale/late/duplicate model replies; override persistence; new severity/impact within and beyond acknowledgement scope; partial maintenance; distinct destinations; fallback after case exhaustion; detach after partial attempts or accepted case delivery; repeated moves without replenished budgets; closure obligations; controller death between admission/I/O/completion; and migration/retention with pending work. Cover transactional behavior with real PostgreSQL and controlled interleavings, installed SDK/controller flows with local webhook receipts and restart, serialized HTTP/MCP bounds and real browser controls at both widths. Existing standalone and shared-condition suites remain regression gates. No live notifications or external deployment changes are needed for qualification.
 

@@ -10,7 +10,7 @@ All selected episodes must have the same exact monitored environment. A missing 
 
 Measured member recovery and case membership are independent. A recovered parent stays visible while children fail. Case state is derived from retained native episodes; reads do not write it. A case whose members have all ended cannot reopen. Moving its last unresolved member records the closure time and action. A new native failure episode needs a new relation. Removing a member says removed, never recovered.
 
-[Exact batch delivery](EXACT-BATCH-DELIVERY.md) adds opt-in aggregation and reviewed case acknowledgements. This release does not invoke a model or accept SDK correlation hints. Each episode retains all evidence and controls and its original notification identity, payload and budget. Later phases of the [reviewed proposal](RUNTIME-INCIDENT-CORRELATION-PLAN.md) add those capabilities, including an OpenAI Decisions API integration.
+[Exact batch delivery](EXACT-BATCH-DELIVERY.md) adds opt-in aggregation and reviewed case acknowledgements. This release does not invoke a model or accept SDK correlation hints. Each episode retains all evidence and controls and its original notification identity, payload and budget. The draft on [correlation hints, relationships and decisions](INCIDENT-CORRELATION-DECISIONS-DESIGN.md) covers SDK hints, rules, secondary relationships and external decision providers.
 
 ## HTTP
 

@@ -20,7 +20,7 @@ Native acknowledgement witnesses use only native ownership. Topology and case co
 
 The case page previews controls and shows batching state, acknowledgement and bounded batch history (unfinished work first). Use `POST /api/v1/incidents/cases/:id/control/preview` with action `enable`, `disable`, `acknowledge` or `end`, a request_id and note. Acknowledge accepts optional seconds (1–31536000); omit for until case ends. Apply the returned token through `/api/v1/incidents/cases/control/apply`. Reads and MCP get_case expose the same typed delivery projection. `batch_page` pages exact batch history independently from memberships and decisions.
 
-After enabling, only eligible facts already present at dispatch can coalesce; no delay or dependency hint is added to runner scheduling. Later facts need new batches. Ongoing automatic attention suppression, SDK hints and the OpenAI Decisions API integration remain future work.
+After enabling, only eligible facts already present at dispatch can coalesce; no delay or dependency hint is added to runner scheduling. Later facts need new batches. Ongoing automatic attention suppression remains future work. SDK hints and external decision providers are covered by the draft on [correlation hints, relationships and decisions](INCIDENT-CORRELATION-DECISIONS-DESIGN.md).
 
 ## Verification scope
 
