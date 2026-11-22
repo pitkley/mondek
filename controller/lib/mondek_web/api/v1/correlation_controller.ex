@@ -41,4 +41,13 @@ defmodule MondekWeb.API.V1.CorrelationController do
 
   def correlation_relationship_apply(conn, %{"review_token" => token}),
     do: respond(conn, Mondek.CorrelationRelationships.apply(token))
+
+  def correlation_decision_request(conn, params),
+    do: respond(conn, Mondek.CorrelationProviderDecisions.request(params))
+
+  def correlation_decision_preview(conn, %{"request_id" => id}),
+    do: respond(conn, Mondek.CorrelationProviderDecisions.preview(id))
+
+  def correlation_decision_apply(conn, %{"review_token" => token}),
+    do: respond(conn, Mondek.CorrelationProviderDecisions.apply(token))
 end

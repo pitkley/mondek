@@ -310,3 +310,5 @@ retention =
   end
 
 config :mondek, :retention, retention
+
+config :mondek, :correlation_decisions_config, env.("MONDEK_CORRELATION_DECISIONS_CONFIG", nil)

@@ -2694,6 +2694,116 @@
         },
         "type": "object"
       },
+      "CorrelationProviderDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "confidence": {
+            "nullable": true,
+            "type": "number"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "provider_id": {
+            "type": "string"
+          },
+          "reason": {
+            "nullable": true,
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "resolved_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "selected": {
+            "additionalProperties": false,
+            "nullable": true,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "individual",
+                  "condition"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "type"
+            ],
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "proposed",
+              "standalone",
+              "abstained",
+              "expired",
+              "revoked",
+              "stale",
+              "invalid",
+              "unavailable",
+              "applied"
+            ],
+            "type": "string"
+          },
+          "subject": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "individual",
+                  "condition"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "type"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "request_id",
+          "subject",
+          "provider_id",
+          "status",
+          "reason",
+          "confidence",
+          "selected",
+          "requested_at",
+          "expires_at"
+        ],
+        "type": "object"
+      },
       "CorrelationTargetRef": {
         "additionalProperties": false,
         "properties": {
@@ -5237,6 +5347,29 @@
           "check_key",
           "output_key",
           "reason"
+        ],
+        "type": "object"
+      },
+      "CorrelationProviderDecisionPage": {
+        "additionalProperties": false,
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CorrelationProviderDecision"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "has_more"
         ],
         "type": "object"
       },
@@ -9598,6 +9731,157 @@
         ]
       }
     },
+    "/api/v1/incidents/decisions/apply": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Experimental same-release contract. Review tokens and revisions retain their domain scope; source and definition revisions are not Git revisions.",
+        "operationId": "correlation_decision_apply",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "review_token": {
+                    "maxLength": 65536,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "review_token"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Operation input. Reviewed and runner semantics are enforced by the domain context.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "case_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "case_id",
+                    "replayed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Correlation decision apply",
+        "tags": [
+          "Correlation"
+        ]
+      }
+    },
     "/api/v1/maintenance-series/{id}": {
       "get": {
         "callbacks": {},
@@ -10661,6 +10945,264 @@
         "summary": "Maintenance project plan",
         "tags": [
           "Maintenance"
+        ]
+      }
+    },
+    "/api/v1/incidents/decisions/preview": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Experimental same-release contract. Review tokens and revisions retain their domain scope; source and definition revisions are not Git revisions.",
+        "operationId": "correlation_decision_preview",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "request_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "request_id"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Operation input. Reviewed and runner semantics are enforced by the domain context.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "as_of": {
+                      "format": "date-time",
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "cases": {
+                      "items": {
+                        "$ref": "#/components/schemas/CorrelationCase"
+                      },
+                      "type": "array"
+                    },
+                    "notification_effect": {
+                      "enum": [
+                        "unchanged",
+                        "case_policy"
+                      ],
+                      "type": "string"
+                    },
+                    "proposal": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "action": {
+                          "enum": [
+                            "create",
+                            "attach",
+                            "detach",
+                            "merge",
+                            "split",
+                            "anchor"
+                          ],
+                          "type": "string"
+                        },
+                        "anchor": {
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "properties": {
+                            "id": {
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "individual",
+                                "condition"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type"
+                          ],
+                          "type": "object"
+                        },
+                        "case_id": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "episodes": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "id": {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "type": {
+                                "enum": [
+                                  "individual",
+                                  "condition"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "type"
+                            ],
+                            "type": "object"
+                          },
+                          "maxItems": 250,
+                          "type": "array"
+                        },
+                        "other_case_id": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "reason": {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "request_id": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "title": {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "action",
+                        "request_id",
+                        "reason"
+                      ],
+                      "type": "object"
+                    },
+                    "review_token": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "proposal",
+                    "review_token",
+                    "notification_effect",
+                    "cases",
+                    "as_of"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Correlation decision preview",
+        "tags": [
+          "Correlation"
         ]
       }
     },
@@ -13198,6 +13740,164 @@
         "summary": "Assignment",
         "tags": [
           "Assignments"
+        ]
+      }
+    },
+    "/api/v1/incidents/decisions/request": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Experimental same-release contract. Review tokens and revisions retain their domain scope; source and definition revisions are not Git revisions.",
+        "operationId": "correlation_decision_request",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "request_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "subject": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "individual",
+                          "condition"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "type"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "request_id",
+                  "subject"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Operation input. Reviewed and runner semantics are enforced by the domain context.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorrelationProviderDecision"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Acceptable"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Correlation decision request",
+        "tags": [
+          "Correlation"
         ]
       }
     },
@@ -23894,6 +24594,16 @@
               "minimum": 1,
               "type": "integer"
             }
+          },
+          {
+            "description": "Filter: decisions_page.",
+            "in": "query",
+            "name": "decisions_page",
+            "schema": {
+              "maximum": 1000000,
+              "minimum": 1,
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -24011,6 +24721,9 @@
                         },
                         "correlation_candidates": {
                           "$ref": "#/components/schemas/CorrelationCandidateInspection"
+                        },
+                        "correlation_decisions": {
+                          "$ref": "#/components/schemas/CorrelationProviderDecisionPage"
                         },
                         "correlation_override": {
                           "$ref": "#/components/schemas/CorrelationAutomationOverride"

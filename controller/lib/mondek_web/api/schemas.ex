@@ -501,6 +501,9 @@ defmodule MondekWeb.API.Schemas do
                :correlation_override_apply,
                :correlation_relationship_preview,
                :correlation_relationship_apply,
+               :correlation_decision_request,
+               :correlation_decision_preview,
+               :correlation_decision_apply,
                :case_control_preview,
                :case_control_apply,
                :correlation_apply

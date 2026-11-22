@@ -61,6 +61,7 @@ defmodule Mondek.Correlations do
   alias Mondek.{Repo, Monitoring, Conditions, Incident, ConditionIncident}
   alias Mondek.{CorrelationCase, CorrelationMembership, CorrelationDecision, CorrelationReceipt}
   @salt "correlation-review-v1"
+  @provider_salt "provider-native-grouping-review-v1"
   @limit 250
 
   def lock!(mode \\ :exclusive) do
@@ -70,7 +71,12 @@ defmodule Mondek.Correlations do
     Repo.query!("SELECT #{function}(774021)")
   end
 
-  def preview(proposal, at \\ Monitoring.now()) do
+  def preview(proposal, at \\ Monitoring.now()), do: preview_with(proposal, at, @salt)
+
+  @doc false
+  def preview_provider(proposal, at), do: preview_with(proposal, at, @provider_salt)
+
+  defp preview_with(proposal, at, salt) do
     transact(fn ->
       p = validate!(proposal)
       state = state!(p)
@@ -78,7 +84,7 @@ defmodule Mondek.Correlations do
       %{
         "proposal" => p,
         "review_token" =>
-          Phoenix.Token.sign(MondekWeb.Endpoint, @salt, {p, state_fingerprint(state)}),
+          Phoenix.Token.sign(MondekWeb.Endpoint, salt, {p, state_fingerprint(state)}),
         "notification_effect" => "case_policy",
         "cases" => Enum.map(state.cases, &summary(&1)),
         "as_of" => Monitoring.iso(at)
@@ -86,8 +92,13 @@ defmodule Mondek.Correlations do
     end)
   end
 
-  def apply(token, at \\ Monitoring.now()) do
-    with {:ok, {p, expected}} <- verify(token) do
+  def apply(token, at \\ Monitoring.now()), do: apply_with(token, at, @salt)
+
+  @doc false
+  def apply_provider(token, at), do: apply_with(token, at, @provider_salt)
+
+  defp apply_with(token, at, salt) do
+    with {:ok, {p, expected}} <- verify(token, salt) do
       transact(fn ->
         hash = fingerprint(p)
 
@@ -123,15 +134,15 @@ defmodule Mondek.Correlations do
     end)
   end
 
-  defp verify(token) when is_binary(token) do
-    case Phoenix.Token.verify(MondekWeb.Endpoint, @salt, token, max_age: 900) do
+  defp verify(token, salt) when is_binary(token) do
+    case Phoenix.Token.verify(MondekWeb.Endpoint, salt, token, max_age: 900) do
       {:ok, {p, _} = data} when is_map(p) -> {:ok, data}
       {:error, :expired} -> {:error, :review_expired}
       _ -> {:error, :invalid_review}
     end
   end
 
-  defp verify(_), do: {:error, :invalid_review}
+  defp verify(_, _), do: {:error, :invalid_review}
   defp invalid(message), do: Repo.rollback({:invalid, message})
 
   defp fingerprint(value),
@@ -233,32 +244,39 @@ defmodule Mondek.Correlations do
 
   defp reference!(_), do: invalid("Use a typed health episode reference.")
 
-  defp state!(p) do
-    ids = Enum.filter([p["case_id"], p["other_case_id"]], & &1)
-    cases = Enum.map(ids, fn id -> Repo.get(CorrelationCase, id) || Repo.rollback(:not_found) end)
-
+  @doc false
+  def lock_episode_owners!(case_ids, selected) do
     memberships =
       Repo.all(
         from m in CorrelationMembership,
-          where: m.case_id in ^ids and is_nil(m.ended_at),
+          where: m.case_id in ^case_ids and is_nil(m.ended_at),
           order_by: m.id
       )
 
-    refs =
-      (Enum.map(memberships, &ref/1) ++ p["episodes"] ++ List.wrap(p["anchor"]))
-      |> Enum.uniq()
-      |> Enum.sort()
+    refs = (Enum.map(memberships, &ref/1) ++ selected) |> Enum.uniq() |> Enum.sort()
 
     # Native writers take the shared topology gate before native owners.
     # Acquire the complete owner set before touching case rows.
-    individuals = Enum.filter(refs, &(&1["type"] == "individual")) |> Enum.map(&episode!/1)
+    individuals = for r <- refs, r["type"] == "individual", do: r["id"]
 
-    Enum.each(
-      individuals |> Enum.map(& &1.assignment_id) |> Enum.uniq() |> Enum.sort(),
-      &Monitoring.lock_assignment/1
-    )
+    assignments =
+      Repo.all(
+        from i in Incident,
+          where: i.id in ^individuals,
+          distinct: true,
+          order_by: i.assignment_id,
+          select: i.assignment_id
+      )
 
+    Enum.each(assignments, &Monitoring.lock_assignment/1)
     Conditions.lock_ids!(for r <- refs, r["type"] == "condition", do: r["id"])
+    {memberships, refs}
+  end
+
+  defp state!(p) do
+    ids = Enum.filter([p["case_id"], p["other_case_id"]], & &1)
+    {memberships, refs} = lock_episode_owners!(ids, p["episodes"] ++ List.wrap(p["anchor"]))
+    cases = Enum.map(ids, fn id -> Repo.get(CorrelationCase, id) || Repo.rollback(:not_found) end)
     episodes = Enum.map(refs, &episode!/1)
 
     Enum.each(cases, fn c ->

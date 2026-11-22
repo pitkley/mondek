@@ -524,7 +524,8 @@ defmodule MondekWeb.API.WorkflowSchemas do
                   correlation_candidates: S.ref("CorrelationCandidateInspection"),
                   correlation_relationships: S.ref("CorrelationRelationshipPage"),
                   correlation_override: S.ref("CorrelationAutomationOverride"),
-                  correlation_automation: S.nullable(S.ref("CorrelationAutomaticEvaluation"))
+                  correlation_automation: S.nullable(S.ref("CorrelationAutomaticEvaluation")),
+                  correlation_decisions: S.ref("CorrelationProviderDecisionPage")
                 }),
               anyOf: [
                 %Schema{

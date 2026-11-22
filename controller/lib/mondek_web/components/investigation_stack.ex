@@ -10,7 +10,13 @@ defmodule MondekWeb.InvestigationStack do
   Only the active entity may mutate; rear snapshots never grant form authority.
   """
   use Phoenix.LiveComponent
-  alias Mondek.{CorrelationAutomationPolicy, CorrelationRelationships, Monitoring}
+
+  alias Mondek.{
+    CorrelationAutomationPolicy,
+    CorrelationProviderDecisions,
+    CorrelationRelationships,
+    Monitoring
+  }
 
   alias MondekWeb.{
     InvestigationEntity,
@@ -144,7 +150,7 @@ defmodule MondekWeb.InvestigationStack do
       case identity do
         {kind, _} when kind in ~w(health loss) ->
           (kind == "health" &&
-             event in ~w(review_relationship apply_relationship cancel_relationship review_override apply_override cancel_override)) ||
+             event in ~w(review_relationship apply_relationship cancel_relationship review_override apply_override cancel_override request_provider_decision review_provider_decision apply_provider_decision cancel_provider_decision)) ||
             event in ~w(filter_incident_detail edit_acknowledgement review_control toggle_acknowledgement_replacement save_acknowledgement end_acknowledgement edit_retry_delivery retry_delivery)
 
         {"notification", _} ->
@@ -160,6 +166,89 @@ defmodule MondekWeb.InvestigationStack do
       {:noreply, socket}
     end
   end
+
+  defp operate(socket, %{provider_request_id: request_id} = state, "request_provider_decision", %{
+         "request" => request_id
+       }) do
+    listing = state.data.detail["provider_decisions"]
+    subject = listing["subject"]
+
+    if listing["requestable"] && subject && subject["id"] == elem(state.identity, 1) do
+      proposal = %{"subject" => subject, "request_id" => request_id}
+
+      case CorrelationProviderDecisions.request_reviewed(proposal, state.provider_fingerprint) do
+        {:ok, _} ->
+          state = InvestigationEntity.refresh(state, socket.assigns.now, socket.assigns.params)
+
+          put_state(socket, %{
+            state
+            | provider_request_id: Ecto.UUID.generate(),
+              provider_review: nil,
+              provider_message: "Provider decision requested."
+          })
+
+        {:error, :review_changed} ->
+          refresh_provider_disclosure(socket, state)
+
+        {:error, reason} ->
+          put_state(socket, %{
+            state
+            | provider_review: nil,
+              provider_message: provider_error(reason)
+          })
+      end
+    else
+      socket
+    end
+  end
+
+  defp operate(socket, state, "request_provider_decision", _),
+    do: refresh_provider_disclosure(socket, state)
+
+  defp operate(socket, state, "review_provider_decision", %{"request" => request_id}) do
+    listing = state.data.detail["provider_decisions"]
+
+    row = Enum.find(listing["items"] || [], &(&1["request_id"] == request_id))
+
+    if listing["requestable"] && row && row["status"] == "proposed" do
+      case CorrelationProviderDecisions.preview(request_id) do
+        {:ok, review} ->
+          put_state(socket, %{
+            state
+            | provider_review: {request_id, Map.put(review, "decision", row)},
+              provider_message: nil
+          })
+
+        {:error, reason} ->
+          put_state(socket, %{
+            state
+            | provider_review: nil,
+              provider_message: provider_error(reason)
+          })
+      end
+    else
+      socket
+    end
+  end
+
+  defp operate(
+         socket,
+         %{provider_review: {request_id, %{"review_token" => token}}} = state,
+         "apply_provider_decision",
+         %{"request" => request_id}
+       ) do
+    message =
+      case CorrelationProviderDecisions.apply(token) do
+        {:ok, _} -> "Reviewed grouping applied."
+        {:error, reason} -> provider_error(reason)
+      end
+
+    state = InvestigationEntity.refresh(state, socket.assigns.now, socket.assigns.params)
+    put_state(socket, %{state | provider_review: nil, provider_message: message})
+  end
+
+  defp operate(socket, state, "cancel_provider_decision", _),
+    do: put_state(socket, %{state | provider_review: nil, provider_message: nil})
 
   defp operate(socket, state, "review_override", %{"reason" => reason, "action" => action}) do
     override = state.data.detail["grouping_override"]
@@ -424,6 +513,37 @@ defmodule MondekWeb.InvestigationStack do
 
     put_state(socket, state)
   end
+
+  defp refresh_provider_disclosure(socket, state) do
+    state = InvestigationEntity.refresh(state, socket.assigns.now, socket.assigns.params)
+
+    put_state(socket, %{
+      state
+      | provider_review: nil,
+        provider_message:
+          "This request is no longer current. Check the provider and evidence categories before requesting again."
+    })
+  end
+
+  defp provider_error({:invalid, reason}) when is_binary(reason), do: reason
+
+  defp provider_error(:already_pending),
+    do: "A decision request is already pending for this episode."
+
+  defp provider_error(:capacity), do: "The provider request queue is full. Try again later."
+  defp provider_error(:episode_closed), do: "This episode has ended."
+
+  defp provider_error(:ineligible),
+    do: "Only a standalone episode without an active operator override can request a decision."
+
+  defp provider_error(:not_reviewable), do: "This decision has no proposal available for review."
+  defp provider_error(:unavailable), do: "No advisory provider is currently available."
+
+  defp provider_error(:review_changed),
+    do: "The proposal changed. Review the current episode and candidate again."
+
+  defp provider_error(:review_expired), do: "This review has expired."
+  defp provider_error(_), do: "The provider decision is unavailable or no longer eligible."
 
   defp put_state(socket, state) do
     states = Map.put(socket.assigns.states, state.identity, state)
@@ -772,6 +892,9 @@ defmodule MondekWeb.InvestigationStack do
       current={@host_assigns.current}
       id_prefix={@id_prefix}
       full_page={@full_page}
+      provider_review={@state.provider_review}
+      provider_message={@state.provider_message}
+      provider_request_id={@state.provider_request_id}
       override_review={@state.override_review}
       override_message={@state.override_message}
       relationship_review={@state.relationship_review}
