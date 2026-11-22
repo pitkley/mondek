@@ -17,7 +17,13 @@ defmodule MondekWeb.API.RunnerSchemas do
           S.nullable(
             S.record(%{key: text(128), label: text(200), namespace: text(128)}, [:key, :label])
           ),
-        group: S.nullable(S.record(%{key: text(128), label: text(200)}, [:key, :label]))
+        group: S.nullable(S.record(%{key: text(128), label: text(200)}, [:key, :label])),
+        correlation_hints: %Schema{
+          type: :array,
+          maxItems: 16,
+          uniqueItems: true,
+          items: S.ref("CorrelationHint")
+        }
       },
       additionalProperties: true
     }
@@ -85,6 +91,32 @@ defmodule MondekWeb.API.RunnerSchemas do
 
     %{
       "InventoryOutput" => output,
+      "CorrelationHint" =>
+        S.record(
+          %{
+            dimension: stable_key(128),
+            depends_on: %Schema{
+              oneOf: [S.ref("CorrelationConditionRef"), S.ref("CorrelationTargetRef")]
+            },
+            window_seconds: %Schema{type: :integer, minimum: 1, maximum: 86_400}
+          },
+          [:dimension, :depends_on, :window_seconds]
+        ),
+      "CorrelationConditionRef" =>
+        S.record(
+          %{type: S.enum(["condition"]), namespace: stable_key(128), key: stable_key(128)},
+          [:type, :namespace, :key]
+        ),
+      "CorrelationTargetRef" =>
+        S.record(
+          %{
+            type: S.enum(["target"]),
+            source_id: stable_key(128),
+            kind: stable_key(64),
+            key: stable_key(128)
+          },
+          [:type, :source_id, :kind, :key]
+        ),
       "InventoryCheck" => check,
       "RunnerAssignment" => assignment,
       "DeferredOutputOwner" =>
@@ -127,6 +159,14 @@ defmodule MondekWeb.API.RunnerSchemas do
       }
     }
   end
+
+  defp stable_key(maximum),
+    do: %Schema{
+      type: :string,
+      minLength: 1,
+      maxLength: maximum,
+      pattern: "^[A-Za-z0-9][A-Za-z0-9_.:/@-]*$"
+    }
 
   defp text(maximum),
     do: %Schema{

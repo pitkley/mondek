@@ -867,6 +867,63 @@ defmodule Mondek.InventoryTest do
     end
   end
 
+  test "shared correlation hint vectors validate on complete inventory admission" do
+    cases = File.read!("../contracts/v1/correlation-hints.json") |> Jason.decode!()
+
+    for %{"name" => name, "output" => metadata, "valid" => valid} <- cases["vectors"] do
+      payload = inventory([check("dependent")])
+
+      payload =
+        update_in(
+          payload,
+          ["checks", Access.at(0), "outputs", Access.at(0)],
+          &Map.merge(&1, metadata)
+        )
+
+      assert Inventory.validate(payload) == :ok == valid, name
+    end
+  end
+
+  test "an incident retains the ordered hints from its opening generation after inventory changes" do
+    hint = %{
+      "dimension" => "network",
+      "window_seconds" => 90,
+      "depends_on" => %{"type" => "condition", "namespace" => "network", "key" => "uplink"}
+    }
+
+    hints = [hint, Map.put(hint, "window_seconds", 30)]
+    path = ["checks", Access.at(0), "outputs", Access.at(0), "correlation_hints"]
+    initial = put_in(inventory([check("dependent")]), path, hints)
+    assert {:ok, _} = Monitoring.inventory(initial, at())
+    assert get_in(Repo.one!(SourceInventory).payload, path) == hints
+    assignment = source_assignment()
+    activate(assignment)
+    first = result_report(assignment, 1, [{"value", "CRIT"}])
+    assert disposition(ingest(first)) == "current"
+
+    replacement = initial |> Map.put("inventory_revision", 2) |> put_in(path, [])
+    assert {:ok, _} = Monitoring.inventory(replacement, at())
+    assert get_in(Repo.one!(SourceInventory).payload, path) == []
+    assert hd(source_assignment().outputs)["correlation_hints"] == []
+
+    incident = Repo.get_by!(Incident, assignment_id: assignment.id)
+    observation = Repo.get!(Observation, incident.opening_observation_id)
+    assert observation.payload == first
+    assert incident.opening_generation == observation.generation
+
+    configuration =
+      Repo.get_by!(Mondek.Configuration,
+        assignment_id: incident.assignment_id,
+        generation: incident.opening_generation
+      )
+
+    assert configuration.definition["environment"] == incident.environment
+    assert incident.environment == "local"
+    output = Enum.find(configuration.definition["outputs"], &(&1["key"] == incident.result_key))
+    assert output["correlation_hints"] == hints
+    assert source_assignment().desired_generation == incident.opening_generation + 1
+  end
+
   defp source_assignment, do: Repo.one!(from a in Assignment, where: a.source_id == "source")
   defp activate(a), do: connect(%{"prepared" => %{a.id => a.desired_generation}, "active" => %{}})
 

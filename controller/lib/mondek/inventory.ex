@@ -585,6 +585,7 @@ defmodule Mondek.Inventory do
            Parameters.text?(target, 200) and Parameters.text?(kind, 64) and
            Parameters.text?(target_label, 200) and
            Mondek.Protocol.condition?(output["condition"]) and
+           Mondek.Protocol.correlation_hints?(Map.get(output, "correlation_hints", [])) and
            sustain_seconds?(Map.get(output, "sustain_seconds", 0)) and
            (not Map.has_key?(output, "group") or Mondek.Protocol.check_group?(output["group"]))
 

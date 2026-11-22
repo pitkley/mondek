@@ -364,6 +364,101 @@ def validate_sustain_seconds(value: Any) -> None:
 
 
 @dataclass(frozen=True)
+class ConditionRef:
+    namespace: str
+    key: str
+
+    def __post_init__(self) -> None:
+        stable_key(self.namespace, "condition namespace")
+        stable_key(self.key, "condition key")
+
+    def to_dict(self) -> dict[str, str]:
+        return {"type": "condition", "namespace": self.namespace, "key": self.key}
+
+
+@dataclass(frozen=True)
+class TargetRef:
+    source_id: str
+    kind: str
+    key: str
+
+    def __post_init__(self) -> None:
+        stable_key(self.source_id, "target source_id")
+        stable_key(self.key, "target key")
+        if len(stable_key(self.kind, "target kind")) > 64:
+            raise ValueError("target kind must be at most 64 characters")
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "type": "target",
+            "source_id": self.source_id,
+            "kind": self.kind,
+            "key": self.key,
+        }
+
+
+@dataclass(frozen=True)
+class CorrelationHint:
+    dimension: str
+    depends_on: ConditionRef | TargetRef
+    window_seconds: int
+
+    def __post_init__(self) -> None:
+        stable_key(self.dimension, "correlation dimension")
+        if not isinstance(self.depends_on, (ConditionRef, TargetRef)):
+            raise ValueError("depends_on requires a ConditionRef or TargetRef")
+        if (
+            type(self.window_seconds) is not int
+            or not 1 <= self.window_seconds <= 86400
+        ):
+            raise ValueError("window_seconds must be an integer from 1 to 86400")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "dimension": self.dimension,
+            "depends_on": self.depends_on.to_dict(),
+            "window_seconds": self.window_seconds,
+        }
+
+
+def validate_hint_collection(hints: tuple[CorrelationHint, ...]) -> None:
+    if len(hints) > 16 or len(set(hints)) != len(hints):
+        raise ValueError("correlation_hints requires at most 16 distinct hints")
+
+
+def validate_correlation_hints(value: Any) -> None:
+    if not isinstance(value, list) or len(value) > 16:
+        raise ValueError("correlation_hints requires a list of at most 16 hints")
+    hints = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {
+            "dimension",
+            "depends_on",
+            "window_seconds",
+        }:
+            raise ValueError("invalid correlation hint fields")
+        ref = item["depends_on"]
+        if not isinstance(ref, dict):
+            raise ValueError("depends_on requires a reference object")
+        dependency: ConditionRef | TargetRef
+        if ref.get("type") == "condition" and set(ref) == {"type", "namespace", "key"}:
+            dependency = ConditionRef(ref["namespace"], ref["key"])
+        elif ref.get("type") == "target" and set(ref) == {
+            "type",
+            "source_id",
+            "kind",
+            "key",
+        }:
+            dependency = TargetRef(ref["source_id"], ref["kind"], ref["key"])
+        else:
+            raise ValueError("invalid depends_on reference")
+        hints.append(
+            CorrelationHint(item["dimension"], dependency, item["window_seconds"])
+        )
+    validate_hint_collection(tuple(hints))
+
+
+@dataclass(frozen=True)
 class Output:
     key: str
     label: str | None = None
@@ -371,8 +466,17 @@ class Output:
     condition: Condition | None = None
     group: CheckGroup | None = None
     sustain_seconds: int = 0
+    correlation_hints: tuple[CorrelationHint, ...] = ()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.correlation_hints, (list, tuple)) or not all(
+            isinstance(hint, CorrelationHint) for hint in self.correlation_hints
+        ):
+            raise ValueError(
+                "output correlation_hints requires CorrelationHint declarations"
+            )
+        object.__setattr__(self, "correlation_hints", tuple(self.correlation_hints))
+        validate_hint_collection(self.correlation_hints)
         validate_sustain_seconds(self.sustain_seconds)
         if self.condition is not None and not isinstance(self.condition, Condition):
             raise ValueError("output condition requires a Condition declaration")
@@ -1261,6 +1365,15 @@ class App:
                         **(
                             {"group": (output.group or binding.group).to_dict()}
                             if output.group or binding.group
+                            else {}
+                        ),
+                        **(
+                            {
+                                "correlation_hints": [
+                                    hint.to_dict() for hint in output.correlation_hints
+                                ]
+                            }
+                            if output.correlation_hints
                             else {}
                         ),
                         **(
