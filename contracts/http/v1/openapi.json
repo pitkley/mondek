@@ -2069,6 +2069,14 @@
             ],
             "type": "object"
           },
+          "correlation_hints": {
+            "items": {
+              "$ref": "#/components/schemas/CorrelationHint"
+            },
+            "maxItems": 16,
+            "type": "array",
+            "uniqueItems": true
+          },
           "group": {
             "additionalProperties": false,
             "nullable": true,
@@ -2238,6 +2246,38 @@
           "source_id",
           "inventory_revision",
           "accepted_checks"
+        ],
+        "type": "object"
+      },
+      "CorrelationHint": {
+        "additionalProperties": false,
+        "properties": {
+          "depends_on": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CorrelationConditionRef"
+              },
+              {
+                "$ref": "#/components/schemas/CorrelationTargetRef"
+              }
+            ]
+          },
+          "dimension": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/@-]*$",
+            "type": "string"
+          },
+          "window_seconds": {
+            "maximum": 86400,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dimension",
+          "depends_on",
+          "window_seconds"
         ],
         "type": "object"
       },
@@ -2551,6 +2591,42 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "CorrelationTargetRef": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/@-]*$",
+            "type": "string"
+          },
+          "kind": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/@-]*$",
+            "type": "string"
+          },
+          "source_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/@-]*$",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "target"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "source_id",
+          "kind",
+          "key"
+        ],
         "type": "object"
       },
       "MaintenanceProjectManifest": {
@@ -3488,6 +3564,35 @@
           "revision",
           "target_generation",
           "changed"
+        ],
+        "type": "object"
+      },
+      "CorrelationConditionRef": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/@-]*$",
+            "type": "string"
+          },
+          "namespace": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/@-]*$",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "condition"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "namespace",
+          "key"
         ],
         "type": "object"
       },

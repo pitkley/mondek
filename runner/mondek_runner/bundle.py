@@ -32,6 +32,7 @@ from .authoring import (
     normalize_json_numbers,
     validate_check_group,
     validate_construction_environment,
+    validate_correlation_hints,
     validate_sustain_seconds,
 )
 from .catalogs import materialize as materialize_catalogs
@@ -49,6 +50,8 @@ def validate_output_scopes(checks: list[dict[str, Any]]) -> None:
     for check in checks:
         for output in check["outputs"]:
             validate_invocation_scope(output)
+            if "correlation_hints" in output:
+                validate_correlation_hints(output["correlation_hints"])
             if "group" in output:
                 validate_check_group(output["group"])
             if "sustain_seconds" in output:
@@ -64,6 +67,10 @@ def canonical_check_metadata(
     for index, check in enumerate(canonical_checks):
         declared = False
         for output in check["outputs"]:
+            if "correlation_hints" in output:
+                declared = True
+                if not output["correlation_hints"]:
+                    del output["correlation_hints"]
             if "sustain_seconds" in output:
                 declared = True
                 if output["sustain_seconds"] == 0:
@@ -359,6 +366,7 @@ def verify_snapshot(
         )
     if manifest["inventory"]["source_revision"] != revision:
         raise ValueError("snapshot revision mismatch")
+    validate_output_scopes(manifest["inventory"]["checks"])
     if manifest["runtime"] != dependencies():
         raise ValueError(
             "installed Python dependencies changed; restore the previous environment "

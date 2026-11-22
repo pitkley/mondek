@@ -116,6 +116,33 @@ defmodule Mondek.Protocol do
 
   def condition?(_), do: false
 
+  def correlation_hints?(values) when is_list(values) and length(values) <= 16,
+    do: Enum.all?(values, &correlation_hint?/1) and Enum.uniq(values) == values
+
+  def correlation_hints?(_), do: false
+
+  defp correlation_hint?(
+         %{"dimension" => dimension, "window_seconds" => window, "depends_on" => dependency} =
+           hint
+       ),
+       do:
+         map_size(hint) == 3 and stable_key?(dimension) and is_integer(window) and
+           window in 1..86_400 and dependency?(dependency)
+
+  defp correlation_hint?(_), do: false
+
+  defp dependency?(%{"type" => "condition", "namespace" => namespace, "key" => key} = dependency),
+    do: map_size(dependency) == 3 and stable_key?(namespace) and stable_key?(key)
+
+  defp dependency?(
+         %{"type" => "target", "source_id" => source, "kind" => kind, "key" => key} = dependency
+       ),
+       do:
+         map_size(dependency) == 4 and stable_key?(source) and stable_key?(kind) and
+           byte_size(kind) <= 64 and stable_key?(key)
+
+  defp dependency?(_), do: false
+
   def impacts?(values) when is_list(values) and length(values) <= 16 do
     Enum.all?(values, fn
       %{"key" => key, "label" => label} = value ->
