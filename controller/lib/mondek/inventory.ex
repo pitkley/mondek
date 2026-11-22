@@ -20,6 +20,7 @@ defmodule Mondek.Inventory do
 
       result =
         Mondek.ConfigurationRepository.transaction("inventory", fn ->
+          Mondek.Correlations.lock!(:shared)
           Mondek.ConfigurationRules.lock_source!(p["source_id"])
           rules = Mondek.ConfigurationRules.rules_for(p["source_id"])
           runner = Monitoring.register_runner(p, at)

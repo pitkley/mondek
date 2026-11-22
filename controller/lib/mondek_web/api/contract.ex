@@ -135,6 +135,7 @@ defmodule MondekWeb.API.Contract do
               action in [
                 :consumer_state_entry,
                 :correlation_case,
+                :correlation_rule,
                 :check,
                 :result_inspection,
                 :evidence,
@@ -320,6 +321,9 @@ defmodule MondekWeb.API.Contract do
       when action in [
              :correlation_preview,
              :correlation_apply,
+             :correlation_rule,
+             :correlation_override_preview,
+             :correlation_override_apply,
              :correlation_relationship_preview,
              :correlation_relationship_apply,
              :case_control_preview,

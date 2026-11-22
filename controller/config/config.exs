@@ -15,7 +15,7 @@ config :mondek, MondekWeb.Endpoint,
 
 config :mondek, Oban,
   repo: Mondek.Repo,
-  queues: [notifications: 4],
+  queues: [notifications: 4, correlations: 2],
   plugins: [
     {Oban.Plugins.Pruner, max_age: 86_400},
     # Outlive the worker's one-minute execution limit, including database work.

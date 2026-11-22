@@ -3,6 +3,7 @@
 defmodule MondekWeb.InvestigationEntity do
   @moduledoc "Bounded evidence and retained control state for one investigation entity."
   alias Mondek.{
+    CorrelationAutomationPolicy,
     CorrelationCandidates,
     CorrelationRelationships,
     Investigation,
@@ -19,6 +20,8 @@ defmodule MondekWeb.InvestigationEntity do
       identity: identity,
       data: nil,
       review: nil,
+      override_review: nil,
+      override_message: nil,
       relationship_review: nil,
       relationship_message: nil,
       draft: %{},
@@ -92,16 +95,41 @@ defmodule MondekWeb.InvestigationEntity do
               {:error, _} -> %{"status" => "unavailable", "candidates" => []}
             end
 
-          detail
-          |> Map.put("correlation_candidates", candidates)
-          |> Map.put(
-            "relationships",
+          relationships =
             CorrelationRelationships.list(
               type,
               id,
               max(1, MondekWeb.MonitoringUI.integer(filters["relationships_page"]))
             )
-          )
+
+          override =
+            if relationships do
+              override = CorrelationAutomationPolicy.override(relationships["subject"])
+
+              if override && (override["active"] || CorrelationAutomationPolicy.enabled?()),
+                do: override
+            end
+
+          evaluation =
+            if relationships do
+              subject = relationships["subject"]
+              Mondek.CorrelationGrouping.latest(subject["type"], subject["id"])
+            end
+
+          editable =
+            if override && detail["incident"]["status"] == "open" &&
+                 override["subject"]["id"] == id do
+              is_nil(Mondek.Correlations.membership(type, id))
+            else
+              false
+            end
+
+          detail
+          |> Map.put("correlation_candidates", candidates)
+          |> Map.put("relationships", relationships)
+          |> Map.put("grouping_evaluation", evaluation)
+          |> Map.put("grouping_override", override)
+          |> Map.put("grouping_override_editable", editable)
         end
       else
         MonitoringLoss.detail(id, now, %{"members_page" => filters["member_page"]})

@@ -92,6 +92,8 @@ Packaged startup adds separate storage for reviewed secondary incident relations
 
 ## Runtime cases
 
+The deterministic grouping migrations add operator approvals, episode overrides and retained evaluations. Existing cases and membership keep operator provenance. Configure an exact rule after upgrading to enable automatic grouping. See [deterministic grouping](RUNTIME-INCIDENT-CORRELATION.md#opt-in-to-deterministic-grouping).
+
 The additive correlation migration runs at packaged startup. Existing evidence, controls, jobs and identities remain unchanged. Back up before upgrading. Correlation batching defaults off and case acknowledgements remain explicit; rollback to older code requires a reviewed database rollback and must not discard case history silently.
 
 ## Exact case delivery

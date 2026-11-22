@@ -19,6 +19,8 @@ defmodule MondekWeb.PreviewIncidentDetail do
   attr :current, :string, required: true
   attr :id_prefix, :string, required: true
   attr :full_page, :boolean, required: true
+  attr :override_review, :any, default: nil
+  attr :override_message, :any, default: nil
   attr :relationship_review, :any, default: nil
   attr :relationship_message, :any, default: nil
   attr :control_review, :any, required: true
@@ -109,6 +111,28 @@ defmodule MondekWeb.PreviewIncidentDetail do
       incident_id={@incident["id"]}
       full_page={@full_page}
       id_prefix={@id_prefix}
+      incident_path={@incident_path}
+    />
+    <p :if={@kind == "health" && @override_message && !@detail["grouping_override"]} role="status">
+      {@override_message}
+    </p>
+    <MondekWeb.GroupingOverride.body
+      :if={
+        @kind == "health" && @incident &&
+          (@detail["grouping_override"] || @detail["grouping_evaluation"])
+      }
+      evaluation={@detail["grouping_evaluation"]}
+      subject={@detail["relationships"]["subject"]}
+      override={@detail["grouping_override"]}
+      editable={@detail["grouping_override_editable"]}
+      open={@incident["status"] == "open"}
+      review={@override_review}
+      message={@override_message}
+      full_page={@full_page}
+      id_prefix={@id_prefix}
+      entity={@entity}
+      target={@target}
+      incident_id={@incident["id"]}
       incident_path={@incident_path}
     />
     <MondekWeb.RelationshipDetail.body

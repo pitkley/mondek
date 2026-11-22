@@ -522,7 +522,9 @@ defmodule MondekWeb.API.WorkflowSchemas do
                 Map.merge(schema.properties, %{
                   incident: S.ref("IncidentSummary"),
                   correlation_candidates: S.ref("CorrelationCandidateInspection"),
-                  correlation_relationships: S.ref("CorrelationRelationshipPage")
+                  correlation_relationships: S.ref("CorrelationRelationshipPage"),
+                  correlation_override: S.ref("CorrelationAutomationOverride"),
+                  correlation_automation: S.nullable(S.ref("CorrelationAutomaticEvaluation"))
                 }),
               anyOf: [
                 %Schema{

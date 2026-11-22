@@ -11,7 +11,9 @@ defmodule Mondek.Investigation do
     Assignment,
     ResultStream,
     Incident,
+    CorrelationAutomationPolicy,
     CorrelationCandidates,
+    CorrelationGrouping,
     CorrelationRelationships
   }
 
@@ -122,10 +124,15 @@ defmodule Mondek.Investigation do
          %{"incident" => %{"incident_type" => type, "id" => id}} = data,
          filters
        ) do
+    candidates = CorrelationCandidates.for_episode(type, id)
+    subject = candidates["subject"] || %{"type" => type, "id" => id}
+
     Map.merge(data, %{
-      "correlation_candidates" => CorrelationCandidates.for_episode(type, id),
+      "correlation_candidates" => candidates,
       "correlation_relationships" =>
-        CorrelationRelationships.list(type, id, filters["relationships_page"] || 1)
+        CorrelationRelationships.list(type, id, filters["relationships_page"] || 1),
+      "correlation_override" => CorrelationAutomationPolicy.override(subject),
+      "correlation_automation" => CorrelationGrouping.latest(subject["type"], subject["id"])
     })
   end
 

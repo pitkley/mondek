@@ -28,6 +28,14 @@ Secondary links help operators investigate a possible dependency. Existing prima
 
 For HTTP, `POST /api/v1/incidents/relationships/preview` takes an action, request ID, canonical subject reference, and reason. For `add`, provide the target reference and dimension. For `remove`, provide the relationship ID and either endpoint as the subject. Apply with the `review_token` at `POST /api/v1/incidents/relationships/apply`. Health incident detail and MCP `get_incident` include `correlation_relationships`, with an independent `relationships_page` parameter.
 
+## Opt in to deterministic grouping
+
+Approve an exact source, check and output declaration by saving a rule through the operator HTTP API. The rule includes the complete hint, including its dimension, dependency selector and window. An SDK hint can propose a candidate independently of that approval. A changed declaration needs its own approval. Use `GET /api/v1/incidents/correlation/rules` to inspect existing approvals. Save a UUID-addressed rule with `PUT /api/v1/incidents/correlation/rules/:id` and the fields `source_id`, `check_id`, `output_key`, `hint`, `enabled`, `revision`, and `reason`. Use revision `0` when adding a rule and the listed revision when changing or disabling it. Each output has one rule, and an installation can store up to 100 rules.
+
+With an enabled rule, new incident openings enqueue a durable evaluation and look back for dependencies that arrived in the other order. The evaluator can create a case from two open standalone episodes with one uniquely eligible parent. It checks current approval, exact opening evidence, controls, delivery attempts and reservations under transaction locks. A shared Condition needs approval for every declaration contributing to the automatic match. The new case starts with batching off. If eligibility changes, health detail exposes the latest evaluation and the candidate evidence for operator review. Notifications follow their ordinary schedule while evaluations run, so dispatch can win the race and preserve a standalone incident. Manual grouping remains available in that case.
+
+Use **Keep standalone** on an incident to prevent automatic grouping until the episode ends or you explicitly allow it again. Manual detachment records the same episode-level override. The override review flow is also available through `POST /api/v1/incidents/correlation/overrides/preview` and `/apply`. Preview takes `action` (`keep_standalone` or `allow_grouping`), `subject`, `request_id`, and `reason`. Apply takes the `review_token`. Existing case membership, native acknowledgement, maintenance and notification history keep their independent meaning.
+
 ## HTTP
 
 The existing isolated deployment boundary applies; authentication remains deferred. Read routes:

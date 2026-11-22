@@ -24,6 +24,18 @@ defmodule MondekWeb.API.V1.CorrelationController do
   def correlation_apply(conn, %{"review_token" => token}),
     do: respond(conn, Mondek.Correlations.apply(token))
 
+  def correlation_rules(conn, _params),
+    do: MondekWeb.API.Read.run(conn, fn _ -> Mondek.CorrelationAutomationPolicy.rules() end)
+
+  def correlation_rule(conn, %{"id" => id} = params),
+    do: respond(conn, Mondek.CorrelationAutomationPolicy.set_rule(id, Map.delete(params, "id")))
+
+  def correlation_override_preview(conn, params),
+    do: respond(conn, Mondek.CorrelationAutomationPolicy.preview_override(params))
+
+  def correlation_override_apply(conn, %{"review_token" => token}),
+    do: respond(conn, Mondek.CorrelationAutomationPolicy.apply_override(token))
+
   def correlation_relationship_preview(conn, params),
     do: respond(conn, Mondek.CorrelationRelationships.preview(params))
 
