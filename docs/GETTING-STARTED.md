@@ -7,7 +7,7 @@ This walkthrough starts an empty local Mondek server, creates your own Python mo
 Start the published server using [the two-service image recipe](../deploy/README.md), then use Python 3.13+ and uv on the runner host:
 
 ```sh
-uv tool install mondek==0.0.10
+uv tool install mondek==0.0.11
 mondek-runner init my-monitoring
 cd my-monitoring
 uv sync
