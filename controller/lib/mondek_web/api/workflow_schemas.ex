@@ -518,7 +518,11 @@ defmodule MondekWeb.API.WorkflowSchemas do
           %{
             schema
             | required: [:incident],
-              properties: Map.put(schema.properties, :incident, S.ref("IncidentSummary")),
+              properties:
+                Map.merge(schema.properties, %{
+                  incident: S.ref("IncidentSummary"),
+                  correlation_candidates: S.ref("CorrelationCandidateInspection")
+                }),
               anyOf: [
                 %Schema{
                   type: :object,

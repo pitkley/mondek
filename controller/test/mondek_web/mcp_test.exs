@@ -5,6 +5,7 @@ defmodule MondekWeb.MCPTest do
   import Phoenix.ConnTest
   import Plug.Conn
   alias Mondek.AgentInspection
+  alias Mondek.CoverageFixtures, as: F
   @endpoint MondekWeb.Endpoint
   @assignment "10000000-0000-4000-8000-000000000001"
 
@@ -66,6 +67,72 @@ defmodule MondekWeb.MCPTest do
     assert json_response(post_mcp("{"), 400)["error"]["code"] == -32700
     assert json_response(post_mcp([]), 200)["error"]["code"] == -32600
     assert json_response(post_mcp(String.duplicate("x", 17_000)), 413)
+  end
+
+  test "health inspection projects identical advisory candidates over HTTP and MCP" do
+    upstream = F.publication([F.candidate(F.check("edge", "production", "edge"))])
+
+    application =
+      F.publication([F.candidate(F.check("application"))], %{"source_id" => "application"})
+
+    selector = %{
+      "type" => "target",
+      "source_id" => upstream["source_id"],
+      "kind" => "service",
+      "key" => "edge"
+    }
+
+    hint = %{"dimension" => "network", "depends_on" => selector, "window_seconds" => 120}
+
+    application =
+      put_in(
+        application,
+        ["checks", Access.at(0), "outputs", Access.at(0), "correlation_hints"],
+        [
+          hint
+        ]
+      )
+
+    for publication <- [application, upstream] do
+      assert {:ok, _} = Monitoring.inventory(publication, at())
+      assert {:ok, _} = F.activate(publication, at())
+    end
+
+    assert disposition(F.sample(application, "CRIT", 1, at())) == "current"
+    assert disposition(F.sample(upstream, "WARN", 1, DateTime.add(at(), 1))) == "current"
+
+    [app_assignment] = F.assignments(application)
+    [upstream_assignment] = F.assignments(upstream)
+    subject = Repo.get_by!(Incident, assignment_id: app_assignment.id).id
+    candidate = Repo.get_by!(Incident, assignment_id: upstream_assignment.id).id
+
+    inspection =
+      (build_conn()
+       |> get("/api/v1/incidents/health/#{subject}")
+       |> json_response(200))["data"][
+        "correlation_candidates"
+      ]
+
+    assert %{
+             "subject" => %{"id" => ^subject, "type" => "individual"},
+             "status" => "complete",
+             "hint_count" => 1,
+             "candidates" => [
+               %{
+                 "id" => ^candidate,
+                 "type" => "individual",
+                 "matches" => [%{"depends_on" => ^selector, "timing" => "later_opening"}]
+               }
+             ]
+           } = inspection
+
+    mcp =
+      rpc("tools/call", %{
+        "name" => "get_incident",
+        "arguments" => %{"incident_id" => subject, "kind" => "health"}
+      })
+
+    assert get_in(mcp, ["result", "structuredContent", "correlation_candidates"]) == inspection
   end
 
   test "investigation preserves confirmed health and original age across failure, replay and pruning" do

@@ -98,6 +98,51 @@ defmodule MondekWeb.API.CorrelationSchemas do
 
   def definitions do
     %{
+      "CorrelationCandidateInspection" =>
+        S.record(
+          %{
+            subject: episode(),
+            status: S.enum(~w(complete incomplete unavailable)),
+            hint_count: S.integer(),
+            truncated: S.boolean(),
+            conflicting_hints: S.boolean(),
+            candidates: %Schema{type: :array, maxItems: 20, items: S.ref("HintCandidate")}
+          },
+          ~w(subject status hint_count truncated conflicting_hints candidates)a
+        ),
+      "HintCandidate" =>
+        S.record(
+          %{
+            type: S.enum(~w(individual condition)),
+            id: S.uuid(),
+            label: S.string(),
+            health: S.enum(~w(WARN CRIT)),
+            opened_at: S.time(),
+            matches: %Schema{type: :array, maxItems: 4, items: S.ref("HintCandidateMatch")}
+          },
+          ~w(type id label health opened_at matches)a
+        ),
+      "HintCandidateMatch" =>
+        S.record(
+          %{
+            dimension: S.string(),
+            depends_on: %Schema{
+              oneOf: [S.ref("CorrelationConditionRef"), S.ref("CorrelationTargetRef")]
+            },
+            window_seconds: %Schema{type: :integer, minimum: 1, maximum: 86_400},
+            timing: S.enum(~w(overlap later_opening)),
+            contributors: %Schema{
+              type: :array,
+              maxItems: 4,
+              items:
+                S.record(
+                  %{incident_id: S.uuid(), assignment_id: S.string(), generation: S.integer()},
+                  ~w(incident_id assignment_id generation)a
+                )
+            }
+          },
+          ~w(dimension depends_on window_seconds timing contributors)a
+        ),
       "CaseDelivery" =>
         S.record(
           %{

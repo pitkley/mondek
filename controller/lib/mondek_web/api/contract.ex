@@ -112,6 +112,10 @@ defmodule MondekWeb.API.Contract do
     do:
       "Open membership is live and paged; closed membership is a retained snapshot of at most 100 members with affected_total and truncated. No further page recovers omitted historical members."
 
+  defp description(:incident),
+    do:
+      "Health incident detail includes an advisory, bounded ranking of open episodes matching retained output hints. Candidate inspection leaves membership and notification policy unchanged."
+
   defp description(:observation),
     do:
       "Exact selected-output projection scoped to this result incarnation. A 404 means unavailable, pruned or out of scope, never proof that execution did not happen."

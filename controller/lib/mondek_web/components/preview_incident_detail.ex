@@ -97,6 +97,17 @@ defmodule MondekWeb.PreviewIncidentDetail do
       page_path={@page_path}
       filter_path={@filter_path}
     />
+    <.correlation_candidates
+      :if={
+        @kind == "health" && @incident &&
+          show_candidates?(@detail["correlation_candidates"], @incident["status"])
+      }
+      evidence={@detail["correlation_candidates"]}
+      incident_id={@incident["id"]}
+      full_page={@full_page}
+      id_prefix={@id_prefix}
+      incident_path={@incident_path}
+    />
     <.loss_evidence
       :if={@incident && @kind == "loss"}
       full_page={@full_page}
@@ -178,6 +189,88 @@ defmodule MondekWeb.PreviewIncidentDetail do
       </div>
     </PreviewDetail.card>
     """
+  end
+
+  defp show_candidates?(nil, _), do: false
+  defp show_candidates?(%{"status" => "unavailable"}, "closed"), do: false
+
+  defp show_candidates?(evidence, _),
+    do: evidence["status"] != "complete" or evidence["hint_count"] > 0
+
+  defp correlation_candidates(assigns) do
+    ~H"""
+    <PreviewDetail.card
+      level={if @full_page, do: 2, else: 3}
+      id={@id_prefix <> "correlation-candidates"}
+      title="Correlation candidates"
+    >
+      <div class="preview-incident-evidence">
+        <p :if={@evidence["status"] == "unavailable"}>Candidate evidence is unavailable.</p>
+        <p :if={@evidence["status"] == "incomplete"}>Candidate evidence is incomplete.</p>
+        <p :if={@evidence["truncated"]}>
+          The search reached its limit. Additional matches may exist.
+        </p>
+        <p :if={@evidence["conflicting_hints"]}>
+          Contributors declared different dependency hints.
+        </p>
+        <p :if={@evidence["status"] == "complete" && @evidence["candidates"] == []}>
+          No incidents matched the declared dependencies.
+        </p>
+        <div :for={candidate <- @evidence["candidates"]}>
+          <.link patch={@incident_path.(candidate["id"], candidate["type"] == "individual")}>
+            {candidate["label"]}
+          </.link>
+          <ul>
+            <li :for={match <- candidate["matches"]}>
+              {match["dimension"]} · {selector_label(match["depends_on"])} · {timing_label(
+                match,
+                candidate["type"],
+                @evidence["subject"]["type"]
+              )}
+              <details>
+                <summary>Hint provenance</summary>
+                <ul>
+                  <li :for={ref <- match["contributors"]}>
+                    <.link
+                      :if={ref["incident_id"] != @incident_id}
+                      patch={@incident_path.(ref["incident_id"], true)}
+                    >
+                      Contributor {ref["incident_id"]}
+                    </.link>
+                    Opening generation {ref["generation"]} · Scheduled check {ref["assignment_id"]}
+                  </li>
+                </ul>
+              </details>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </PreviewDetail.card>
+    """
+  end
+
+  defp selector_label(%{"type" => "condition", "namespace" => ns, "key" => key}),
+    do: "Condition #{ns}/#{key}"
+
+  defp selector_label(%{"type" => "target", "source_id" => source, "kind" => kind, "key" => key}),
+    do: "Target #{source}/#{kind}/#{key}"
+
+  defp timing_label(match, candidate_type, subject_type) do
+    candidate =
+      if candidate_type == "condition" && match["depends_on"]["type"] == "target",
+        do: "Matching target contribution",
+        else: "Matching episode"
+
+    subject =
+      if subject_type == "condition", do: "the declaring contribution", else: "this incident"
+
+    case match["timing"] do
+      "overlap" ->
+        "#{candidate} was open when #{subject} began"
+
+      "later_opening" ->
+        "#{candidate} opened within #{match["window_seconds"]} seconds after #{subject} began"
+    end
   end
 
   defp health_evidence(assigns) do

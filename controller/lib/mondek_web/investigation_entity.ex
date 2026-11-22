@@ -2,7 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule MondekWeb.InvestigationEntity do
   @moduledoc "Bounded evidence and retained control state for one investigation entity."
-  alias Mondek.{Maintenance, Monitoring, MonitoringLoss, RunnerFleet}
+  alias Mondek.{
+    CorrelationCandidates,
+    Investigation,
+    Maintenance,
+    Monitoring,
+    MonitoringLoss,
+    RunnerFleet
+  }
+
   alias MondekWeb.{PreviewIncidentControls, PreviewResult}
 
   def new(identity),
@@ -63,13 +71,26 @@ defmodule MondekWeb.InvestigationEntity do
   def refresh(%{identity: {kind, id}} = state, now, filters) when kind in ~w(health loss) do
     detail =
       if kind == "health" do
-        Monitoring.incident_detail(id, now, %{
-          "page" => filters["member_page"],
-          "state" => filters["contributors"] || "default",
-          "contradiction_page" => filters["healthy_page"],
-          "notification_status" => filters["notification_status"] || "all",
-          "notification_page" => filters["notification_page"]
-        })
+        detail =
+          Monitoring.incident_detail(id, now, %{
+            "page" => filters["member_page"],
+            "state" => filters["contributors"] || "default",
+            "contradiction_page" => filters["healthy_page"],
+            "notification_status" => filters["notification_status"] || "all",
+            "notification_page" => filters["notification_page"]
+          })
+
+        if detail do
+          type = if Map.has_key?(detail, "contributions"), do: "condition", else: "individual"
+
+          candidates =
+            case Investigation.read(fn -> CorrelationCandidates.for_episode(type, id) end) do
+              {:ok, data} -> data
+              {:error, _} -> %{"status" => "unavailable", "candidates" => []}
+            end
+
+          Map.put(detail, "correlation_candidates", candidates)
+        end
       else
         MonitoringLoss.detail(id, now, %{"members_page" => filters["member_page"]})
       end

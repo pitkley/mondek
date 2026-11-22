@@ -17,7 +17,7 @@ defmodule Mondek.MCP do
     [
       tool(
         "list_correlation_candidates",
-        "List open health episodes for manual correlation. Relationships annotate existing membership, not causal confidence. No automated ranking in this phase.",
+        "List open health episodes for manual correlation. For hint-based candidates for one incident, use get_incident.",
         %{"page" => page, "search" => text},
         []
       ),
@@ -62,7 +62,7 @@ defmodule Mondek.MCP do
       ),
       tool(
         "get_incident",
-        "Inspect a health incident (individual or shared condition) or monitoring-loss incident. Follow contributor stream IDs with get_evidence; opening/latest/closing observation IDs identify historical evidence, not current health.",
+        "Inspect a health incident (including advisory correlation candidates) or monitoring loss. Follow contributor stream IDs with get_evidence; opening/latest/closing observation IDs identify historical evidence, not current health.",
         %{
           "incident_id" => uuid,
           "kind" => %{"type" => "string", "enum" => ~w(health monitoring_loss)},
