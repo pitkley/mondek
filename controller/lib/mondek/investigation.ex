@@ -11,7 +11,8 @@ defmodule Mondek.Investigation do
     Assignment,
     ResultStream,
     Incident,
-    CorrelationCandidates
+    CorrelationCandidates,
+    CorrelationRelationships
   }
 
   @identity ~w(id assignment_id result_key label check_label runner_id runner_label source_id source_key source_revision definition_revision environment environment_label retired retirement_reason params_owner desired_generation authorized_generation prepared_generation active_generation observed_generation check_group condition qualification predecessor_stream_id)
@@ -91,7 +92,7 @@ defmodule Mondek.Investigation do
           ~w(incident stream assignment counts contributions contribution_page contradictions contradiction_page occurrences notification_page notification_counts attempts controls evidence closing_evidence recorded_measurement evidence_projection as_of limits)
         )
         |> Map.update!("incident", &correlated_summary/1)
-        |> put_correlation_candidates()
+        |> put_correlation_inspection(filters)
         |> Map.update("assignment", nil, &safe_assignment/1)
         |> Map.update("stream", nil, &safe_result/1)
         |> Map.update("contributions", [], fn rows ->
@@ -117,8 +118,15 @@ defmodule Mondek.Investigation do
     end
   end
 
-  defp put_correlation_candidates(%{"incident" => %{"incident_type" => type, "id" => id}} = data) do
-    Map.put(data, "correlation_candidates", CorrelationCandidates.for_episode(type, id))
+  defp put_correlation_inspection(
+         %{"incident" => %{"incident_type" => type, "id" => id}} = data,
+         filters
+       ) do
+    Map.merge(data, %{
+      "correlation_candidates" => CorrelationCandidates.for_episode(type, id),
+      "correlation_relationships" =>
+        CorrelationRelationships.list(type, id, filters["relationships_page"] || 1)
+    })
   end
 
   defp correlated_summary(row) do
@@ -336,7 +344,7 @@ defmodule Mondek.Investigation do
 
           incident ->
             %{"incident" => incident_summary(take(incident, @incident), "health")}
-            |> put_correlation_candidates()
+            |> put_correlation_inspection(args)
         end
 
       group ->
@@ -365,7 +373,7 @@ defmodule Mondek.Investigation do
               20
             )
         }
-        |> put_correlation_candidates()
+        |> put_correlation_inspection(args)
     end
   end
 

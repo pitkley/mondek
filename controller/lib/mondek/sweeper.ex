@@ -194,6 +194,7 @@ defmodule Mondek.Sweeper do
           OR n.payload->'closing_evidence' @> jsonb_build_array(jsonb_build_object('observation_id',observations.id::text))))
       """
 
+      relationship_count = Mondek.CorrelationRelationships.prune!(history_cutoff, limit)
       correlation_count = Mondek.Correlations.prune!(history_cutoff, limit)
 
       # Keep unresolved incidents and unfinished/exhausted delivery work regardless
@@ -201,6 +202,7 @@ defmodule Mondek.Sweeper do
       terminal = """
       SELECT i.id FROM incidents i WHERE i.status = 'closed' AND i.closed_at < $1 AND i.condition_incident_id IS NULL
       AND NOT EXISTS (SELECT 1 FROM correlation_memberships m WHERE m.incident_id=i.id)
+      AND NOT EXISTS (SELECT 1 FROM correlation_relationships r WHERE r.subject_incident_id=i.id OR r.target_incident_id=i.id)
       AND NOT EXISTS (SELECT 1 FROM occurrences o WHERE o.incident_id=i.id AND o.status NOT IN ('delivered','superseded'))
       AND NOT EXISTS (SELECT 1 FROM oban_jobs j JOIN occurrences o ON j.args->>'occurrence_id'=o.id::text WHERE o.incident_id=i.id AND j.state NOT IN ('completed','cancelled','discarded'))
       ORDER BY i.closed_at,i.id LIMIT $2
@@ -224,6 +226,7 @@ defmodule Mondek.Sweeper do
       terminal_conditions = """
       SELECT g.id FROM condition_incidents g WHERE g.status='closed' AND g.closed_at < $1
       AND NOT EXISTS (SELECT 1 FROM correlation_memberships m WHERE m.condition_incident_id=g.id)
+      AND NOT EXISTS (SELECT 1 FROM correlation_relationships r WHERE r.subject_condition_id=g.id OR r.target_condition_id=g.id)
       AND NOT EXISTS (SELECT 1 FROM occurrences o WHERE o.condition_incident_id=g.id AND o.status NOT IN ('delivered','superseded'))
       AND NOT EXISTS (SELECT 1 FROM oban_jobs j JOIN occurrences o ON j.args->>'occurrence_id'=o.id::text WHERE o.condition_incident_id=g.id AND j.state NOT IN ('completed','cancelled','discarded'))
       ORDER BY g.closed_at,g.id LIMIT $2
@@ -404,6 +407,7 @@ defmodule Mondek.Sweeper do
 
       counts = %{
         correlation_cases: correlation_count,
+        correlation_relationships: relationship_count,
         incidents: length(terminal_ids),
         condition_incidents: length(condition_ids),
         monitoring_incidents: monitoring_count,

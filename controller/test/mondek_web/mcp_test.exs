@@ -69,7 +69,7 @@ defmodule MondekWeb.MCPTest do
     assert json_response(post_mcp(String.duplicate("x", 17_000)), 413)
   end
 
-  test "health inspection projects identical advisory candidates over HTTP and MCP" do
+  test "health inspection projects identical advisory candidates and reviewed links over HTTP and MCP" do
     upstream = F.publication([F.candidate(F.check("edge", "production", "edge"))])
 
     application =
@@ -133,6 +133,57 @@ defmodule MondekWeb.MCPTest do
       })
 
     assert get_in(mcp, ["result", "structuredContent", "correlation_candidates"]) == inspection
+
+    subject_ref = %{"id" => subject, "type" => "individual"}
+
+    proposal = %{
+      "action" => "add",
+      "request_id" => Ecto.UUID.generate(),
+      "subject" => subject_ref,
+      "target" => %{"id" => candidate, "type" => "individual"},
+      "dimension" => "network",
+      "reason" => "Validate the shared network dependency"
+    }
+
+    review = relationship_request("preview", proposal)
+    assert review["notification_effect"] == "none"
+    assert [%{"depends_on" => ^selector}] = review["matches"]
+    applied = relationship_request("apply", %{"review_token" => review["review_token"]})
+    refute applied["replayed"]
+    id = applied["relationship_id"]
+
+    relationships =
+      (build_conn()
+       |> get("/api/v1/incidents/health/#{subject}?relationships_page=1")
+       |> json_response(200))["data"]["correlation_relationships"]
+
+    assert %{"items" => [%{"id" => ^id, "status" => "active"}], "total" => 1} = relationships
+
+    mcp =
+      rpc("tools/call", %{
+        "name" => "get_incident",
+        "arguments" => %{"incident_id" => subject, "kind" => "health", "relationships_page" => 1}
+      })
+
+    assert get_in(mcp, ["result", "structuredContent", "correlation_relationships"]) ==
+             relationships
+
+    removal =
+      relationship_request("preview", %{
+        "action" => "remove",
+        "request_id" => Ecto.UUID.generate(),
+        "subject" => %{"id" => candidate, "type" => "individual"},
+        "relationship_id" => id,
+        "reason" => "Upstream association was ruled out"
+      })
+
+    assert %{"relationship_id" => ^id, "replayed" => false} =
+             relationship_request("apply", %{"review_token" => removal["review_token"]})
+
+    assert [%{"id" => ^id, "status" => "removed"}] =
+             (build_conn()
+              |> get("/api/v1/incidents/health/#{subject}")
+              |> json_response(200))["data"]["correlation_relationships"]["items"]
   end
 
   test "investigation preserves confirmed health and original age across failure, replay and pruning" do
@@ -440,6 +491,13 @@ defmodule MondekWeb.MCPTest do
         post_mcp(%{"jsonrpc" => "2.0", "id" => 1, "method" => method, "params" => params}),
         200
       )
+
+  defp relationship_request(action, body) do
+    build_conn()
+    |> put_req_header("content-type", "application/json")
+    |> post("/api/v1/incidents/relationships/#{action}", Jason.encode!(body))
+    |> json_response(200)
+  end
 
   defp post_mcp(body, headers \\ []) do
     conn =

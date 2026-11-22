@@ -48,6 +48,8 @@ Runner communication and operator workflows use the same experimental same-relea
 | POST | `/api/v1/incidents/health/:id/acknowledge` | `/api/v1/incidents/:id/acknowledge` | `IncidentsController.acknowledge` |
 | GET | `/api/v1/incidents/monitoring-loss` | `/api/v1/monitoring-incidents` | `IncidentsController.monitoring_incidents` |
 | GET | `/api/v1/incidents/monitoring-loss/:id` | `/api/v1/monitoring-incidents/:id` | `IncidentsController.monitoring_incident` |
+| POST | `/api/v1/incidents/relationships/apply` | Retained; explicit DTO | `CorrelationController.correlation_relationship_apply` |
+| POST | `/api/v1/incidents/relationships/preview` | Retained; explicit DTO | `CorrelationController.correlation_relationship_preview` |
 | GET | `/api/v1/maintenance` | Retained; explicit DTO | `MaintenanceController.maintenance_windows` |
 | GET | `/api/v1/maintenance-projects/:project` | Retained; explicit DTO | `MaintenanceController.maintenance_project` |
 | POST | `/api/v1/maintenance-projects/apply` | Retained; explicit DTO | `MaintenanceController.maintenance_project_apply` |

@@ -4,6 +4,7 @@ defmodule MondekWeb.InvestigationEntity do
   @moduledoc "Bounded evidence and retained control state for one investigation entity."
   alias Mondek.{
     CorrelationCandidates,
+    CorrelationRelationships,
     Investigation,
     Maintenance,
     Monitoring,
@@ -18,6 +19,8 @@ defmodule MondekWeb.InvestigationEntity do
       identity: identity,
       data: nil,
       review: nil,
+      relationship_review: nil,
+      relationship_message: nil,
       draft: %{},
       replacing: false,
       feedback: nil,
@@ -89,7 +92,16 @@ defmodule MondekWeb.InvestigationEntity do
               {:error, _} -> %{"status" => "unavailable", "candidates" => []}
             end
 
-          Map.put(detail, "correlation_candidates", candidates)
+          detail
+          |> Map.put("correlation_candidates", candidates)
+          |> Map.put(
+            "relationships",
+            CorrelationRelationships.list(
+              type,
+              id,
+              max(1, MondekWeb.MonitoringUI.integer(filters["relationships_page"]))
+            )
+          )
         end
       else
         MonitoringLoss.detail(id, now, %{"members_page" => filters["member_page"]})

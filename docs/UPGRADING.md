@@ -86,6 +86,10 @@ Validate an existing schedule and retained monitoring-loss history after upgradi
 
 Back up PostgreSQL and each runner’s complete state directory, then upgrade the controller and SDK together. Packaged startup applies `20261121150000_add_maintenance_projects`, which adds project ownership and reviewed-apply receipts for recurring schedules. Existing schedules remain operator-owned. Export any newly managed schedules before reverting the migration, since rollback discards project keys and receipts while leaving the materialized series and their history. See [maintenance as code](MAINTENANCE-AS-CODE.md).
 
+## Secondary correlation relationships
+
+Packaged startup adds separate storage for reviewed secondary incident relationships. Existing case membership, controls and delivery history retain their current meaning. Export any secondary relationship history you need before reverting the migration. See [secondary relationships](RUNTIME-INCIDENT-CORRELATION.md#record-a-secondary-relationship).
+
 ## Runtime cases
 
 The additive correlation migration runs at packaged startup. Existing evidence, controls, jobs and identities remain unchanged. Back up before upgrading. Correlation batching defaults off and case acknowledgements remain explicit; rollback to older code requires a reviewed database rollback and must not discard case history silently.

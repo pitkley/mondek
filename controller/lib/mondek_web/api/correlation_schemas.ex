@@ -50,6 +50,24 @@ defmodule MondekWeb.API.CorrelationSchemas do
   def response(:correlation_apply),
     do: S.record(%{case_id: S.uuid(), replayed: S.boolean()}, [:case_id, :replayed])
 
+  def response(:correlation_relationship_preview),
+    do:
+      S.record(
+        %{
+          proposal: relationship_proposal(),
+          review_token: S.string(),
+          matches: S.array(S.ref("HintCandidateMatch")),
+          relationship: S.nullable(S.ref("CorrelationRelationship")),
+          notification_effect: S.enum(["none"]),
+          as_of: S.time()
+        },
+        ~w(proposal review_token matches relationship notification_effect as_of)a
+      )
+
+  def response(:correlation_relationship_apply),
+    do:
+      S.record(%{relationship_id: S.uuid(), replayed: S.boolean()}, [:relationship_id, :replayed])
+
   def response(:correlation_candidates), do: S.array(S.ref("IncidentSummary"))
 
   def response(:correlation_cases), do: S.array(S.ref("CorrelationCase"))
@@ -70,6 +88,8 @@ defmodule MondekWeb.API.CorrelationSchemas do
   def request(:case_control_apply), do: request(:correlation_apply)
 
   def request(:correlation_preview), do: proposal()
+  def request(:correlation_relationship_preview), do: relationship_proposal()
+  def request(:correlation_relationship_apply), do: request(:correlation_apply)
 
   def request(:correlation_apply),
     do:
@@ -83,6 +103,31 @@ defmodule MondekWeb.API.CorrelationSchemas do
         %{items: S.array(item), page: S.integer(), page_size: S.integer(), total: S.integer()},
         [:items, :page, :page_size, :total]
       )
+
+  defp relationship_proposal do
+    common = %{
+      request_id: S.uuid(),
+      subject: episode(),
+      reason: %Schema{type: :string, minLength: 1, maxLength: 2_000}
+    }
+
+    %Schema{
+      oneOf: [
+        S.record(
+          Map.merge(common, %{
+            action: S.enum(["add"]),
+            target: episode(),
+            dimension: %Schema{type: :string, minLength: 1, maxLength: 128}
+          }),
+          ~w(action request_id subject target dimension reason)a
+        ),
+        S.record(
+          Map.merge(common, %{action: S.enum(["remove"]), relationship_id: S.uuid()}),
+          ~w(action request_id subject relationship_id reason)a
+        )
+      ]
+    }
+  end
 
   defp control,
     do:
@@ -98,6 +143,45 @@ defmodule MondekWeb.API.CorrelationSchemas do
 
   def definitions do
     %{
+      "CorrelationRelationshipPage" =>
+        S.record(
+          %{
+            subject: episode(),
+            items: S.array(S.ref("CorrelationRelationship")),
+            page: S.integer(),
+            page_size: S.integer(),
+            total: S.integer()
+          },
+          ~w(subject items page page_size total)a
+        ),
+      "CorrelationRelationship" =>
+        S.record(
+          %{
+            id: S.uuid(),
+            subject: S.ref("CorrelationRelationshipEndpoint"),
+            target: S.ref("CorrelationRelationshipEndpoint"),
+            dimension: S.string(),
+            matches: S.array(S.ref("HintCandidateMatch")),
+            revision: S.integer(),
+            status: S.enum(~w(active removed endpoint_closed)),
+            actor: S.string(),
+            reason: S.string(),
+            inserted_at: S.time(),
+            removed_at: S.time(),
+            removed_by: S.nullable(S.string()),
+            removal_reason: S.nullable(S.string())
+          },
+          ~w(id subject target dimension matches revision status actor reason inserted_at)a
+        ),
+      "CorrelationRelationshipEndpoint" =>
+        S.record(
+          %{
+            id: S.uuid(),
+            type: S.enum(~w(individual condition)),
+            status: S.enum(~w(open closed))
+          },
+          ~w(id type status)a
+        ),
       "CorrelationCandidateInspection" =>
         S.record(
           %{

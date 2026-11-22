@@ -10,7 +10,7 @@ All selected episodes must have the same exact monitored environment. A missing 
 
 Measured member recovery and case membership are independent. A recovered parent stays visible while children fail. Case state is derived from retained native episodes; reads do not write it. A case whose members have all ended cannot reopen. Moving its last unresolved member records the closure time and action. A new native failure episode needs a new relation. Removing a member says removed, never recovered.
 
-[Exact batch delivery](EXACT-BATCH-DELIVERY.md) adds opt-in aggregation and reviewed case acknowledgements. Each episode retains all evidence and controls and its original notification identity, payload and budget. The [correlation design](INCIDENT-CORRELATION-DECISIONS-DESIGN.md) covers later rules, secondary relationships and external decision providers.
+[Exact batch delivery](EXACT-BATCH-DELIVERY.md) adds opt-in aggregation and reviewed case acknowledgements. Each episode retains all evidence and controls and its original notification identity, payload and budget. The [correlation design](INCIDENT-CORRELATION-DECISIONS-DESIGN.md) covers deterministic rules and external decisions.
 
 ## Inspect hinted candidates
 
@@ -19,6 +19,14 @@ Open an active health incident with [declared dependency hints](../runner/README
 Condition selectors match an exact namespace and key. Target selectors match an exact source, target kind and key. Both use the subject’s exact monitored environment, including an absent environment. Only open dependencies qualify. Compare controller opening times using the contributor that declared the hint. For a target within a shared Condition, use the matching target contributor’s opening time. An older open dependency remains eligible, and a dependency that opens later can appear on a subsequent read if it opens within the declared window. A matching shared Condition appears once even when several of its results match. Rank by the closest qualifying opening times, then by episode type and ID.
 
 The health detail’s `correlation_candidates` projection includes the canonical subject, status, hint count, conflict and truncation flags, and up to 20 candidates. Inspection considers up to 16 active contributors and 32 distinct hints. Each candidate lists up to four matches with their timing and up to four opening contributors per match. `complete` with no candidates means no matches in the inspected scope. `incomplete` means some opening evidence was missing or a limit was reached. `unavailable` covers closed subjects and missing opening metadata. Different declaration sets from active shared-Condition contributors are flagged for review.
+
+## Record a secondary relationship
+
+In incident detail, choose a candidate and dimension, enter a reason, and review the link before saving. The link points from the incident that declared a dependency to the candidate episode. Each incident can keep multiple dimensions. The review records the selected match and its opening-generation provenance. A link ends when either endpoint closes or an operator removes it after review. The original endpoint identities and reason remain visible under normal history retention.
+
+Secondary links help operators investigate a possible dependency. Existing primary case membership, acknowledgements, batch eligibility, and delivery records remain unchanged.
+
+For HTTP, `POST /api/v1/incidents/relationships/preview` takes an action, request ID, canonical subject reference, and reason. For `add`, provide the target reference and dimension. For `remove`, provide the relationship ID and either endpoint as the subject. Apply with the `review_token` at `POST /api/v1/incidents/relationships/apply`. Health incident detail and MCP `get_incident` include `correlation_relationships`, with an independent `relationships_page` parameter.
 
 ## HTTP
 

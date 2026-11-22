@@ -4,7 +4,7 @@ defmodule MondekWeb.BrowserNavigation do
   @moduledoc "Bounded local browser return destinations, validated against the actual LiveView router."
   alias MondekWeb.{InvestigationTrail, Router}
 
-  @keys ~w(search runner_id source_id environment target_kind target_key health freshness status group type severity acknowledgement opened grouping page healthy_page expected_page diagnostic_page coverage_observer_page coverage_entity notification_status notification_page notification_event notification_type notification_channel member_page inspect surface page_entity sort page_size contact collection lifecycle configuration_stage target_scope selection proposal candidate_page enabled ownership schema_search diagnostics assignment_id stream_id check_id occurrence_page result_page selected_page change history_page event_id event_page evidence_id schema_from copy_series)
+  @keys ~w(search runner_id source_id environment target_kind target_key health freshness status group type severity acknowledgement opened grouping page healthy_page expected_page diagnostic_page coverage_observer_page coverage_entity notification_status notification_page notification_event notification_type notification_channel relationships_page member_page inspect surface page_entity sort page_size contact collection lifecycle configuration_stage target_scope selection proposal candidate_page enabled ownership schema_search diagnostics assignment_id stream_id check_id occurrence_page result_page selected_page change history_page event_id event_page evidence_id schema_from copy_series)
 
   @return_depth 4
 
