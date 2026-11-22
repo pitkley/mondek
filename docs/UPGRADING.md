@@ -86,15 +86,13 @@ Validate an existing schedule and retained monitoring-loss history after upgradi
 
 Back up PostgreSQL and each runner’s complete state directory, then upgrade the controller and SDK together. Packaged startup applies `20261121150000_add_maintenance_projects`, which adds project ownership and reviewed-apply receipts for recurring schedules. Existing schedules remain operator-owned. Export any newly managed schedules before reverting the migration, since rollback discards project keys and receipts while leaving the materialized series and their history. See [maintenance as code](MAINTENANCE-AS-CODE.md).
 
-## Secondary correlation relationships
+## 0.0.11: incident correlation hints, relationships and decisions
 
-Packaged startup adds separate storage for reviewed secondary incident relationships. Existing case membership, controls and delivery history retain their current meaning. Export any secondary relationship history you need before reverting the migration. See [secondary relationships](RUNTIME-INCIDENT-CORRELATION.md#record-a-secondary-relationship).
+Back up PostgreSQL and each runner's complete state directory, then upgrade the controller and SDK together. Packaged startup applies four migrations for reviewed secondary relationships, rule approvals and episode overrides, retained deterministic evaluations, and external decision requests. Existing cases retain operator provenance. Existing case membership, acknowledgements, batches and delivery history retain their original scope.
+
+Deterministic grouping requires an explicit rule. An external provider requires a private configuration file and an operator-initiated request. Verify existing cases and delivery records after upgrading. Before rolling back, stop the controller and its provider worker and preserve a database backup containing the new relationship and decision history. See [incident correlation](RUNTIME-INCIDENT-CORRELATION.md) and [external decisions](CORRELATION-DECISIONS.md).
 
 ## Runtime cases
-
-The deterministic grouping migrations add operator approvals, episode overrides and retained evaluations. Existing cases and membership keep operator provenance. Configure an exact rule after upgrading to enable automatic grouping. See [deterministic grouping](RUNTIME-INCIDENT-CORRELATION.md#opt-in-to-deterministic-grouping).
-
-Packaged startup also adds durable external decision requests and receipts. Configure a private provider settings file to enable requests. For rollback, retain a backup of request and proposal history and stop the provider worker before reverting the schema. See [external correlation decisions](CORRELATION-DECISIONS.md).
 
 The additive correlation migration runs at packaged startup. Existing evidence, controls, jobs and identities remain unchanged. Back up before upgrading. Correlation batching defaults off and case acknowledgements remain explicit; rollback to older code requires a reviewed database rollback and must not discard case history silently.
 
