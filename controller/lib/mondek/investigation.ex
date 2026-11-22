@@ -3,7 +3,16 @@
 defmodule Mondek.Investigation do
   @moduledoc "Bounded investigation queries and selected-output evidence shared by adapters."
   import Ecto.Query
-  alias Mondek.{Repo, Monitoring, Inspection, Assignment, ResultStream, Incident}
+
+  alias Mondek.{
+    Repo,
+    Monitoring,
+    Inspection,
+    Assignment,
+    ResultStream,
+    Incident,
+    CorrelationCandidates
+  }
 
   @identity ~w(id assignment_id result_key label check_label runner_id runner_label source_id source_key source_revision definition_revision environment environment_label retired retirement_reason params_owner desired_generation authorized_generation prepared_generation active_generation observed_generation check_group condition qualification predecessor_stream_id)
   @current ~w(value health knowledge summary source_at confirmed_observation_id confirmed_generation confirmed_session_id confirmed_evaluated_at observation_id session_id generation started_at evaluated_at received_at complete diagnostic execution_summary reported_health reported_source_at)
@@ -82,6 +91,7 @@ defmodule Mondek.Investigation do
           ~w(incident stream assignment counts contributions contribution_page contradictions contradiction_page occurrences notification_page notification_counts attempts controls evidence closing_evidence recorded_measurement evidence_projection as_of limits)
         )
         |> Map.update!("incident", &correlated_summary/1)
+        |> put_correlation_candidates()
         |> Map.update("assignment", nil, &safe_assignment/1)
         |> Map.update("stream", nil, &safe_result/1)
         |> Map.update("contributions", [], fn rows ->
@@ -105,6 +115,10 @@ defmodule Mondek.Investigation do
           if row, do: report_excerpt(row, selected_key)
         end)
     end
+  end
+
+  defp put_correlation_candidates(%{"incident" => %{"incident_type" => type, "id" => id}} = data) do
+    Map.put(data, "correlation_candidates", CorrelationCandidates.for_episode(type, id))
   end
 
   defp correlated_summary(row) do
@@ -317,8 +331,12 @@ defmodule Mondek.Investigation do
     case Repo.get(Mondek.ConditionIncident, id) do
       nil ->
         case Repo.get(Incident, id) do
-          nil -> nil
-          incident -> %{"incident" => incident_summary(take(incident, @incident), "health")}
+          nil ->
+            nil
+
+          incident ->
+            %{"incident" => incident_summary(take(incident, @incident), "health")}
+            |> put_correlation_candidates()
         end
 
       group ->
@@ -347,6 +365,7 @@ defmodule Mondek.Investigation do
               20
             )
         }
+        |> put_correlation_candidates()
     end
   end
 

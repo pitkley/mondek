@@ -2281,6 +2281,69 @@
         ],
         "type": "object"
       },
+      "HintCandidateMatch": {
+        "additionalProperties": false,
+        "properties": {
+          "contributors": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "assignment_id": {
+                  "type": "string"
+                },
+                "generation": {
+                  "type": "integer"
+                },
+                "incident_id": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "incident_id",
+                "assignment_id",
+                "generation"
+              ],
+              "type": "object"
+            },
+            "maxItems": 4,
+            "type": "array"
+          },
+          "depends_on": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CorrelationConditionRef"
+              },
+              {
+                "$ref": "#/components/schemas/CorrelationTargetRef"
+              }
+            ]
+          },
+          "dimension": {
+            "type": "string"
+          },
+          "timing": {
+            "enum": [
+              "overlap",
+              "later_opening"
+            ],
+            "type": "string"
+          },
+          "window_seconds": {
+            "maximum": 86400,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dimension",
+          "depends_on",
+          "window_seconds",
+          "timing",
+          "contributors"
+        ],
+        "type": "object"
+      },
       "IncidentMeasurement": {
         "additionalProperties": false,
         "properties": {
@@ -4795,6 +4858,65 @@
         ],
         "type": "object"
       },
+      "CorrelationCandidateInspection": {
+        "additionalProperties": false,
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/HintCandidate"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "conflicting_hints": {
+            "type": "boolean"
+          },
+          "hint_count": {
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "complete",
+              "incomplete",
+              "unavailable"
+            ],
+            "type": "string"
+          },
+          "subject": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "individual",
+                  "condition"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "type"
+            ],
+            "type": "object"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "subject",
+          "status",
+          "hint_count",
+          "truncated",
+          "conflicting_hints",
+          "candidates"
+        ],
+        "type": "object"
+      },
       "CaseDelivery": {
         "additionalProperties": false,
         "properties": {
@@ -5759,6 +5881,53 @@
         "required": [
           "version",
           "status"
+        ],
+        "type": "object"
+      },
+      "HintCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "health": {
+            "enum": [
+              "WARN",
+              "CRIT"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/HintCandidateMatch"
+            },
+            "maxItems": 4,
+            "type": "array"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "individual",
+              "condition"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "label",
+          "health",
+          "opened_at",
+          "matches"
         ],
         "type": "object"
       },
@@ -22055,7 +22224,7 @@
       "get": {
         "callbacks": {},
         "deprecated": false,
-        "description": "Experimental same-release contract. Review tokens and revisions retain their domain scope; source and definition revisions are not Git revisions.",
+        "description": "Health incident detail includes an advisory, bounded ranking of open episodes matching retained output hints. Candidate inspection leaves membership and notification policy unchanged.",
         "operationId": "getHealthIncident",
         "parameters": [
           {
@@ -22235,6 +22404,9 @@
                             "$ref": "#/components/schemas/Control"
                           },
                           "type": "array"
+                        },
+                        "correlation_candidates": {
+                          "$ref": "#/components/schemas/CorrelationCandidateInspection"
                         },
                         "counts": {
                           "allOf": [

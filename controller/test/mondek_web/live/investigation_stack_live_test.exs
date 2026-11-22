@@ -71,6 +71,66 @@ defmodule MondekWeb.InvestigationStackLiveTest do
     assert has_element?(view, "#overview-panel", "Other operator")
   end
 
+  test "the same incident shows its exact candidate and match reason in both detail surfaces" do
+    now = Monitoring.now()
+    target = CoverageFixtures.check("Database health", "production", "primary-db")
+
+    hint = %{
+      "dimension" => "database",
+      "depends_on" => %{
+        "type" => "target",
+        "source_id" => "coverage-test",
+        "kind" => "service",
+        "key" => "primary-db"
+      },
+      "window_seconds" => 60
+    }
+
+    child =
+      CoverageFixtures.check("Application health", "production", "app")
+
+    [upstream, subject] =
+      for check <- [target, child] do
+        publication = CoverageFixtures.publication([CoverageFixtures.candidate(check)])
+
+        publication =
+          if check == child,
+            do:
+              put_in(
+                publication,
+                ["checks", Access.at(0), "outputs", Access.at(0), "correlation_hints"],
+                [hint]
+              ),
+            else: publication
+
+        assert {:ok, _} = Monitoring.inventory(publication, now)
+        assert {:ok, _} = CoverageFixtures.activate(publication, now)
+        assert disposition(CoverageFixtures.sample(publication, "CRIT", 1, now)) == "current"
+        [assignment] = CoverageFixtures.assignments(publication)
+        Repo.get_by!(Incident, assignment_id: assignment.id)
+      end
+
+    for {suffix, body} <- [{"", "#overview-panel"}, {"/full", "#incident-page"}] do
+      {:ok, view, _} = live(build_conn(), "/incidents/health/#{subject.id}#{suffix}")
+      section = body <> " section[id$=correlation-candidates]"
+      assert has_element?(view, section, "Correlation candidates")
+      assert has_element?(view, section, "database · Target coverage-test/service/primary-db")
+      assert has_element?(view, section, "Matching episode was open when this incident began")
+      assert has_element?(view, section <> " details summary", "Hint provenance")
+
+      assert has_element?(
+               view,
+               section <> " details",
+               "Opening generation #{subject.opening_generation}"
+             )
+
+      assert has_element?(view, section <> " details", subject.assignment_id)
+      refute has_element?(view, section <> " details a")
+      assert has_element?(view, section <> " a[href*='#{upstream.id}']")
+      assert has_element?(view, body <> " form[id$=incident-ack-form]")
+    end
+  end
+
   test "a direct full page root shares identity and draft state with its overlays" do
     {incident, _result} = failure()
     base = "/incidents/health/#{incident.id}/full"
