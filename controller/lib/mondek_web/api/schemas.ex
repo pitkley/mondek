@@ -495,6 +495,8 @@ defmodule MondekWeb.API.Schemas do
                :correlation_cases,
                :correlation_case,
                :correlation_preview,
+               :correlation_relationship_preview,
+               :correlation_relationship_apply,
                :case_control_preview,
                :case_control_apply,
                :correlation_apply

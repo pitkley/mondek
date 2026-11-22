@@ -62,11 +62,12 @@ defmodule Mondek.MCP do
       ),
       tool(
         "get_incident",
-        "Inspect a health incident (including advisory correlation candidates) or monitoring loss. Follow contributor stream IDs with get_evidence; opening/latest/closing observation IDs identify historical evidence, not current health.",
+        "Inspect a health incident, including advisory candidates and reviewed secondary relationships, or monitoring loss. Follow contributor stream IDs with get_evidence; opening/latest/closing observation IDs identify historical evidence, not current health.",
         %{
           "incident_id" => uuid,
           "kind" => %{"type" => "string", "enum" => ~w(health monitoring_loss)},
-          "page" => page
+          "page" => page,
+          "relationships_page" => page
         },
         ~w(incident_id kind)
       )

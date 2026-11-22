@@ -4,6 +4,7 @@ defmodule MondekWeb.PreviewIncidentDetail do
   use MondekWeb, :html
   import MondekWeb.CheckDetails, only: [check_details: 1]
   import MondekWeb.EvidencePresentation, only: [time: 1, badge_text: 1, target_label: 1]
+  import MondekWeb.RelationshipDetail, only: [selector_label: 1, timing_label: 3]
   alias Mondek.Monitoring
   alias MondekWeb.{PreviewDetail, PreviewIncidentSections}
 
@@ -18,6 +19,8 @@ defmodule MondekWeb.PreviewIncidentDetail do
   attr :current, :string, required: true
   attr :id_prefix, :string, required: true
   attr :full_page, :boolean, required: true
+  attr :relationship_review, :any, default: nil
+  attr :relationship_message, :any, default: nil
   attr :control_review, :any, required: true
   attr :control_draft, :map, required: true
   attr :control_replacing, :boolean, required: true
@@ -107,6 +110,20 @@ defmodule MondekWeb.PreviewIncidentDetail do
       full_page={@full_page}
       id_prefix={@id_prefix}
       incident_path={@incident_path}
+    />
+    <MondekWeb.RelationshipDetail.body
+      :if={@kind == "health" && @incident && @detail["relationships"]}
+      incident_id={@incident["id"]}
+      listing={@detail["relationships"]}
+      candidates={get_in(@detail, ["correlation_candidates", "candidates"]) || []}
+      review={@relationship_review}
+      message={@relationship_message}
+      entity={@entity}
+      target={@target}
+      full_page={@full_page}
+      id_prefix={@id_prefix}
+      incident_path={@incident_path}
+      page_path={@page_path}
     />
     <.loss_evidence
       :if={@incident && @kind == "loss"}
@@ -247,30 +264,6 @@ defmodule MondekWeb.PreviewIncidentDetail do
       </div>
     </PreviewDetail.card>
     """
-  end
-
-  defp selector_label(%{"type" => "condition", "namespace" => ns, "key" => key}),
-    do: "Condition #{ns}/#{key}"
-
-  defp selector_label(%{"type" => "target", "source_id" => source, "kind" => kind, "key" => key}),
-    do: "Target #{source}/#{kind}/#{key}"
-
-  defp timing_label(match, candidate_type, subject_type) do
-    candidate =
-      if candidate_type == "condition" && match["depends_on"]["type"] == "target",
-        do: "Matching target contribution",
-        else: "Matching episode"
-
-    subject =
-      if subject_type == "condition", do: "the declaring contribution", else: "this incident"
-
-    case match["timing"] do
-      "overlap" ->
-        "#{candidate} was open when #{subject} began"
-
-      "later_opening" ->
-        "#{candidate} opened within #{match["window_seconds"]} seconds after #{subject} began"
-    end
   end
 
   defp health_evidence(assigns) do

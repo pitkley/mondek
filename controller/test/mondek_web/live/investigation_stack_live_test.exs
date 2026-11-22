@@ -129,6 +129,43 @@ defmodule MondekWeb.InvestigationStackLiveTest do
       assert has_element?(view, section <> " a[href*='#{upstream.id}']")
       assert has_element?(view, body <> " form[id$=incident-ack-form]")
     end
+
+    {:ok, flyover, _} = live(build_conn(), "/incidents/health/#{subject.id}")
+    links = "section[id$=secondary-links]"
+    assert has_element?(flyover, links <> " summary", "database")
+    flyover |> form(links <> " form", reason: "Database investigation") |> render_submit()
+    assert has_element?(flyover, links, "No recorded links")
+    flyover |> element(links <> " button", "Apply addition") |> render_click()
+    assert has_element?(flyover, links <> " article", "database · active")
+    assert has_element?(flyover, links <> " article", "Database investigation")
+
+    {:ok, full, _} = live(build_conn(), "/incidents/health/#{upstream.id}/full")
+    assert has_element?(full, links <> " article", "database · active")
+    full |> form(links <> " article form", reason: "Independent failures") |> render_submit()
+    assert has_element?(full, links <> " article", "database · active")
+    assert has_element?(full, links <> " div.preview-incident-evidence", upstream.id)
+    assert has_element?(full, links <> " div.preview-incident-evidence", subject.id)
+
+    assert has_element?(
+             full,
+             links <> " div.preview-incident-evidence",
+             "Matching episode was open"
+           )
+
+    full |> element(links <> " button", "Apply removal") |> render_click()
+
+    for suffix <- ["", "/full"] do
+      {:ok, view, _} = live(build_conn(), "/incidents/health/#{subject.id}#{suffix}")
+      assert has_element?(view, links <> " article", "database · removed")
+      assert has_element?(view, links <> " article", "Independent failures")
+      assert has_element?(view, links <> " article", "Database investigation")
+
+      assert has_element?(
+               view,
+               links <> " article",
+               "Opening generation #{subject.opening_generation}"
+             )
+    end
   end
 
   test "a direct full page root shares identity and draft state with its overlays" do

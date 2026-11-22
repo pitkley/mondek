@@ -41,10 +41,204 @@ defmodule Mondek.CorrelationCandidatesTest do
     CoverageFixtures.activate(pub, time)
     CoverageFixtures.sample(pub, "CRIT", 1, time)
     [assignment] = CoverageFixtures.assignments(pub)
-    Repo.get_by!(Incident, assignment_id: assignment.id)
+    incident = Repo.get_by!(Incident, assignment_id: assignment.id)
+    if options[:publication], do: {incident, pub}, else: incident
   end
 
   defp search(i), do: CorrelationCandidates.for_episode("individual", i.id)
+
+  alias Mondek.CorrelationRelationships, as: Links
+  defp individual(id), do: %{"id" => id, "type" => "individual"}
+
+  defp add_link(child, parent) do
+    %{
+      "action" => "add",
+      "subject" => individual(child.id),
+      "target" => individual(parent.id),
+      "request_id" => Ecto.UUID.generate(),
+      "reason" => "Confirmed network evidence",
+      "dimension" => "network"
+    }
+  end
+
+  test "review is bound to selected matches, survives unrelated candidates, and replays once" do
+    child = episode("app", "app", [hint(@target)], 0)
+    parent = episode("network", "up", [], -1)
+    p = add_link(child, parent)
+    assert {:ok, review} = Links.preview(p)
+    episode("unrelated", "up", [], 1)
+
+    assert {:ok, primary} =
+             Mondek.Correlations.preview(%{
+               "action" => "create",
+               "request_id" => Ecto.UUID.generate(),
+               "episodes" => [individual(child.id), individual(parent.id)],
+               "reason" => "Shared outage",
+               "title" => "Primary case"
+             })
+
+    assert {:ok, %{"case_id" => case_id}} = Mondek.Correlations.apply(primary["review_token"])
+
+    snapshot = fn ->
+      {Mondek.Correlations.detail(case_id), Repo.all(from o in Occurrence, order_by: o.id),
+       Repo.all(from a in Attempt, order_by: a.id),
+       Repo.all(from c in Mondek.Control, order_by: c.id)}
+    end
+
+    before = snapshot.()
+
+    assert {:ok, %{"relationship_id" => id, "replayed" => false}} =
+             Links.apply(review["review_token"], at())
+
+    assert {:ok, %{"relationship_id" => ^id, "replayed" => true}} =
+             Links.apply(review["review_token"], at())
+
+    assert {:error, {:invalid, _}} = Links.preview(%{p | "request_id" => Ecto.UUID.generate()})
+
+    assert [%{"id" => ^id, "status" => "active", "revision" => 1} = item] =
+             Links.list("individual", child.id)["items"]
+
+    assert item["matches"] == review["matches"]
+    assert Links.list("individual", parent.id)["items"] == [item]
+    assert Links.list("individual", parent.id, 2)["items"] == []
+
+    remove = %{
+      "action" => "remove",
+      "request_id" => Ecto.UUID.generate(),
+      "reason" => "Disproved",
+      "subject" => individual(parent.id),
+      "relationship_id" => id
+    }
+
+    assert {:ok, r} = Links.preview(remove)
+    assert r["relationship"] == item
+    assert {:ok, _} = Links.apply(r["review_token"], DateTime.add(at(), 1))
+    assert {:ok, %{"replayed" => true}} = Links.apply(r["review_token"], DateTime.add(at(), 1))
+
+    assert [
+             %{
+               "status" => "removed",
+               "revision" => 2,
+               "removal_reason" => "Disproved",
+               "reason" => "Confirmed network evidence",
+               "matches" => matches
+             }
+           ] = Links.list("individual", child.id)["items"]
+
+    assert matches == item["matches"]
+    assert before == snapshot.()
+
+    assert {:ok, 0} =
+             Repo.transaction(fn -> Links.prune!(DateTime.add(at(), 1), 1) end)
+
+    assert {:ok, 1} =
+             Repo.transaction(fn -> Links.prune!(DateTime.add(at(), 2), 1) end)
+
+    assert Repo.aggregate(Mondek.CorrelationRelationshipReceipt, :count) == 0
+  end
+
+  test "competing final slots serialize and closed links release capacity" do
+    {first, pub} = episode("first", "up", [], 0, publication: true)
+    child = episode("app", "app", [hint(@target)], 0)
+    parents = [first | for(n <- 2..17, do: episode("parent-#{n}", "up", [], 0))]
+    proposals = Enum.map(parents, &add_link(child, &1))
+
+    tokens =
+      Enum.map(proposals, fn proposal ->
+        {:ok, report} = Links.preview(proposal)
+        report["review_token"]
+      end)
+
+    {accepted, competing} = Enum.split(tokens, 15)
+    Enum.each(accepted, fn token -> assert {:ok, _} = Links.apply(token) end)
+
+    results =
+      competing |> Task.async_stream(&Links.apply/1) |> Enum.map(fn {:ok, result} -> result end)
+
+    assert Enum.count(results, &match?({:ok, _}, &1)) == 1
+    assert Enum.count(results, &(&1 == {:error, :review_changed})) == 1
+    assert Links.list("individual", child.id)["total"] == 16
+    CoverageFixtures.sample(pub, "OK", 2, DateTime.add(at(), 1))
+    failed = Enum.find_index(results, &(&1 == {:error, :review_changed}))
+    assert {:ok, %{"replayed" => false}} = Links.apply(Enum.at(competing, failed))
+    assert Links.list("individual", child.id)["total"] == 17
+  end
+
+  test "a reviewed add cannot override an intervening add and removal" do
+    child = episode("app", "app", [hint(@target)], 0)
+    parent = episode("up", "up", [], 0)
+    proposal = add_link(child, parent)
+    assert {:ok, earliest} = Links.preview(%{proposal | "request_id" => Ecto.UUID.generate()})
+
+    assert {:ok, %{"relationship_id" => earliest_id}} =
+             Links.apply(earliest["review_token"], at())
+
+    del = %{
+      "action" => "remove",
+      "subject" => individual(parent.id),
+      "relationship_id" => earliest_id,
+      "reason" => "Earlier decision",
+      "request_id" => Ecto.UUID.generate()
+    }
+
+    assert {:ok, d} = Links.preview(del)
+    assert {:ok, _} = Links.apply(d["review_token"], DateTime.add(at(), -1))
+    assert [prior] = Links.list("individual", child.id)["items"]
+    assert prior["removed_at"] == prior["inserted_at"]
+
+    assert {:ok, old} = Links.preview(proposal)
+    assert {:ok, newer} = Links.preview(%{proposal | "request_id" => Ecto.UUID.generate()})
+    assert {:ok, %{"relationship_id" => id}} = Links.apply(newer["review_token"])
+
+    remove = %{
+      "action" => "remove",
+      "subject" => individual(parent.id),
+      "relationship_id" => id,
+      "reason" => "Operator override",
+      "request_id" => Ecto.UUID.generate()
+    }
+
+    assert {:ok, r} = Links.preview(remove)
+    assert {:ok, _} = Links.apply(r["review_token"])
+    assert {:ok, 1} = Repo.transaction(fn -> Links.prune!(DateTime.add(at(), 1), 1) end)
+    assert {:error, :review_changed} = Links.apply(old["review_token"])
+  end
+
+  test "a closed endpoint ends the exact reviewed episode despite a new failure" do
+    child = episode("app", "app", [hint(@target)], 0)
+    {parent, pub} = episode("network", "up", [], -1, publication: true)
+    p = add_link(child, parent)
+    assert {:ok, review} = Links.preview(p)
+    assert {:ok, _} = Links.apply(review["review_token"])
+    CoverageFixtures.sample(pub, "OK", 2, DateTime.add(at(), 2))
+    CoverageFixtures.sample(pub, "CRIT", 3, DateTime.add(at(), 3))
+
+    assert [%{"status" => "endpoint_closed", "target" => %{"status" => "closed", "id" => id}}] =
+             Links.list("individual", child.id)["items"]
+
+    assert id == parent.id
+    assert [%{"id" => other}] = search(child)["candidates"]
+    refute other == parent.id
+    assert Links.list("individual", other)["items"] == []
+  end
+
+  test "stale selected provenance, noncanonical refs, wrong dimension and environment are rejected" do
+    child = episode("app", "app", [hint(@target)], 0)
+    parent = episode("net", "up", [], 0, condition: @group)
+
+    assert Links.list("individual", parent.id) ==
+             Links.list("condition", parent.condition_incident_id)
+
+    outside = episode("foreign", "up", [], 0, env: "outside")
+    p = add_link(child, parent)
+    assert {:error, {:invalid, _}} = Links.preview(p)
+    assert {:error, {:invalid, _}} = Links.preview(add_link(child, outside))
+    p = %{p | "target" => %{"type" => "condition", "id" => parent.condition_incident_id}}
+    assert {:error, {:invalid, _}} = Links.preview(%{p | "dimension" => "db"})
+    assert {:ok, r} = Links.preview(p)
+    Repo.delete!(Repo.get_by!(Configuration, assignment_id: child.assignment_id, generation: 1))
+    assert {:error, :review_changed} = Links.apply(r["review_token"])
+  end
 
   test "exact environment and source, both arrival orders, inclusive window and opening generation" do
     old = episode("ancient", "up", [], -100)

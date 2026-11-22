@@ -201,7 +201,7 @@ defmodule MondekWeb.API.Contract do
         ~w(page status source_id runner_id environment search acknowledgement health grouping opened_since page_size)
 
       :incident ->
-        ~w(page state contradiction_page notification_page notification_status)
+        ~w(page state contradiction_page notification_page notification_status relationships_page)
 
       :monitoring_incidents ->
         ~w(page status source_id runner_id search acknowledgement opened_since)
@@ -255,7 +255,7 @@ defmodule MondekWeb.API.Contract do
 
   defp query_schema(name, action) do
     cond do
-      name in ~w(page batch_page history_page occurrence_page result_page members_page contradiction_page notification_page evidence_page) ->
+      name in ~w(page batch_page history_page occurrence_page result_page members_page contradiction_page notification_page evidence_page relationships_page) ->
         %Schema{type: :integer, minimum: 1, maximum: 1_000_000}
 
       name == "page_size" ->
@@ -320,6 +320,8 @@ defmodule MondekWeb.API.Contract do
       when action in [
              :correlation_preview,
              :correlation_apply,
+             :correlation_relationship_preview,
+             :correlation_relationship_apply,
              :case_control_preview,
              :case_control_apply
            ],

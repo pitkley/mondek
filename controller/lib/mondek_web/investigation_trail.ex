@@ -98,7 +98,8 @@ defmodule MondekWeb.InvestigationTrail do
       params =
         Map.reject(params, fn {key, value} ->
           is_nil(value) ||
-            (key in ~w(member_page healthy_page notification_page) && value in [1, "1"])
+            (key in ~w(relationships_page member_page healthy_page notification_page) &&
+               value in [1, "1"])
         end)
 
       uri.path <> "?" <> URI.encode_query(Enum.sort(params))

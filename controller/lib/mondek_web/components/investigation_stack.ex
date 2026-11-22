@@ -10,7 +10,7 @@ defmodule MondekWeb.InvestigationStack do
   Only the active entity may mutate; rear snapshots never grant form authority.
   """
   use Phoenix.LiveComponent
-  alias Mondek.Monitoring
+  alias Mondek.{CorrelationRelationships, Monitoring}
 
   alias MondekWeb.{
     InvestigationEntity,
@@ -143,7 +143,9 @@ defmodule MondekWeb.InvestigationStack do
     allowed =
       case identity do
         {kind, _} when kind in ~w(health loss) ->
-          event in ~w(filter_incident_detail edit_acknowledgement review_control toggle_acknowledgement_replacement save_acknowledgement end_acknowledgement edit_retry_delivery retry_delivery)
+          (kind == "health" &&
+             event in ~w(review_relationship apply_relationship cancel_relationship)) ||
+            event in ~w(filter_incident_detail edit_acknowledgement review_control toggle_acknowledgement_replacement save_acknowledgement end_acknowledgement edit_retry_delivery retry_delivery)
 
         {"notification", _} ->
           event in ~w(edit_notification_retry retry_notification)
@@ -158,6 +160,78 @@ defmodule MondekWeb.InvestigationStack do
       {:noreply, socket}
     end
   end
+
+  defp operate(
+         socket,
+         state,
+         "review_relationship",
+         %{"action" => action, "reason" => reason} = params
+       )
+       when action in ["add", "remove"] do
+    subject = get_in(state.data.detail, ["relationships", "subject"])
+
+    proposal = %{
+      "subject" => subject,
+      "action" => action,
+      "request_id" => Ecto.UUID.generate(),
+      "reason" => reason
+    }
+
+    proposal =
+      case action do
+        "add" ->
+          Map.merge(proposal, %{
+            "target" => %{"type" => params["target_type"], "id" => params["target_id"]},
+            "dimension" => params["dimension"]
+          })
+
+        "remove" ->
+          Map.put(proposal, "relationship_id", params["relationship_id"])
+      end
+
+    case CorrelationRelationships.preview(proposal) do
+      {:ok, review} ->
+        put_state(socket, %{state | relationship_review: review, relationship_message: nil})
+
+      {:error, {:invalid, message}} ->
+        put_state(socket, %{state | relationship_review: nil, relationship_message: message})
+
+      {:error, _} ->
+        put_state(socket, %{
+          state
+          | relationship_review: nil,
+            relationship_message: "Relationship evidence is unavailable. Try reviewing again."
+        })
+    end
+  end
+
+  defp operate(
+         socket,
+         %{
+           relationship_review: %{
+             "proposal" => %{"request_id" => request},
+             "review_token" => token
+           }
+         } = state,
+         "apply_relationship",
+         %{"request" => request}
+       ) do
+    {state, message} =
+      case CorrelationRelationships.apply(token) do
+        {:ok, _} ->
+          {InvestigationEntity.refresh(state, socket.assigns.now, socket.assigns.params),
+           "Relationship updated."}
+
+        {:error, _} ->
+          {InvestigationEntity.refresh(state, socket.assigns.now, socket.assigns.params),
+           "The relationship could not be updated. Review the current evidence again."}
+      end
+
+    put_state(socket, %{state | relationship_review: nil, relationship_message: message})
+  end
+
+  defp operate(socket, state, "cancel_relationship", _),
+    do: put_state(socket, %{state | relationship_review: nil, relationship_message: nil})
 
   defp operate(socket, %{identity: {"notification", _}} = state, "edit_notification_retry", %{
          "_id" => id,
@@ -647,6 +721,8 @@ defmodule MondekWeb.InvestigationStack do
       current={@host_assigns.current}
       id_prefix={@id_prefix}
       full_page={@full_page}
+      relationship_review={@state.relationship_review}
+      relationship_message={@state.relationship_message}
       control_review={@state.review}
       control_draft={@state.draft}
       control_replacing={@state.replacing}
