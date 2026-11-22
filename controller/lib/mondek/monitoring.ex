@@ -663,6 +663,8 @@ defmodule Mondek.Monitoring do
     with :ok <- Mondek.Protocol.envelope(params) do
       result =
         Repo.transaction(fn ->
+          Mondek.Correlations.lock!(:shared)
+
           runner =
             Repo.one(
               from r in Runner,
@@ -1025,6 +1027,7 @@ defmodule Mondek.Monitoring do
             latest_failure_observation_id: o.id
           })
 
+        Mondek.CorrelationGrouping.enqueue_opening!(incident)
         if Mondek.NotificationDelivery.enabled?(), do: occurrence(incident, "firing", o, at)
 
       health in ["WARN", "CRIT"] and

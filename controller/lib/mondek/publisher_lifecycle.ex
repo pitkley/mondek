@@ -105,6 +105,7 @@ defmodule Mondek.PublisherLifecycle do
   def apply(token, proposal, at \\ nil) do
     result =
       Repo.transaction(fn ->
+        Mondek.Correlations.lock!(:shared)
         p = proposal!(proposal)
 
         unless is_binary(token) and byte_size(token) in 1..10000,

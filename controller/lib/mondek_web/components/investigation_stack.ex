@@ -10,7 +10,7 @@ defmodule MondekWeb.InvestigationStack do
   Only the active entity may mutate; rear snapshots never grant form authority.
   """
   use Phoenix.LiveComponent
-  alias Mondek.{CorrelationRelationships, Monitoring}
+  alias Mondek.{CorrelationAutomationPolicy, CorrelationRelationships, Monitoring}
 
   alias MondekWeb.{
     InvestigationEntity,
@@ -144,7 +144,7 @@ defmodule MondekWeb.InvestigationStack do
       case identity do
         {kind, _} when kind in ~w(health loss) ->
           (kind == "health" &&
-             event in ~w(review_relationship apply_relationship cancel_relationship)) ||
+             event in ~w(review_relationship apply_relationship cancel_relationship review_override apply_override cancel_override)) ||
             event in ~w(filter_incident_detail edit_acknowledgement review_control toggle_acknowledgement_replacement save_acknowledgement end_acknowledgement edit_retry_delivery retry_delivery)
 
         {"notification", _} ->
@@ -160,6 +160,57 @@ defmodule MondekWeb.InvestigationStack do
       {:noreply, socket}
     end
   end
+
+  defp operate(socket, state, "review_override", %{"reason" => reason, "action" => action}) do
+    override = state.data.detail["grouping_override"]
+
+    if state.data.detail["grouping_override_editable"] && override &&
+         action == MondekWeb.GroupingOverride.action(override) do
+      proposal = %{
+        "action" => action,
+        "subject" => override["subject"],
+        "reason" => reason,
+        "request_id" => Ecto.UUID.generate()
+      }
+
+      case CorrelationAutomationPolicy.preview_override(proposal) do
+        {:ok, review} ->
+          put_state(socket, %{state | override_review: review, override_message: nil})
+
+        {:error, {:invalid, message}} ->
+          put_state(socket, %{state | override_review: nil, override_message: message})
+
+        {:error, _} ->
+          put_state(socket, %{
+            state
+            | override_review: nil,
+              override_message: "The episode changed. Review the current grouping state."
+          })
+      end
+    else
+      socket
+    end
+  end
+
+  defp operate(
+         socket,
+         %{override_review: %{"proposal" => %{"request_id" => request}, "review_token" => token}} =
+           state,
+         "apply_override",
+         %{"request" => request}
+       ) do
+    message =
+      case CorrelationAutomationPolicy.apply_override(token) do
+        {:ok, _} -> "Grouping preference updated."
+        {:error, _} -> "This review is no longer current. Review the episode again."
+      end
+
+    state = InvestigationEntity.refresh(state, socket.assigns.now, socket.assigns.params)
+    put_state(socket, %{state | override_review: nil, override_message: message})
+  end
+
+  defp operate(socket, state, "cancel_override", _),
+    do: put_state(socket, %{state | override_review: nil, override_message: nil})
 
   defp operate(
          socket,
@@ -721,6 +772,8 @@ defmodule MondekWeb.InvestigationStack do
       current={@host_assigns.current}
       id_prefix={@id_prefix}
       full_page={@full_page}
+      override_review={@state.override_review}
+      override_message={@state.override_message}
       relationship_review={@state.relationship_review}
       relationship_message={@state.relationship_message}
       control_review={@state.review}

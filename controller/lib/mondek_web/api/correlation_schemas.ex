@@ -50,6 +50,23 @@ defmodule MondekWeb.API.CorrelationSchemas do
   def response(:correlation_apply),
     do: S.record(%{case_id: S.uuid(), replayed: S.boolean()}, [:case_id, :replayed])
 
+  def response(:correlation_rules), do: S.array(S.ref("CorrelationAutomationRule"))
+  def response(:correlation_rule), do: S.ref("CorrelationAutomationRule")
+
+  def response(:correlation_override_preview),
+    do:
+      S.record(
+        %{
+          proposal: override_proposal(),
+          review_token: S.string(),
+          override: S.ref("CorrelationAutomationOverride"),
+          as_of: S.time()
+        },
+        ~w(proposal review_token override as_of)a
+      )
+
+  def response(:correlation_override_apply), do: override_state(%{replayed: S.boolean()})
+
   def response(:correlation_relationship_preview),
     do:
       S.record(
@@ -88,6 +105,9 @@ defmodule MondekWeb.API.CorrelationSchemas do
   def request(:case_control_apply), do: request(:correlation_apply)
 
   def request(:correlation_preview), do: proposal()
+  def request(:correlation_rule), do: rule()
+  def request(:correlation_override_preview), do: override_proposal()
+  def request(:correlation_override_apply), do: request(:correlation_apply)
   def request(:correlation_relationship_preview), do: relationship_proposal()
   def request(:correlation_relationship_apply), do: request(:correlation_apply)
 
@@ -103,6 +123,51 @@ defmodule MondekWeb.API.CorrelationSchemas do
         %{items: S.array(item), page: S.integer(), page_size: S.integer(), total: S.integer()},
         [:items, :page, :page_size, :total]
       )
+
+  defp reason, do: %Schema{type: :string, minLength: 1, maxLength: 2_000}
+
+  defp rule(extra \\ %{}) do
+    fields = %{
+      source_id: S.string(),
+      check_id: S.string(),
+      output_key: S.string(),
+      hint: S.ref("CorrelationHint"),
+      enabled: S.boolean(),
+      revision: %Schema{type: :integer, minimum: 0},
+      reason: reason()
+    }
+
+    fields = Map.merge(fields, extra)
+    S.record(fields, fields |> Map.keys() |> Enum.sort_by(&Atom.to_string/1))
+  end
+
+  defp override_proposal do
+    S.record(
+      %{
+        action: S.enum(~w(keep_standalone allow_grouping)),
+        request_id: S.uuid(),
+        subject: episode(),
+        reason: reason()
+      },
+      ~w(action request_id subject reason)a
+    )
+  end
+
+  defp override_state(extra \\ %{}) do
+    fields =
+      Map.merge(
+        %{
+          subject: episode(),
+          active: S.boolean(),
+          revision: S.integer(),
+          reason: S.nullable(S.string()),
+          updated_at: S.time()
+        },
+        extra
+      )
+
+    S.record(fields, fields |> Map.keys() |> Enum.sort_by(&Atom.to_string/1))
+  end
 
   defp relationship_proposal do
     common = %{
@@ -143,6 +208,19 @@ defmodule MondekWeb.API.CorrelationSchemas do
 
   def definitions do
     %{
+      "CorrelationAutomationRule" => rule(%{id: S.uuid(), updated_at: S.time()}),
+      "CorrelationAutomationOverride" => override_state(),
+      "CorrelationAutomaticEvaluation" =>
+        S.record(
+          %{
+            disposition: S.enum(~w(review created)),
+            reason: S.string(),
+            case_id: S.nullable(S.uuid()),
+            evidence: S.object(),
+            evaluated_at: S.time()
+          },
+          ~w(disposition reason case_id evidence evaluated_at)a
+        ),
       "CorrelationRelationshipPage" =>
         S.record(
           %{
@@ -328,7 +406,7 @@ defmodule MondekWeb.API.CorrelationSchemas do
             id: S.uuid(),
             action:
               S.enum(~w(create attach detach merge split anchor enable disable acknowledge end)),
-            provenance: S.enum(["operator"]),
+            provenance: S.enum(~w(operator deterministic_rule)),
             actor: S.string(),
             reason: S.string(),
             confidence: S.nullable(S.number()),
@@ -342,7 +420,7 @@ defmodule MondekWeb.API.CorrelationSchemas do
           %{
             case_id: S.uuid(),
             episode: episode(),
-            provenance: S.enum(["operator"]),
+            provenance: S.enum(~w(operator deterministic_rule)),
             notification_effect: S.enum(["unchanged", "case_policy"])
           },
           [:case_id, :episode, :provenance, :notification_effect]

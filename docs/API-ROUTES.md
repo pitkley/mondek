@@ -42,7 +42,11 @@ Runner communication and operator workflows use the same experimental same-relea
 | POST | `/api/v1/incidents/cases/:id/control/preview` | Retained; explicit DTO | `CorrelationController.case_control_preview` |
 | POST | `/api/v1/incidents/cases/control/apply` | Retained; explicit DTO | `CorrelationController.case_control_apply` |
 | POST | `/api/v1/incidents/correlation/apply` | Retained; explicit DTO | `CorrelationController.correlation_apply` |
+| POST | `/api/v1/incidents/correlation/overrides/apply` | Retained; explicit DTO | `CorrelationController.correlation_override_apply` |
+| POST | `/api/v1/incidents/correlation/overrides/preview` | Retained; explicit DTO | `CorrelationController.correlation_override_preview` |
 | POST | `/api/v1/incidents/correlation/preview` | Retained; explicit DTO | `CorrelationController.correlation_preview` |
+| GET | `/api/v1/incidents/correlation/rules` | Retained; explicit DTO | `CorrelationController.correlation_rules` |
+| PUT | `/api/v1/incidents/correlation/rules/:id` | Retained; explicit DTO | `CorrelationController.correlation_rule` |
 | GET | `/api/v1/incidents/health` | `/api/v1/incidents` | `IncidentsController.incidents` |
 | GET | `/api/v1/incidents/health/:id` | `/api/v1/incidents/:id` | `IncidentsController.incident` |
 | POST | `/api/v1/incidents/health/:id/acknowledge` | `/api/v1/incidents/:id/acknowledge` | `IncidentsController.acknowledge` |

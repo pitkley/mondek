@@ -22,6 +22,7 @@ defmodule Mondek.CorrelationMembership do
     field :case_id, Ecto.UUID
     field :incident_id, Ecto.UUID
     field :condition_incident_id, Ecto.UUID
+    field :provenance, :string, default: "operator"
     field :anchor, :boolean, default: false
     field :inserted_at, :utc_datetime_usec
     field :ended_at, :utc_datetime_usec
@@ -248,8 +249,8 @@ defmodule Mondek.Correlations do
       |> Enum.uniq()
       |> Enum.sort()
 
-    # Gate stabilizes topology. Native writers never acquire it, so taking their
-    # complete owner set before case rows introduces no reverse lock edge.
+    # Native writers take the shared topology gate before native owners.
+    # Acquire the complete owner set before touching case rows.
     individuals = Enum.filter(refs, &(&1["type"] == "individual")) |> Enum.map(&episode!/1)
 
     Enum.each(
@@ -338,7 +339,20 @@ defmodule Mondek.Correlations do
 
   defp change(row, attrs), do: row |> Ecto.Changeset.change(attrs) |> Repo.update!()
 
-  defp execute!(p, s, at) do
+  @doc false
+  def create_from_rule!(subject, parent, label, evidence, at) do
+    proposal = %{
+      "action" => "create",
+      "episodes" => [parent, subject],
+      "anchor" => parent,
+      "title" => String.slice(label, 0, 200),
+      "reason" => "One eligible upstream episode matched an approved dependency."
+    }
+
+    execute!(proposal, state!(proposal), at, evidence)
+  end
+
+  defp execute!(p, s, at, rule_evidence \\ nil) do
     destination =
       if p["action"] in ~w(create split) do
         Repo.insert!(%CorrelationCase{
@@ -364,6 +378,12 @@ defmodule Mondek.Correlations do
 
     Enum.each(ending, &change(&1, ended_at: at, end_reason: p["action"]))
 
+    if p["action"] == "detach" do
+      Enum.each(ending, fn m ->
+        Mondek.CorrelationAutomationPolicy.set_override!(ref(m), true, p["reason"], at)
+      end)
+    end
+
     adding =
       case p["action"] do
         "merge" -> Enum.map(ending, &ref/1)
@@ -374,6 +394,7 @@ defmodule Mondek.Correlations do
     Enum.each(adding, fn r ->
       Repo.insert!(%CorrelationMembership{
         case_id: destination.id,
+        provenance: if(rule_evidence, do: "deterministic_rule", else: "operator"),
         incident_id: if(r["type"] == "individual", do: r["id"]),
         condition_incident_id: if(r["type"] == "condition", do: r["id"]),
         inserted_at: at
@@ -421,15 +442,17 @@ defmodule Mondek.Correlations do
       Repo.insert!(%CorrelationDecision{
         case_id: c.id,
         action: p["action"],
-        provenance: "operator",
-        actor: "Local operator",
+        provenance: if(rule_evidence, do: "deterministic_rule", else: "operator"),
+        actor: if(rule_evidence, do: "Mondek correlation rule", else: "Local operator"),
         reason: p["reason"],
         inserted_at: at,
-        change: %{
-          "proposal" => p,
-          "ended_membership_ids" => Enum.map(ending, & &1.id),
-          "previous_anchor" => Enum.filter(s.memberships, & &1.anchor) |> Enum.map(&ref/1)
-        }
+        change:
+          %{
+            "proposal" => p,
+            "ended_membership_ids" => Enum.map(ending, & &1.id),
+            "previous_anchor" => Enum.filter(s.memberships, & &1.anchor) |> Enum.map(&ref/1)
+          }
+          |> Map.merge(if(rule_evidence, do: %{"rule_evidence" => rule_evidence}, else: %{}))
       })
     end
 
@@ -628,7 +651,7 @@ defmodule Mondek.Correlations do
       do: %{
         "case_id" => row.case_id,
         "episode" => ref(row),
-        "provenance" => "operator",
+        "provenance" => row.provenance,
         "notification_effect" => "case_policy"
       }
   end

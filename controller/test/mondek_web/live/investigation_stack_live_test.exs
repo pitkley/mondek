@@ -168,6 +168,75 @@ defmodule MondekWeb.InvestigationStackLiveTest do
     end
   end
 
+  test "automatic grouping is opt-in and both surfaces review the same episode preference" do
+    {incident, _} = failure()
+    base = "/incidents/health/#{incident.id}"
+    card = "section[id$=grouping-override]"
+    {:ok, hidden, _} = live(build_conn(), base)
+    refute has_element?(hidden, card)
+    rule_id = Ecto.UUID.generate()
+
+    rule = %{
+      "source_id" => "coverage-test",
+      "check_id" => "database-check",
+      "output_key" => "health",
+      "hint" => %{
+        "dimension" => "database",
+        "window_seconds" => 60,
+        "depends_on" => %{"type" => "condition", "namespace" => "ops", "key" => "db"}
+      },
+      "enabled" => true,
+      "revision" => 0,
+      "reason" => "Investigate the database"
+    }
+
+    assert {:ok, _} = Mondek.CorrelationAutomationPolicy.set_rule(rule_id, rule)
+
+    for suffix <- ["", "/full"] do
+      {:ok, view, _} = live(build_conn(), base <> suffix)
+      assert has_element?(view, card <> " summary", "Keep standalone")
+    end
+
+    {:ok, flyover, _} = live(build_conn(), base)
+    flyover |> form(card <> " form", reason: "Investigate separately") |> render_submit()
+    assert has_element?(flyover, card, incident.id)
+    refute has_element?(flyover, card, "Keep standalone is active")
+    flyover |> element(card <> " button", "Apply preference") |> render_click()
+    assert has_element?(flyover, card, "Keep standalone is active")
+
+    assert {:ok, _} =
+             Mondek.CorrelationAutomationPolicy.set_rule(rule_id, %{
+               rule
+               | "enabled" => false,
+                 "revision" => 1
+             })
+
+    {:ok, full, _} = live(build_conn(), base <> "/full")
+    assert has_element?(full, card, "Investigate separately")
+    assert has_element?(full, card <> " summary", "Allow automatic grouping")
+    full |> form(card <> " form", reason: "Investigation complete") |> render_submit()
+    full |> element(card <> " button", "Cancel review") |> render_click()
+    assert has_element?(full, card, "Keep standalone is active")
+    full |> form(card <> " form", reason: "Investigation complete") |> render_submit()
+    full |> element(card <> " button", "Apply preference") |> render_click()
+    refute has_element?(full, card)
+    assert has_element?(full, "[role=status]", "Grouping preference updated")
+
+    Repo.insert!(%Mondek.CorrelationGroupingEvaluation{
+      incident_id: incident.id,
+      disposition: "review",
+      reason: "multiple_parents",
+      evidence: %{},
+      evaluated_at: Monitoring.now()
+    })
+
+    for suffix <- ["", "/full"] do
+      {:ok, view, _} = live(build_conn(), base <> suffix)
+      assert has_element?(view, card, "Several parents matched")
+      refute has_element?(view, card <> " form")
+    end
+  end
+
   test "a direct full page root shares identity and draft state with its overlays" do
     {incident, _result} = failure()
     base = "/incidents/health/#{incident.id}/full"

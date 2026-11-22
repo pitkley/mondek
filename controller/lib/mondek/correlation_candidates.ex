@@ -88,6 +88,22 @@ defmodule Mondek.CorrelationCandidates do
     end
   end
 
+  @doc false
+  def opening_rules(type, id) do
+    for row <- Enum.take(contributions(type, id), @members),
+        {ref, hints} <- opening_hints(row),
+        hint <- hints do
+      scope = %{
+        "source_id" => row.source,
+        "check_id" => row.check,
+        "output_key" => row.key,
+        "hint" => hint
+      }
+
+      {scope, ref}
+    end
+  end
+
   defp contributions(type, id) do
     scope =
       if type == "condition",
@@ -96,17 +112,33 @@ defmodule Mondek.CorrelationCandidates do
 
     Repo.all(
       from i in Incident,
+        join: a in Assignment,
+        on: a.id == i.assignment_id,
         left_join: c in Configuration,
         on: c.assignment_id == i.assignment_id and c.generation == i.opening_generation,
         where: i.status == "open",
         where: ^scope,
         order_by: i.id,
         limit: ^(@members + 1),
-        select: {i.id, i.assignment_id, i.opening_generation, i.result_key, c.definition}
+        select: %{
+          id: i.id,
+          assignment: i.assignment_id,
+          generation: i.opening_generation,
+          key: i.result_key,
+          definition: c.definition,
+          source: a.source_id,
+          check: a.source_key
+        }
     )
   end
 
-  defp opening_hints({id, assignment, generation, key, %{"outputs" => outputs}})
+  defp opening_hints(%{
+         id: id,
+         assignment: assignment,
+         generation: generation,
+         key: key,
+         definition: %{"outputs" => outputs}
+       })
        when is_list(outputs) do
     with %{} = output <- Enum.find(outputs, &(&1["key"] == key)),
          hints = Map.get(output, "correlation_hints", []),

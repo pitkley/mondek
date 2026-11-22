@@ -198,6 +198,17 @@ defmodule MondekWeb.Router do
     post "/incidents/correlation/preview", API.V1.CorrelationController, :correlation_preview
     post "/incidents/correlation/apply", API.V1.CorrelationController, :correlation_apply
 
+    get "/incidents/correlation/rules", API.V1.CorrelationController, :correlation_rules
+    put "/incidents/correlation/rules/:id", API.V1.CorrelationController, :correlation_rule
+
+    post "/incidents/correlation/overrides/preview",
+         API.V1.CorrelationController,
+         :correlation_override_preview
+
+    post "/incidents/correlation/overrides/apply",
+         API.V1.CorrelationController,
+         :correlation_override_apply
+
     post "/incidents/relationships/preview",
          API.V1.CorrelationController,
          :correlation_relationship_preview

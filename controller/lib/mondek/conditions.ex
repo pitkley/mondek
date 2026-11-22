@@ -86,22 +86,24 @@ defmodule Mondek.Conditions do
       health in ["WARN", "CRIT"] and is_nil(current) ->
         group = open_group!(declaration, state, at)
 
-        Repo.insert!(%Incident{
-          condition_incident_id: group.id,
-          assignment_id: assignment.id,
-          result_key: stream.result_key,
-          stream_id: stream.id,
-          environment: definition["environment"],
-          environment_label: definition["environment_label"],
-          health: health,
-          impacts: state["impacts"] || [],
-          opened_at: at,
-          opening_generation: observation.generation,
-          opening_observation_id: observation.id,
-          latest_failure_observation_id: observation.id,
-          latest_observation_id: observation.id
-        })
+        incident =
+          Repo.insert!(%Incident{
+            condition_incident_id: group.id,
+            assignment_id: assignment.id,
+            result_key: stream.result_key,
+            stream_id: stream.id,
+            environment: definition["environment"],
+            environment_label: definition["environment_label"],
+            health: health,
+            impacts: state["impacts"] || [],
+            opened_at: at,
+            opening_generation: observation.generation,
+            opening_observation_id: observation.id,
+            latest_failure_observation_id: observation.id,
+            latest_observation_id: observation.id
+          })
 
+        Mondek.CorrelationGrouping.enqueue_opening!(incident)
         group.id
 
       health in ["WARN", "CRIT"] and not is_nil(current.condition_incident_id) ->
