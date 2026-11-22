@@ -195,6 +195,7 @@ defmodule Mondek.Sweeper do
       """
 
       relationship_count = Mondek.CorrelationRelationships.prune!(history_cutoff, limit)
+      provider_decision_count = Mondek.CorrelationProviderDecisions.prune!(history_cutoff, limit)
       correlation_count = Mondek.Correlations.prune!(history_cutoff, limit)
 
       # Keep unresolved incidents and unfinished/exhausted delivery work regardless
@@ -408,6 +409,7 @@ defmodule Mondek.Sweeper do
       counts = %{
         correlation_cases: correlation_count,
         correlation_relationships: relationship_count,
+        correlation_provider_decisions: provider_decision_count,
         incidents: length(terminal_ids),
         condition_incidents: length(condition_ids),
         monitoring_incidents: monitoring_count,

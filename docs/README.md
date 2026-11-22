@@ -46,6 +46,6 @@ For implementation work, start with [protocol contracts and fixture enforcement]
 
 The [operator interface architecture](UI-ARCHITECTURE.md) describes the shared detail surfaces, PatternFly component foundation, investigation ownership and verification.
 
-[Runtime incident correlation](RUNTIME-INCIDENT-CORRELATION.md) explains manual cases, independent episode controls and HTTP/MCP investigation. The [design proposal](RUNTIME-INCIDENT-CORRELATION-PLAN.md) covers later notification and model phases.
+[Runtime incident correlation](RUNTIME-INCIDENT-CORRELATION.md) explains reviewed cases and relationships, deterministic grouping, and HTTP/MCP investigation. See [external decisions](CORRELATION-DECISIONS.md) for the optional provider adapter and review workflow.
 
 [Resource discovery settings](DISCOVERY-CONFIGURATION.md) explains monitored-host scope, reviewed saves and accepted inventory receipts.

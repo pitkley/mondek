@@ -72,43 +72,7 @@ defmodule MondekWeb.InvestigationStackLiveTest do
   end
 
   test "the same incident shows its exact candidate and match reason in both detail surfaces" do
-    now = Monitoring.now()
-    target = CoverageFixtures.check("Database health", "production", "primary-db")
-
-    hint = %{
-      "dimension" => "database",
-      "depends_on" => %{
-        "type" => "target",
-        "source_id" => "coverage-test",
-        "kind" => "service",
-        "key" => "primary-db"
-      },
-      "window_seconds" => 60
-    }
-
-    child =
-      CoverageFixtures.check("Application health", "production", "app")
-
-    [upstream, subject] =
-      for check <- [target, child] do
-        publication = CoverageFixtures.publication([CoverageFixtures.candidate(check)])
-
-        publication =
-          if check == child,
-            do:
-              put_in(
-                publication,
-                ["checks", Access.at(0), "outputs", Access.at(0), "correlation_hints"],
-                [hint]
-              ),
-            else: publication
-
-        assert {:ok, _} = Monitoring.inventory(publication, now)
-        assert {:ok, _} = CoverageFixtures.activate(publication, now)
-        assert disposition(CoverageFixtures.sample(publication, "CRIT", 1, now)) == "current"
-        [assignment] = CoverageFixtures.assignments(publication)
-        Repo.get_by!(Incident, assignment_id: assignment.id)
-      end
+    [upstream, subject] = related_episodes()
 
     for {suffix, body} <- [{"", "#overview-panel"}, {"/full", "#incident-page"}] do
       {:ok, view, _} = live(build_conn(), "/incidents/health/#{subject.id}#{suffix}")
@@ -166,6 +130,108 @@ defmodule MondekWeb.InvestigationStackLiveTest do
                "Opening generation #{subject.opening_generation}"
              )
     end
+  end
+
+  test "provider advice changes grouping only after an operator reviews and applies it" do
+    [parent, subject] = related_episodes()
+    base = "/incidents/health/#{subject.id}"
+    card = "section[id$=provider-decisions]"
+    config_path = Path.join(System.tmp_dir!(), "mondek-ui-provider-#{Ecto.UUID.generate()}.json")
+    on_exit(fn -> File.rm(config_path) end)
+    previous = Application.fetch_env(:mondek, :correlation_decisions_config)
+    Application.put_env(:mondek, :correlation_decisions_config, config_path)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:mondek, :correlation_decisions_config, value)
+        :error -> Application.delete_env(:mondek, :correlation_decisions_config)
+      end
+    end)
+
+    {:ok, unavailable, _} = live(build_conn(), base)
+    assert has_element?(unavailable, card, "No advisory provider is available")
+    refute has_element?(unavailable, card <> " button")
+
+    config = %{
+      "url" => "https://example.invalid/private-path",
+      "id" => "test-advisor",
+      "binding_key" => String.duplicate("k", 32),
+      "evidence" => ["timing"]
+    }
+
+    File.write!(config_path, Jason.encode!(config))
+    File.chmod!(config_path, 0o600)
+
+    {:ok, flyover, _} = live(build_conn(), base)
+    assert has_element?(flyover, card, "https://example.invalid")
+    refute has_element?(flyover, card, "private-path")
+    {:ok, displayed} = Mondek.CorrelationDecisionProvider.configuration()
+    refute render(flyover) =~ Mondek.CorrelationDecisionProvider.fingerprint(displayed)
+
+    old_request =
+      flyover
+      |> element(card <> " button", "Request provider decision")
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("button")
+      |> LazyHTML.attribute("phx-value-request")
+      |> hd()
+
+    File.write!(
+      config_path,
+      Jason.encode!(%{
+        config
+        | "evidence" => ["dimensions"],
+          "url" => "https://rotated.invalid/private-path"
+      })
+    )
+
+    flyover
+    |> element(card <> " button", "Request provider decision")
+    |> render_click(%{"request" => old_request})
+
+    assert has_element?(flyover, card, "This request is no longer current")
+    assert has_element?(flyover, card, "https://rotated.invalid")
+    assert has_element?(flyover, card, "dimensions")
+    assert Mondek.CorrelationProviderDecisions.list("individual", subject.id)["items"] == []
+    {:ok, rotated} = Mondek.CorrelationDecisionProvider.configuration()
+    refute render(flyover) =~ Mondek.CorrelationDecisionProvider.fingerprint(rotated)
+
+    flyover |> element(card <> " button", "Request provider decision") |> render_click()
+    assert has_element?(flyover, card, "Waiting for provider")
+    decisions = Mondek.CorrelationProviderDecisions
+    [%{"request_id" => id}] = decisions.list("individual", subject.id)["items"]
+    assert {:ok, {:post, _, lease, bytes, _}} = decisions.admit(id)
+    [candidate] = Jason.decode!(bytes)["candidates"]
+
+    reply =
+      Jason.encode!(%{
+        version: 1,
+        request_id: id,
+        outcome: "suggest",
+        candidate: candidate["handle"],
+        reason: "Timing is consistent"
+      })
+
+    assert {:ok, %{"status" => "proposed"}} = decisions.complete(id, lease, {:ok, reply})
+
+    for suffix <- ["", "/full"] do
+      {:ok, view, _} = live(build_conn(), base <> suffix)
+      assert has_element?(view, card, "Timing is consistent")
+      assert has_element?(view, card <> " a", parent.id)
+      view |> element(card <> " button", "Review proposed grouping") |> render_click()
+      assert has_element?(view, card <> " div.preview-incident-evidence", parent.id)
+      assert has_element?(view, card <> " div.preview-incident-evidence", subject.id)
+      assert is_nil(Mondek.Correlations.membership("individual", subject.id))
+      view |> element(card <> " button", "Cancel review") |> render_click()
+    end
+
+    {:ok, view, _} = live(build_conn(), base <> "/full")
+    view |> element(card <> " button", "Review proposed grouping") |> render_click()
+    view |> element(card <> " button", "Apply reviewed grouping") |> render_click()
+    assert has_element?(view, card <> " article", "Reviewed grouping applied")
+    assert has_element?(view, card <> " article a", "View correlation case")
+    refute has_element?(view, card <> " button", "Request provider decision")
   end
 
   test "automatic grouping is opt-in and both surfaces review the same episode preference" do
@@ -448,6 +514,45 @@ defmodule MondekWeb.InvestigationStackLiveTest do
     |> LazyHTML.query("input")
     |> LazyHTML.attribute("value")
     |> hd()
+  end
+
+  defp related_episodes do
+    now = Monitoring.now()
+    target = CoverageFixtures.check("Database health", "production", "primary-db")
+
+    hint = %{
+      "dimension" => "database",
+      "depends_on" => %{
+        "type" => "target",
+        "source_id" => "coverage-test",
+        "kind" => "service",
+        "key" => "primary-db"
+      },
+      "window_seconds" => 60
+    }
+
+    child =
+      CoverageFixtures.check("Application health", "production", "app")
+
+    for check <- [target, child] do
+      publication = CoverageFixtures.publication([CoverageFixtures.candidate(check)])
+
+      publication =
+        if check == child,
+          do:
+            put_in(
+              publication,
+              ["checks", Access.at(0), "outputs", Access.at(0), "correlation_hints"],
+              [hint]
+            ),
+          else: publication
+
+      assert {:ok, _} = Monitoring.inventory(publication, now)
+      assert {:ok, _} = CoverageFixtures.activate(publication, now)
+      assert disposition(CoverageFixtures.sample(publication, "CRIT", 1, now)) == "current"
+      [assignment] = CoverageFixtures.assignments(publication)
+      Repo.get_by!(Incident, assignment_id: assignment.id)
+    end
   end
 
   defp failure do

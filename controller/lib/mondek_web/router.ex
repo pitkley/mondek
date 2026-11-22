@@ -217,6 +217,16 @@ defmodule MondekWeb.Router do
          API.V1.CorrelationController,
          :correlation_relationship_apply
 
+    post "/incidents/decisions/request",
+         API.V1.CorrelationController,
+         :correlation_decision_request
+
+    post "/incidents/decisions/preview",
+         API.V1.CorrelationController,
+         :correlation_decision_preview
+
+    post "/incidents/decisions/apply", API.V1.CorrelationController, :correlation_decision_apply
+
     get "/incidents/health", API.V1.IncidentsController, :incidents
     get "/incidents/monitoring-loss", API.V1.IncidentsController, :monitoring_incidents
     get "/incidents/monitoring-loss/:id", API.V1.IncidentsController, :monitoring_incident

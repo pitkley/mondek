@@ -10,7 +10,7 @@ All selected episodes must have the same exact monitored environment. A missing 
 
 Measured member recovery and case membership are independent. A recovered parent stays visible while children fail. Case state is derived from retained native episodes; reads do not write it. A case whose members have all ended cannot reopen. Moving its last unresolved member records the closure time and action. A new native failure episode needs a new relation. Removing a member says removed, never recovered.
 
-[Exact batch delivery](EXACT-BATCH-DELIVERY.md) adds opt-in aggregation and reviewed case acknowledgements. Each episode retains all evidence and controls and its original notification identity, payload and budget. The [correlation design](INCIDENT-CORRELATION-DECISIONS-DESIGN.md) covers deterministic rules and external decisions.
+[Exact batch delivery](EXACT-BATCH-DELIVERY.md) adds opt-in aggregation and reviewed case acknowledgements. Each episode retains all evidence and controls and its original notification identity, payload and budget. The [correlation design](INCIDENT-CORRELATION-DECISIONS-DESIGN.md) covers the shared model and future policy work.
 
 ## Inspect hinted candidates
 
@@ -35,6 +35,10 @@ Approve an exact source, check and output declaration by saving a rule through t
 With an enabled rule, new incident openings enqueue a durable evaluation and look back for dependencies that arrived in the other order. The evaluator can create a case from two open standalone episodes with one uniquely eligible parent. It checks current approval, exact opening evidence, controls, delivery attempts and reservations under transaction locks. A shared Condition needs approval for every declaration contributing to the automatic match. The new case starts with batching off. If eligibility changes, health detail exposes the latest evaluation and the candidate evidence for operator review. Notifications follow their ordinary schedule while evaluations run, so dispatch can win the race and preserve a standalone incident. Manual grouping remains available in that case.
 
 Use **Keep standalone** on an incident to prevent automatic grouping until the episode ends or you explicitly allow it again. Manual detachment records the same episode-level override. The override review flow is also available through `POST /api/v1/incidents/correlation/overrides/preview` and `/apply`. Preview takes `action` (`keep_standalone` or `allow_grouping`), `subject`, `request_id`, and `reason`. Apply takes the `review_token`. Existing case membership, native acknowledgement, maintenance and notification history keep their independent meaning.
+
+## Request an external decision
+
+With an [external decisions provider configured](CORRELATION-DECISIONS.md), an operator can request an advisory decision for an open incident and review the suggested grouping in the same detail view. Health detail and MCP expose the retained decision history. The provider’s reply leaves case membership and notification timing unchanged until an operator reviews and applies a grouping.
 
 ## HTTP
 

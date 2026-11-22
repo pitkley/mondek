@@ -19,6 +19,9 @@ defmodule MondekWeb.PreviewIncidentDetail do
   attr :current, :string, required: true
   attr :id_prefix, :string, required: true
   attr :full_page, :boolean, required: true
+  attr :provider_review, :any, default: nil
+  attr :provider_message, :any, default: nil
+  attr :provider_request_id, :string, default: nil
   attr :override_review, :any, default: nil
   attr :override_message, :any, default: nil
   attr :relationship_review, :any, default: nil
@@ -134,6 +137,20 @@ defmodule MondekWeb.PreviewIncidentDetail do
       target={@target}
       incident_id={@incident["id"]}
       incident_path={@incident_path}
+    />
+    <MondekWeb.ProviderDecisionDetail.body
+      :if={@kind == "health" && @incident && @detail["provider_decisions"]}
+      listing={@detail["provider_decisions"]}
+      incident_id={@incident["id"]}
+      incident_path={@incident_path}
+      page_path={@page_path}
+      full_page={@full_page}
+      id_prefix={@id_prefix}
+      review={@provider_review}
+      message={@provider_message}
+      request_id={@provider_request_id}
+      entity={@entity}
+      target={@target}
     />
     <MondekWeb.RelationshipDetail.body
       :if={@kind == "health" && @incident && @detail["relationships"]}

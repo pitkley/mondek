@@ -14,6 +14,7 @@ defmodule Mondek.Investigation do
     CorrelationAutomationPolicy,
     CorrelationCandidates,
     CorrelationGrouping,
+    CorrelationProviderDecisions,
     CorrelationRelationships
   }
 
@@ -132,7 +133,13 @@ defmodule Mondek.Investigation do
       "correlation_relationships" =>
         CorrelationRelationships.list(type, id, filters["relationships_page"] || 1),
       "correlation_override" => CorrelationAutomationPolicy.override(subject),
-      "correlation_automation" => CorrelationGrouping.latest(subject["type"], subject["id"])
+      "correlation_automation" => CorrelationGrouping.latest(subject["type"], subject["id"]),
+      "correlation_decisions" =>
+        CorrelationProviderDecisions.list(
+          subject["type"],
+          subject["id"],
+          filters["decisions_page"] || 1
+        )
     })
   end
 

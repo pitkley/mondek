@@ -5,6 +5,8 @@ defmodule MondekWeb.InvestigationEntity do
   alias Mondek.{
     CorrelationAutomationPolicy,
     CorrelationCandidates,
+    CorrelationDecisionProvider,
+    CorrelationProviderDecisions,
     CorrelationRelationships,
     Investigation,
     Maintenance,
@@ -20,6 +22,10 @@ defmodule MondekWeb.InvestigationEntity do
       identity: identity,
       data: nil,
       review: nil,
+      provider_request_id: Ecto.UUID.generate(),
+      provider_fingerprint: nil,
+      provider_review: nil,
+      provider_message: nil,
       override_review: nil,
       override_message: nil,
       relationship_review: nil,
@@ -75,6 +81,20 @@ defmodule MondekWeb.InvestigationEntity do
     do: %{state | data: RunnerFleet.detail(id, now)}
 
   def refresh(%{identity: {kind, id}} = state, now, filters) when kind in ~w(health loss) do
+    {provider, fingerprint} = if kind == "health", do: provider_disclosure(), else: {nil, nil}
+
+    state =
+      if state.provider_fingerprint != fingerprint do
+        %{
+          state
+          | provider_fingerprint: fingerprint,
+            provider_request_id: Ecto.UUID.generate(),
+            provider_review: nil
+        }
+      else
+        state
+      end
+
     detail =
       if kind == "health" do
         detail =
@@ -102,6 +122,15 @@ defmodule MondekWeb.InvestigationEntity do
               max(1, MondekWeb.MonitoringUI.integer(filters["relationships_page"]))
             )
 
+          provider_decisions =
+            if relationships do
+              subject = relationships["subject"]
+              page = max(1, MondekWeb.MonitoringUI.integer(filters["decisions_page"]))
+              listing = CorrelationProviderDecisions.list(subject["type"], subject["id"], page)
+
+              Map.merge(listing, %{"subject" => subject, "provider" => provider})
+            end
+
           override =
             if relationships do
               override = CorrelationAutomationPolicy.override(relationships["subject"])
@@ -116,20 +145,28 @@ defmodule MondekWeb.InvestigationEntity do
               Mondek.CorrelationGrouping.latest(subject["type"], subject["id"])
             end
 
-          editable =
-            if override && detail["incident"]["status"] == "open" &&
-                 override["subject"]["id"] == id do
+          standalone? =
+            if (override || provider_decisions["provider"]) &&
+                 detail["incident"]["status"] == "open" &&
+                 relationships["subject"]["id"] == id do
               is_nil(Mondek.Correlations.membership(type, id))
             else
               false
             end
 
+          requestable? =
+            standalone? && !override["active"] && !is_nil(provider_decisions["provider"])
+
           detail
           |> Map.put("correlation_candidates", candidates)
           |> Map.put("relationships", relationships)
+          |> Map.put(
+            "provider_decisions",
+            if(provider_decisions, do: Map.put(provider_decisions, "requestable", requestable?))
+          )
           |> Map.put("grouping_evaluation", evaluation)
           |> Map.put("grouping_override", override)
-          |> Map.put("grouping_override_editable", editable)
+          |> Map.put("grouping_override_editable", standalone? && !is_nil(override))
         end
       else
         MonitoringLoss.detail(id, now, %{"members_page" => filters["member_page"]})
@@ -159,6 +196,25 @@ defmodule MondekWeb.InvestigationEntity do
       | data: %{detail: detail, incident: incident, maintenance_windows: windows},
         review: review
     }
+  end
+
+  defp provider_disclosure do
+    case CorrelationDecisionProvider.configuration() do
+      {:ok, config} ->
+        uri = URI.new!(config.url)
+
+        disclosure = %{
+          "id" => config.id,
+          "destination" =>
+            URI.to_string(%URI{scheme: uri.scheme, host: uri.host, port: uri.port}),
+          "evidence" => config.evidence
+        }
+
+        {disclosure, CorrelationDecisionProvider.fingerprint(config)}
+
+      {:error, :unavailable} ->
+        {nil, nil}
+    end
   end
 
   def title(%{identity: {"coverage", _}, data: %{scope: scope}}),

@@ -47,6 +47,9 @@ Runner communication and operator workflows use the same experimental same-relea
 | POST | `/api/v1/incidents/correlation/preview` | Retained; explicit DTO | `CorrelationController.correlation_preview` |
 | GET | `/api/v1/incidents/correlation/rules` | Retained; explicit DTO | `CorrelationController.correlation_rules` |
 | PUT | `/api/v1/incidents/correlation/rules/:id` | Retained; explicit DTO | `CorrelationController.correlation_rule` |
+| POST | `/api/v1/incidents/decisions/apply` | Retained; explicit DTO | `CorrelationController.correlation_decision_apply` |
+| POST | `/api/v1/incidents/decisions/preview` | Retained; explicit DTO | `CorrelationController.correlation_decision_preview` |
+| POST | `/api/v1/incidents/decisions/request` | Retained; explicit DTO | `CorrelationController.correlation_decision_request` |
 | GET | `/api/v1/incidents/health` | `/api/v1/incidents` | `IncidentsController.incidents` |
 | GET | `/api/v1/incidents/health/:id` | `/api/v1/incidents/:id` | `IncidentsController.incident` |
 | POST | `/api/v1/incidents/health/:id/acknowledge` | `/api/v1/incidents/:id/acknowledge` | `IncidentsController.acknowledge` |

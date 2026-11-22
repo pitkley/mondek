@@ -98,7 +98,7 @@ defmodule MondekWeb.InvestigationTrail do
       params =
         Map.reject(params, fn {key, value} ->
           is_nil(value) ||
-            (key in ~w(relationships_page member_page healthy_page notification_page) &&
+            (key in ~w(decisions_page relationships_page member_page healthy_page notification_page) &&
                value in [1, "1"])
         end)
 

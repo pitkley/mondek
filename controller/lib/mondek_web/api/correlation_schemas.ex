@@ -50,6 +50,10 @@ defmodule MondekWeb.API.CorrelationSchemas do
   def response(:correlation_apply),
     do: S.record(%{case_id: S.uuid(), replayed: S.boolean()}, [:case_id, :replayed])
 
+  def response(:correlation_decision_request), do: S.ref("CorrelationProviderDecision")
+  def response(:correlation_decision_preview), do: response(:correlation_preview)
+  def response(:correlation_decision_apply), do: response(:correlation_apply)
+
   def response(:correlation_rules), do: S.array(S.ref("CorrelationAutomationRule"))
   def response(:correlation_rule), do: S.ref("CorrelationAutomationRule")
 
@@ -105,6 +109,14 @@ defmodule MondekWeb.API.CorrelationSchemas do
   def request(:case_control_apply), do: request(:correlation_apply)
 
   def request(:correlation_preview), do: proposal()
+
+  def request(:correlation_decision_request),
+    do: S.record(%{request_id: S.uuid(), subject: episode()}, [:request_id, :subject])
+
+  def request(:correlation_decision_preview),
+    do: S.record(%{request_id: S.uuid()}, [:request_id])
+
+  def request(:correlation_decision_apply), do: request(:correlation_apply)
   def request(:correlation_rule), do: rule()
   def request(:correlation_override_preview), do: override_proposal()
   def request(:correlation_override_apply), do: request(:correlation_apply)
@@ -208,6 +220,35 @@ defmodule MondekWeb.API.CorrelationSchemas do
 
   def definitions do
     %{
+      "CorrelationProviderDecisionPage" =>
+        S.record(
+          %{
+            items: S.array(S.ref("CorrelationProviderDecision")),
+            page: S.integer(),
+            has_more: S.boolean()
+          },
+          ~w(items page has_more)a
+        ),
+      "CorrelationProviderDecision" =>
+        S.record(
+          %{
+            request_id: S.uuid(),
+            subject: episode(),
+            provider_id: S.string(),
+            status:
+              S.enum(
+                ~w(pending proposed standalone abstained expired revoked stale invalid unavailable applied)
+              ),
+            reason: S.nullable(S.string()),
+            confidence: S.nullable(S.number()),
+            selected: S.nullable(episode()),
+            requested_at: S.time(),
+            expires_at: S.time(),
+            resolved_at: S.time(),
+            case_id: S.nullable(S.uuid())
+          },
+          ~w(request_id subject provider_id status reason confidence selected requested_at expires_at)a
+        ),
       "CorrelationAutomationRule" => rule(%{id: S.uuid(), updated_at: S.time()}),
       "CorrelationAutomationOverride" => override_state(),
       "CorrelationAutomaticEvaluation" =>
